@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ascenso {
+  id_ascenso       Int      @id @default(autoincrement())
+  cedula_identidad Int
+  grado_actual     String   @db.VarChar(100)
+  grado_ascenso    String   @db.VarChar(100)
+  fecha_ascenso    DateTime @db.Date
+  tipo_ascenso     String?  @db.VarChar(50)
+  numero_orden     String?  @db.VarChar(50)
+  persona          persona  @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model beneficio {
+  id_beneficio      Int      @id @default(autoincrement())
+  cedula_identidad  Int
+  prima_tecnica     String?  @db.VarChar(100)
+  idoneidad         String?  @db.VarChar(100)
+  meses_asignados   Int?
+  vivienda_servicio Boolean? @default(false)
+  observaciones     String?  @db.VarChar(255)
+  persona           persona  @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model curso {
+  id_curso           Int            @id @default(autoincrement())
+  nombre_curso       String         @db.VarChar(150)
+  id_institucion     Int?
+  fecha_inicio_curso DateTime?      @db.Date
+  fecha_fin_curso    DateTime?      @db.Date
+  numero_boletin     String?        @db.VarChar(50)
+  institucion        institucion?   @relation(fields: [id_institucion], references: [id_institucion], onUpdate: NoAction)
+  personacurso       personacurso[]
+}
+
+model destino {
+  id_destino     Int              @id @default(autoincrement())
+  nombre_destino String           @db.VarChar(150)
+  tipo_destino   String?          @db.VarChar(100)
+  lugar          String?          @db.VarChar(150)
+  unidad         String?          @db.VarChar(150)
+  personadestino personadestino[]
+}
+
+model familiar {
+  cedula_identidad         Int       @id
+  cedula_identidad_titular Int
+  tipo_vinculo             String    @db.VarChar(50)
+  telefono_contacto        String?   @db.VarChar(20)
+  direccion                String?   @db.VarChar(255)
+  fecha_fallecimiento      DateTime? @db.Date
+  seccional_judicial       String?   @db.VarChar(100)
+  observaciones            String?   @db.VarChar(255)
+  persona                  persona   @relation(fields: [cedula_identidad_titular], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model horasvuelo {
+  id_vuelo          Int                @id @default(autoincrement())
+  tipo_aeronave     String             @db.VarChar(100)
+  funcion           funcion_vuelo_enum
+  horas_realizadas  Int
+  brevet            String?            @db.VarChar(50)
+  fecha_realizacion DateTime           @db.Date
+  cedula_identidad  Int
+  persona           persona            @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model institucion {
+  id_institucion Int     @id @default(autoincrement())
+  nombre         String  @db.VarChar(150)
+  pais           String? @db.VarChar(100)
+  ciudad         String? @db.VarChar(100)
+  curso          curso[]
+}
+
+model mision {
+  id_mision          Int             @id @default(autoincrement())
+  nombre_mision      String          @db.VarChar(150)
+  tipo_mision        String?         @db.VarChar(100)
+  pais_mision        String?         @db.VarChar(100)
+  lugar_mision       String?         @db.VarChar(150)
+  fecha_desde_mision DateTime?       @db.Date
+  fecha_hasta_mision DateTime?       @db.Date
+  numero_orden       String?         @db.VarChar(50)
+  numero_boletin     String?         @db.VarChar(50)
+  personamision      personamision[]
+}
+
+model persona {
+  cedula_identidad    Int                @id
+  credencial_civica   String?            @db.VarChar(15)
+  nombre              String             @db.VarChar(100)
+  apellido            String             @db.VarChar(100)
+  fecha_nacimiento    DateTime           @db.Date
+  lugar_nacimiento    String?            @db.VarChar(150)
+  sexo                String?            @db.VarChar(20)
+  etnia               String?            @db.VarChar(50)
+  estado_civil        estado_civil_enum?
+  email               String?            @unique @db.VarChar(150)
+  foto                String?            @db.VarChar(255)
+  direccion_domicilio String?            @db.VarChar(255)
+  contacto_telefonico String?            @db.VarChar(20)
+  ascenso             ascenso[]
+  beneficio           beneficio[]
+  familiar            familiar[]
+  horasvuelo          horasvuelo[]
+  personacurso        personacurso[]
+  personadestino      personadestino[]
+  personamilitar      personamilitar?
+  personamision       personamision[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model personacurso {
+  id_curso                 Int
+  cedula_identidad         Int
+  fecha_finalizacion       DateTime? @db.Date
+  nota                     Int?
+  certificado_cumplimiento String?   @db.VarChar(255)
+  nivel_pericia_alcanzado  String?   @db.VarChar(100)
+  observaciones            String?   @db.VarChar(255)
+  persona                  persona   @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+  curso                    curso     @relation(fields: [id_curso], references: [id_curso], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([id_curso, cedula_identidad])
+}
+
+model personadestino {
+  id_destino       Int
+  cedula_identidad Int
+  numero_orden     String?   @db.VarChar(50)
+  fecha_inicio     DateTime? @db.Date
+  fecha_fin        DateTime? @db.Date
+  observaciones    String?   @db.VarChar(255)
+  persona          persona   @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+  destino          destino   @relation(fields: [id_destino], references: [id_destino], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([id_destino, cedula_identidad])
+}
+
+model personamilitar {
+  cedula_identidad     Int                @id
+  seccional_judicial   String?            @db.VarChar(100)
+  fecha_ingreso        DateTime           @db.Date
+  fecha_egreso         DateTime?          @db.Date
+  escalafon            String?            @db.VarChar(100)
+  posicion_escalafon   Int?
+  grado                String?            @db.VarChar(100)
+  numero_orden_ingreso String?            @db.VarChar(50)
+  numero_orden_egreso  String?            @db.VarChar(50)
+  vivienda_servicio    Boolean?           @default(false)
+  conducta             String?            @db.VarChar(100)
+  tipo_persona         tipo_persona_enum?
+  persona              persona            @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model personamision {
+  id_mision          Int
+  cedula_identidad   Int
+  fecha_finalizacion DateTime? @db.Date
+  observaciones      String?   @db.VarChar(255)
+  persona            persona   @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+  mision             mision    @relation(fields: [id_mision], references: [id_mision], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([id_mision, cedula_identidad])
+}
+
+enum estado_civil_enum {
+  SOLTERO
+  CASADO
+  DIVORCIADO
+  VIUDO
+  UNION_LIBRE
+}
+
+enum funcion_vuelo_enum {
+  PILOTO
+  COPILOTO
+  INSTRUCTOR
+  OBSERVADOR
+}
+
+enum tipo_persona_enum {
+  ALTERNO
+  SUBALTERNO
+  SUPERVISOR_AEROTECNICO
+}
