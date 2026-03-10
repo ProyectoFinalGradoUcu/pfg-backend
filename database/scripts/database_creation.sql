@@ -1,172 +1,158 @@
--- Estado civil
-CREATE TYPE estado_civil_enum AS ENUM (
-    'SOLTERO',
-    'CASADO',
-    'DIVORCIADO',
-    'VIUDO',
-    'UNION_LIBRE'
+CREATE TABLE person (
+    person_id SERIAL PRIMARY KEY,
+    national_id VARCHAR(50) UNIQUE NOT NULL,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    birth_date DATE,
+    birth_place VARCHAR(200),
+    gender VARCHAR(20),
+    ethnicity VARCHAR(50),
+    marital_status VARCHAR(50),
+    address VARCHAR(255),
+    postal_code VARCHAR(20),
+    sectional VARCHAR(100),
+    email VARCHAR(150),
+    photo BYTEA,
+    death_date DATE,
+    is_civil BOOLEAN DEFAULT FALSE
 );
 
--- Tipo de persona militar
-CREATE TYPE tipo_persona_enum AS ENUM (
-    'ALTERNO',
-    'SUBALTERNO',
-    'SUPERVISOR_AEROTECNICO'
+CREATE TABLE category (
+    category_id SERIAL PRIMARY KEY,
+    category_name VARCHAR(100)
 );
 
--- Función en vuelo
-CREATE TYPE funcion_vuelo_enum AS ENUM (
-    'PILOTO',
-    'COPILOTO',
-    'INSTRUCTOR',
-    'OBSERVADOR'
+CREATE TABLE rank (
+    rank_id SERIAL PRIMARY KEY,
+    rank_name VARCHAR(100)
 );
 
-CREATE TABLE IF NOT EXISTS Persona (
-    cedula_identidad INTEGER PRIMARY KEY,
-    credencial_civica VARCHAR(15),
-    nombre VARCHAR(100) NOT NULL,
-    apellido VARCHAR(100) NOT NULL,
-    fecha_nacimiento DATE NOT NULL,
-    lugar_nacimiento VARCHAR(150),
-    sexo VARCHAR(20),
-    etnia VARCHAR(50),
-    estado_civil estado_civil_enum,
-    email VARCHAR(150) UNIQUE,
-    foto VARCHAR(255),
-    direccion_domicilio VARCHAR(255),
-    contacto_telefonico VARCHAR(20)
+CREATE TABLE category_rank (
+    category_id INTEGER REFERENCES category(category_id),
+    rank_id INTEGER REFERENCES rank(rank_id),
+    PRIMARY KEY (category_id, rank_id)
 );
 
-CREATE TABLE IF NOT EXISTS PersonaMilitar (
-    cedula_identidad INTEGER PRIMARY KEY,
-    seccional_judicial VARCHAR(100),
-    fecha_ingreso DATE NOT NULL,
-    fecha_egreso DATE,
-    escalafon VARCHAR(100),
-    posicion_escalafon INTEGER,
-    grado VARCHAR(100),
-    numero_orden_ingreso VARCHAR(50),
-    numero_orden_egreso VARCHAR(50),
-    vivienda_servicio BOOLEAN DEFAULT FALSE,
-    conducta VARCHAR(100),
-    tipo_persona tipo_persona_enum,
-    FOREIGN KEY (cedula_identidad) REFERENCES Persona (cedula_identidad) ON DELETE CASCADE
+CREATE TYPE staff_type_enum AS ENUM ('subaltern', 'official');
+
+CREATE TABLE staff (
+    person_id INTEGER PRIMARY KEY REFERENCES person(person_id) ON DELETE CASCADE,
+    category_id INTEGER NOT NULL REFERENCES category(category_id),
+    staff_type staff_type_enum,
+    command_right BOOLEAN,
+    rank_position INTEGER,
+    discharge_reason TEXT,
+    discharge_date DATE,
+    mutations TEXT,
+    conduct TEXT
 );
 
-CREATE TABLE IF NOT EXISTS Familiar (
-    cedula_identidad INTEGER PRIMARY KEY,
-    cedula_identidad_titular INTEGER NOT NULL,
-    tipo_vinculo VARCHAR(50) NOT NULL,
-    telefono_contacto VARCHAR(20),
-    direccion VARCHAR(255),
-    fecha_fallecimiento DATE,
-    seccional_judicial VARCHAR(100),
-    observaciones VARCHAR(255),
-    FOREIGN KEY (cedula_identidad_titular) REFERENCES Persona (cedula_identidad) ON DELETE CASCADE
+CREATE TABLE mission (
+    mission_id SERIAL PRIMARY KEY,
+    country VARCHAR(100),
+    mission_type VARCHAR(100),
+    departure_date DATE,
+    arrival_date DATE,
+    order_number VARCHAR(50),
+    bulletin VARCHAR(50),
+    observations TEXT,
+    responsible_command VARCHAR(200)
 );
 
-CREATE TABLE IF NOT EXISTS Ascenso (
-    id_ascenso INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    cedula_identidad INTEGER NOT NULL,
-    grado_actual VARCHAR(100) NOT NULL,
-    grado_ascenso VARCHAR(100) NOT NULL,
-    fecha_ascenso DATE NOT NULL,
-    tipo_ascenso VARCHAR(50),
-    numero_orden VARCHAR(50),
-    FOREIGN KEY (cedula_identidad) REFERENCES Persona (cedula_identidad) ON DELETE CASCADE
+CREATE TABLE destination (
+    destination_id SERIAL PRIMARY KEY,
+    location VARCHAR(200),
+    order_number VARCHAR(50),
+    destination_type VARCHAR(100)
 );
 
-CREATE TABLE IF NOT EXISTS Institucion (
-    id_institucion INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre VARCHAR(150) NOT NULL,
-    pais VARCHAR(100),
-    ciudad VARCHAR(100)
+CREATE TABLE flight (
+    flight_id SERIAL PRIMARY KEY,
+    year INTEGER,
+    quarter INTEGER,
+    aircraft_type VARCHAR(100),
+    aircraft_model VARCHAR(100),
+    function VARCHAR(100),
+    flight_hours NUMERIC(10, 2),
+    fictional_flight_hours NUMERIC(10, 2),
+    total_hours NUMERIC(10, 2),
+    license_type VARCHAR(100),
+    license_date DATE
 );
 
-CREATE TABLE IF NOT EXISTS Curso (
-    id_curso INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre_curso VARCHAR(150) NOT NULL,
-    id_institucion INTEGER,
-    fecha_inicio_curso DATE,
-    fecha_fin_curso DATE,
-    numero_boletin VARCHAR(50),
-    FOREIGN KEY (id_institucion) REFERENCES Institucion (id_institucion) ON DELETE SET NULL
+CREATE TABLE course (
+    course_id SERIAL PRIMARY KEY,
+    course_name VARCHAR(200),
+    institution VARCHAR(200),
+    start_date DATE,
+    end_date DATE,
+    bulletin VARCHAR(50),
+    order_number VARCHAR(50)
 );
 
-CREATE TABLE IF NOT EXISTS PersonaCurso (
-    id_curso INTEGER,
-    cedula_identidad INTEGER,
-    fecha_finalizacion DATE,
-    nota INTEGER CHECK (nota BETWEEN 0 AND 100),
-    certificado_cumplimiento VARCHAR(255),
-    nivel_pericia_alcanzado VARCHAR(100),
-    observaciones VARCHAR(255),
-    PRIMARY KEY (id_curso, cedula_identidad),
-    FOREIGN KEY (id_curso) REFERENCES Curso (id_curso) ON DELETE CASCADE,
-    FOREIGN KEY (cedula_identidad) REFERENCES Persona (cedula_identidad) ON DELETE CASCADE
+CREATE TABLE service_housing (
+    housing_id SERIAL PRIMARY KEY,
+    address VARCHAR(255)
 );
 
-CREATE TABLE IF NOT EXISTS Mision (
-    id_mision INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre_mision VARCHAR(150) NOT NULL,
-    tipo_mision VARCHAR(100),
-    pais_mision VARCHAR(100),
-    lugar_mision VARCHAR(150),
-    fecha_desde_mision DATE,
-    fecha_hasta_mision DATE,
-    numero_orden VARCHAR(50),
-    numero_boletin VARCHAR(50)
+CREATE TABLE retirement (
+    retirement_id SERIAL PRIMARY KEY,
+    person_id INTEGER UNIQUE REFERENCES staff(person_id),
+    retirement_date DATE,
+    retirement_time TIME,
+    reason TEXT
 );
 
-CREATE TABLE IF NOT EXISTS PersonaMision (
-    id_mision INTEGER,
-    cedula_identidad INTEGER,
-    fecha_finalizacion DATE,
-    observaciones VARCHAR(255),
-    PRIMARY KEY (id_mision, cedula_identidad),
-    FOREIGN KEY (id_mision) REFERENCES Mision (id_mision) ON DELETE CASCADE,
-    FOREIGN KEY (cedula_identidad) REFERENCES Persona (cedula_identidad) ON DELETE CASCADE
+CREATE TABLE family_relation (
+    person_id INTEGER REFERENCES person(person_id),
+    relative_id INTEGER REFERENCES person(person_id),
+    relation_type VARCHAR(50),
+    observations TEXT,
+    PRIMARY KEY (person_id, relative_id)
 );
 
-CREATE TABLE IF NOT EXISTS Destino (
-    id_destino INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre_destino VARCHAR(150) NOT NULL,
-    tipo_destino VARCHAR(100),
-    lugar VARCHAR(150),
-    unidad VARCHAR(150)
+CREATE TABLE staff_assignment (
+    assignment_id SERIAL PRIMARY KEY,
+    person_id INTEGER REFERENCES staff(person_id),
+    destination_id INTEGER REFERENCES destination(destination_id),
+    start_date DATE,
+    end_date DATE,
+    observations TEXT
 );
 
-CREATE TABLE IF NOT EXISTS PersonaDestino (
-    id_destino INTEGER,
-    cedula_identidad INTEGER,
-    numero_orden VARCHAR(50),
-    fecha_inicio DATE,
-    fecha_fin DATE,
-    observaciones VARCHAR(255),
-    PRIMARY KEY (id_destino, cedula_identidad),
-    FOREIGN KEY (id_destino) REFERENCES Destino (id_destino) ON DELETE CASCADE,
-    FOREIGN KEY (cedula_identidad) REFERENCES Persona (cedula_identidad) ON DELETE CASCADE
+CREATE TABLE staff_mission (
+    person_id INTEGER REFERENCES staff(person_id),
+    mission_id INTEGER REFERENCES mission(mission_id),
+    PRIMARY KEY (person_id, mission_id)
 );
 
-CREATE TABLE IF NOT EXISTS HorasVuelo (
-    id_vuelo INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    tipo_aeronave VARCHAR(100) NOT NULL,
-    funcion funcion_vuelo_enum NOT NULL,
-    horas_realizadas INTEGER NOT NULL,
-    brevet VARCHAR(50),
-    fecha_realizacion DATE NOT NULL,
-    cedula_identidad INTEGER NOT NULL,
-    FOREIGN KEY (cedula_identidad) REFERENCES Persona (cedula_identidad) ON DELETE CASCADE
+CREATE TABLE staff_flight (
+    person_id INTEGER REFERENCES staff(person_id),
+    flight_id INTEGER REFERENCES flight(flight_id),
+    PRIMARY KEY (person_id, flight_id)
 );
 
-CREATE TABLE IF NOT EXISTS Beneficio (
-    id_beneficio INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    cedula_identidad INTEGER NOT NULL,
-    prima_tecnica VARCHAR(100),
-    idoneidad VARCHAR(100),
-    meses_asignados INTEGER,
-    vivienda_servicio BOOLEAN DEFAULT FALSE,
-    observaciones VARCHAR(255),
-    FOREIGN KEY (cedula_identidad) REFERENCES Persona (cedula_identidad) ON DELETE CASCADE
+CREATE TABLE staff_course (
+    person_id INTEGER REFERENCES staff(person_id),
+    course_id INTEGER REFERENCES course(course_id),
+    PRIMARY KEY (person_id, course_id)
+);
+
+CREATE TABLE promotion (
+    promotion_id SERIAL PRIMARY KEY,
+    person_id INTEGER REFERENCES staff(person_id),
+    category_id INTEGER,
+    rank_id INTEGER,
+    promotion_date DATE,
+    observations TEXT,
+    FOREIGN KEY (category_id, rank_id) 
+        REFERENCES category_rank(category_id, rank_id)
+);
+
+CREATE TABLE housing_occupancy (
+    person_id INTEGER REFERENCES person(person_id),
+    housing_id INTEGER REFERENCES service_housing(housing_id),
+    start_date DATE NOT NULL,
+    end_date DATE,
+    PRIMARY KEY (person_id, housing_id)
 );
