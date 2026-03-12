@@ -156,3 +156,16 @@ CREATE TABLE housing_occupancy (
     end_date DATE,
     PRIMARY KEY (person_id, housing_id)
 );
+
+CREATE TABLE audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    table_name TEXT NOT NULL,
+    primary_key JSONB,
+    user_id TEXT,
+    operation TEXT NOT NULL,
+    column_name TEXT,      
+    old_value TEXT,        
+    new_value TEXT,        
+    notes TEXT
+);
