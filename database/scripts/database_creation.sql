@@ -161,7 +161,7 @@ CREATE TABLE audit_log (
     id BIGSERIAL PRIMARY KEY,
     changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     table_name TEXT NOT NULL,
-    primary_key JSONB,
+    primary_key TEXT NOT NULL,
     user_id TEXT,
     operation TEXT NOT NULL,
     column_name TEXT,      
