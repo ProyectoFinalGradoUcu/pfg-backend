@@ -5,190 +5,223 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
-model ascenso {
-  id_ascenso       Int      @id @default(autoincrement())
-  cedula_identidad Int
-  grado_actual     String   @db.VarChar(100)
-  grado_ascenso    String   @db.VarChar(100)
-  fecha_ascenso    DateTime @db.Date
-  tipo_ascenso     String?  @db.VarChar(50)
-  numero_orden     String?  @db.VarChar(50)
-  persona          persona  @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+model person {
+  person_id    Int      @id @default(autoincrement())
+  national_id  String   @unique @db.VarChar(50)
+  first_name   String?  @db.VarChar(100)
+  last_name    String?  @db.VarChar(100)
+  birth_date   DateTime? @db.Date
+  birth_place  String?  @db.VarChar(200)
+  gender       String?  @db.VarChar(20)
+  ethnicity    String?  @db.VarChar(50)
+  marital_status String? @db.VarChar(50)
+  address      String?  @db.VarChar(255)
+  postal_code  String?  @db.VarChar(20)
+  sectional    String?  @db.VarChar(100)
+  email        String?  @db.VarChar(150)
+  photo        Bytes?
+  death_date   DateTime? @db.Date
+  is_civil     Boolean? @default(false)
+  staff        staff?
+  family_relation_person    family_relation[] @relation("person_to_family_relation")
+  family_relation_relative  family_relation[] @relation("relative_to_family_relation")
+  housing_occupancy         housing_occupancy[]
 }
 
-model beneficio {
-  id_beneficio      Int      @id @default(autoincrement())
-  cedula_identidad  Int
-  prima_tecnica     String?  @db.VarChar(100)
-  idoneidad         String?  @db.VarChar(100)
-  meses_asignados   Int?
-  vivienda_servicio Boolean? @default(false)
-  observaciones     String?  @db.VarChar(255)
-  persona           persona  @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+model category {
+  category_id   Int      @id @default(autoincrement())
+  category_name String?  @db.VarChar(100)
+  staff         staff[]
+  category_rank category_rank[]
 }
 
-model curso {
-  id_curso           Int            @id @default(autoincrement())
-  nombre_curso       String         @db.VarChar(150)
-  id_institucion     Int?
-  fecha_inicio_curso DateTime?      @db.Date
-  fecha_fin_curso    DateTime?      @db.Date
-  numero_boletin     String?        @db.VarChar(50)
-  institucion        institucion?   @relation(fields: [id_institucion], references: [id_institucion], onUpdate: NoAction)
-  personacurso       personacurso[]
+model rank {
+  rank_id       Int      @id @default(autoincrement())
+  rank_name     String?  @db.VarChar(100)
+  category_rank category_rank[]
 }
 
-model destino {
-  id_destino     Int              @id @default(autoincrement())
-  nombre_destino String           @db.VarChar(150)
-  tipo_destino   String?          @db.VarChar(100)
-  lugar          String?          @db.VarChar(150)
-  unidad         String?          @db.VarChar(150)
-  personadestino personadestino[]
+model category_rank {
+  category_id Int
+  rank_id     Int
+  category    category @relation(fields: [category_id], references: [category_id])
+  rank        rank     @relation(fields: [rank_id], references: [rank_id])
+  promotion   promotion[]
+
+  @@id([category_id, rank_id])
 }
 
-model familiar {
-  cedula_identidad         Int       @id
-  cedula_identidad_titular Int
-  tipo_vinculo             String    @db.VarChar(50)
-  telefono_contacto        String?   @db.VarChar(20)
-  direccion                String?   @db.VarChar(255)
-  fecha_fallecimiento      DateTime? @db.Date
-  seccional_judicial       String?   @db.VarChar(100)
-  observaciones            String?   @db.VarChar(255)
-  persona                  persona   @relation(fields: [cedula_identidad_titular], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+model staff {
+  person_id        Int              @id
+  category_id      Int
+  staff_type       staff_type_enum?
+  command_right    Boolean?
+  rank_position    Int?
+  discharge_reason String?
+  discharge_date   DateTime?        @db.Date
+  mutations        String?
+  conduct          String?
+  person           person           @relation(fields: [person_id], references: [person_id], onDelete: Cascade)
+  category         category         @relation(fields: [category_id], references: [category_id])
+  retirement       retirement?
+  staff_assignment staff_assignment[]
+  staff_mission    staff_mission[]
+  staff_flight     staff_flight[]
+  staff_course     staff_course[]
+  promotion        promotion[]
 }
 
-model horasvuelo {
-  id_vuelo          Int                @id @default(autoincrement())
-  tipo_aeronave     String             @db.VarChar(100)
-  funcion           funcion_vuelo_enum
-  horas_realizadas  Int
-  brevet            String?            @db.VarChar(50)
-  fecha_realizacion DateTime           @db.Date
-  cedula_identidad  Int
-  persona           persona            @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+model mission {
+  mission_id          Int      @id @default(autoincrement())
+  country             String?  @db.VarChar(100)
+  mission_type        String?  @db.VarChar(100)
+  departure_date      DateTime? @db.Date
+  arrival_date        DateTime? @db.Date
+  order_number        String?  @db.VarChar(50)
+  bulletin            String?  @db.VarChar(50)
+  observations        String?
+  responsible_command String?  @db.VarChar(200)
+  staff_mission       staff_mission[]
 }
 
-model institucion {
-  id_institucion Int     @id @default(autoincrement())
-  nombre         String  @db.VarChar(150)
-  pais           String? @db.VarChar(100)
-  ciudad         String? @db.VarChar(100)
-  curso          curso[]
+model destination {
+  destination_id   Int      @id @default(autoincrement())
+  location         String?  @db.VarChar(200)
+  order_number     String?  @db.VarChar(50)
+  destination_type String?  @db.VarChar(100)
+  staff_assignment staff_assignment[]
 }
 
-model mision {
-  id_mision          Int             @id @default(autoincrement())
-  nombre_mision      String          @db.VarChar(150)
-  tipo_mision        String?         @db.VarChar(100)
-  pais_mision        String?         @db.VarChar(100)
-  lugar_mision       String?         @db.VarChar(150)
-  fecha_desde_mision DateTime?       @db.Date
-  fecha_hasta_mision DateTime?       @db.Date
-  numero_orden       String?         @db.VarChar(50)
-  numero_boletin     String?         @db.VarChar(50)
-  personamision      personamision[]
+model flight {
+  flight_id              Int       @id @default(autoincrement())
+  year                   Int?
+  quarter                Int?
+  aircraft_type          String?   @db.VarChar(100)
+  aircraft_model         String?   @db.VarChar(100)
+  function               String?   @db.VarChar(100)
+  flight_hours           Decimal?  @db.Decimal(10, 2)
+  fictional_flight_hours Decimal?  @db.Decimal(10, 2)
+  total_hours            Decimal?  @db.Decimal(10, 2)
+  license_type           String?   @db.VarChar(100)
+  license_date           DateTime? @db.Date
+  staff_flight           staff_flight[]
 }
 
-model persona {
-  cedula_identidad    Int                @id
-  credencial_civica   String?            @db.VarChar(15)
-  nombre              String             @db.VarChar(100)
-  apellido            String             @db.VarChar(100)
-  fecha_nacimiento    DateTime           @db.Date
-  lugar_nacimiento    String?            @db.VarChar(150)
-  sexo                String?            @db.VarChar(20)
-  etnia               String?            @db.VarChar(50)
-  estado_civil        estado_civil_enum?
-  email               String?            @unique @db.VarChar(150)
-  foto                String?            @db.VarChar(255)
-  direccion_domicilio String?            @db.VarChar(255)
-  contacto_telefonico String?            @db.VarChar(20)
-  ascenso             ascenso[]
-  beneficio           beneficio[]
-  familiar            familiar[]
-  horasvuelo          horasvuelo[]
-  personacurso        personacurso[]
-  personadestino      personadestino[]
-  personamilitar      personamilitar?
-  personamision       personamision[]
+model course {
+  course_id    Int       @id @default(autoincrement())
+  course_name  String?   @db.VarChar(200)
+  institution  String?   @db.VarChar(200)
+  start_date   DateTime? @db.Date
+  end_date     DateTime? @db.Date
+  bulletin     String?   @db.VarChar(50)
+  order_number String?   @db.VarChar(50)
+  staff_course staff_course[]
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model personacurso {
-  id_curso                 Int
-  cedula_identidad         Int
-  fecha_finalizacion       DateTime? @db.Date
-  nota                     Int?
-  certificado_cumplimiento String?   @db.VarChar(255)
-  nivel_pericia_alcanzado  String?   @db.VarChar(100)
-  observaciones            String?   @db.VarChar(255)
-  persona                  persona   @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
-  curso                    curso     @relation(fields: [id_curso], references: [id_curso], onDelete: Cascade, onUpdate: NoAction)
-
-  @@id([id_curso, cedula_identidad])
+model service_housing {
+  housing_id        Int      @id @default(autoincrement())
+  address           String?  @db.VarChar(255)
+  housing_occupancy housing_occupancy[]
 }
 
-model personadestino {
-  id_destino       Int
-  cedula_identidad Int
-  numero_orden     String?   @db.VarChar(50)
-  fecha_inicio     DateTime? @db.Date
-  fecha_fin        DateTime? @db.Date
-  observaciones    String?   @db.VarChar(255)
-  persona          persona   @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
-  destino          destino   @relation(fields: [id_destino], references: [id_destino], onDelete: Cascade, onUpdate: NoAction)
-
-  @@id([id_destino, cedula_identidad])
+model retirement {
+  retirement_id   Int       @id @default(autoincrement())
+  person_id       Int       @unique
+  retirement_date DateTime? @db.Date
+  retirement_time DateTime? @db.Time
+  reason          String?
+  staff           staff     @relation(fields: [person_id], references: [person_id])
 }
 
-model personamilitar {
-  cedula_identidad     Int                @id
-  seccional_judicial   String?            @db.VarChar(100)
-  fecha_ingreso        DateTime           @db.Date
-  fecha_egreso         DateTime?          @db.Date
-  escalafon            String?            @db.VarChar(100)
-  posicion_escalafon   Int?
-  grado                String?            @db.VarChar(100)
-  numero_orden_ingreso String?            @db.VarChar(50)
-  numero_orden_egreso  String?            @db.VarChar(50)
-  vivienda_servicio    Boolean?           @default(false)
-  conducta             String?            @db.VarChar(100)
-  tipo_persona         tipo_persona_enum?
-  persona              persona            @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
+model family_relation {
+  person_id     Int
+  relative_id   Int
+  relation_type String?  @db.VarChar(50)
+  observations  String?
+  person        person   @relation("person_to_family_relation", fields: [person_id], references: [person_id])
+  relative      person   @relation("relative_to_family_relation", fields: [relative_id], references: [person_id])
+
+  @@id([person_id, relative_id])
 }
 
-model personamision {
-  id_mision          Int
-  cedula_identidad   Int
-  fecha_finalizacion DateTime? @db.Date
-  observaciones      String?   @db.VarChar(255)
-  persona            persona   @relation(fields: [cedula_identidad], references: [cedula_identidad], onDelete: Cascade, onUpdate: NoAction)
-  mision             mision    @relation(fields: [id_mision], references: [id_mision], onDelete: Cascade, onUpdate: NoAction)
-
-  @@id([id_mision, cedula_identidad])
+model staff_assignment {
+  assignment_id  Int       @id @default(autoincrement())
+  person_id      Int
+  destination_id Int
+  start_date     DateTime? @db.Date
+  end_date       DateTime? @db.Date
+  observations   String?
+  staff          staff     @relation(fields: [person_id], references: [person_id])
+  destination    destination @relation(fields: [destination_id], references: [destination_id])
 }
 
-enum estado_civil_enum {
-  SOLTERO
-  CASADO
-  DIVORCIADO
-  VIUDO
-  UNION_LIBRE
+model staff_mission {
+  person_id  Int
+  mission_id Int
+  staff      staff   @relation(fields: [person_id], references: [person_id])
+  mission    mission @relation(fields: [mission_id], references: [mission_id])
+
+  @@id([person_id, mission_id])
 }
 
-enum funcion_vuelo_enum {
-  PILOTO
-  COPILOTO
-  INSTRUCTOR
-  OBSERVADOR
+model staff_flight {
+  person_id Int
+  flight_id Int
+  staff     staff  @relation(fields: [person_id], references: [person_id])
+  flight    flight @relation(fields: [flight_id], references: [flight_id])
+
+  @@id([person_id, flight_id])
 }
 
-enum tipo_persona_enum {
-  ALTERNO
-  SUBALTERNO
-  SUPERVISOR_AEROTECNICO
+model staff_course {
+  person_id Int
+  course_id Int
+  staff     staff  @relation(fields: [person_id], references: [person_id])
+  course    course @relation(fields: [course_id], references: [course_id])
+
+  @@id([person_id, course_id])
 }
+
+model promotion {
+  promotion_id  Int       @id @default(autoincrement())
+  person_id     Int
+  category_id   Int
+  rank_id       Int
+  promotion_date DateTime? @db.Date
+  observations  String?
+  staff         staff     @relation(fields: [person_id], references: [person_id])
+  category_rank category_rank @relation(fields: [category_id, rank_id], references: [category_id, rank_id])
+}
+
+model housing_occupancy {
+  person_id  Int
+  housing_id Int
+  start_date DateTime
+  end_date   DateTime?
+  person     person          @relation(fields: [person_id], references: [person_id])
+  housing    service_housing @relation(fields: [housing_id], references: [housing_id])
+
+  @@id([person_id, housing_id])
+}
+
+model audit_log {
+  id          BigInt    @id @default(autoincrement())
+  changed_at  DateTime  @default(now()) @db.Timestamptz()
+  table_name  String
+  primary_key String
+  user_id     String?
+  operation   String
+  column_name String?
+  old_value   String?
+  new_value   String?
+  notes       String?
+}
+
+enum staff_type_enum {
+  subaltern
+  official
+}
+
