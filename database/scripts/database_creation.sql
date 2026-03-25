@@ -84,8 +84,6 @@ CREATE TABLE course (
     course_id SERIAL PRIMARY KEY,
     course_name VARCHAR(200),
     institution VARCHAR(200),
-    start_date DATE,
-    end_date DATE,
     bulletin VARCHAR(50),
     order_number VARCHAR(50)
 );
@@ -117,12 +115,16 @@ CREATE TABLE staff_assignment (
     destination_id INTEGER REFERENCES destination(destination_id),
     start_date DATE,
     end_date DATE,
+    destination_position VARCHAR(200),
     observations TEXT
 );
 
 CREATE TABLE staff_mission (
     person_id INTEGER REFERENCES staff(person_id),
     mission_id INTEGER REFERENCES mission(mission_id),
+    bulletin VARCHAR(50),
+    observations TEXT,
+    migration_control_number VARCHAR(100),
     PRIMARY KEY (person_id, mission_id)
 );
 
@@ -135,7 +137,27 @@ CREATE TABLE staff_flight (
 CREATE TABLE staff_course (
     person_id INTEGER REFERENCES staff(person_id),
     course_id INTEGER REFERENCES course(course_id),
+    start_date DATE,
+    end_date DATE,
+    grade TEXT,
     PRIMARY KEY (person_id, course_id)
+);
+
+CREATE TABLE course_module (
+    module_id SERIAL PRIMARY KEY,
+    course_id INTEGER REFERENCES course(course_id) ON DELETE CASCADE,
+    module_name VARCHAR(200) NOT NULL,
+    module_order INTEGER,
+    description TEXT
+);
+
+CREATE TABLE staff_course_module (
+    person_id INTEGER REFERENCES staff(person_id),
+    module_id INTEGER REFERENCES course_module(module_id),
+    completed BOOLEAN DEFAULT FALSE,
+    completion_date DATE,
+    grade TEXT,
+    PRIMARY KEY (person_id, module_id)
 );
 
 CREATE TABLE promotion (
