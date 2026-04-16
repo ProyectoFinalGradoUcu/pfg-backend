@@ -10,6 +10,9 @@ services:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./database/scripts/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/scripts/migracion_unificacion_fau.sql:/docker-entrypoint-initdb.d/02_migracion_unificacion_fau.sql:ro
+      - ./database/scripts/seed.sql:/docker-entrypoint-initdb.d/03_seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pfg_user -d pfg_database"]
       interval: 10s
