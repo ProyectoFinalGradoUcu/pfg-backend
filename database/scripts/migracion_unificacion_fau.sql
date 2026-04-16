@@ -14,9 +14,6 @@ ALTER TABLE IF EXISTS public.personas
 ALTER TABLE IF EXISTS public.relaciones_laborales
     ADD COLUMN IF NOT EXISTS tipo_funcionario VARCHAR(20),
     ADD COLUMN IF NOT EXISTS tiene_mando BOOLEAN,
-    ADD COLUMN IF NOT EXISTS posicion_rango INTEGER,
-    ADD COLUMN IF NOT EXISTS motivo_baja TEXT,
-    ADD COLUMN IF NOT EXISTS fecha_baja DATE,
     ADD COLUMN IF NOT EXISTS mutaciones TEXT,
     ADD COLUMN IF NOT EXISTS conducta TEXT;
 
@@ -36,18 +33,6 @@ BEGIN
             );
     END IF;
 END $$;
-
-CREATE TABLE IF NOT EXISTS public.escalafones_grados (
-    escalafon_id BIGINT NOT NULL REFERENCES public.escalafones(id),
-    grado_id BIGINT NOT NULL REFERENCES public.grados(id),
-    PRIMARY KEY (escalafon_id, grado_id)
-);
-
-INSERT INTO public.escalafones_grados (escalafon_id, grado_id)
-SELECT g.escalafon_id, g.id
-FROM public.grados g
-ON CONFLICT DO NOTHING;
-
 
 CREATE TABLE IF NOT EXISTS public.misiones (
     id BIGSERIAL PRIMARY KEY,
@@ -169,12 +154,9 @@ CREATE TABLE IF NOT EXISTS public.funcionarios_modulos_curso (
 CREATE TABLE IF NOT EXISTS public.ascensos (
     id BIGSERIAL PRIMARY KEY,
     persona_id BIGINT REFERENCES public.personas(id),
-    escalafon_id BIGINT,
-    grado_id BIGINT,
+    grado_id BIGINT REFERENCES public.grados(id),
     fecha_ascenso DATE,
-    observaciones TEXT,
-    FOREIGN KEY (escalafon_id, grado_id)
-        REFERENCES public.escalafones_grados(escalafon_id, grado_id)
+    observaciones TEXT
 );
 
 CREATE TABLE IF NOT EXISTS public.ocupaciones_vivienda (
@@ -183,19 +165,6 @@ CREATE TABLE IF NOT EXISTS public.ocupaciones_vivienda (
     fecha_inicio DATE NOT NULL,
     fecha_fin DATE,
     PRIMARY KEY (persona_id, vivienda_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.bitacora_cambios (
-    id BIGSERIAL PRIMARY KEY,
-    fecha_cambio TIMESTAMPTZ NOT NULL DEFAULT now(),
-    tabla_nombre TEXT NOT NULL,
-    clave_primaria TEXT NOT NULL,
-    usuario_id TEXT,
-    operacion TEXT NOT NULL,
-    nombre_columna TEXT,
-    valor_anterior TEXT,
-    valor_nuevo TEXT,
-    notas TEXT
 );
 
 COMMIT;

@@ -9,6 +9,7 @@ RUN npm install
 COPY prisma.config.ts ./
 COPY prisma ./prisma
 COPY tsconfig*.json ./
+COPY nest-cli.json ./
 COPY src ./src
 
 # Genera cliente Prisma y compila la aplicación
@@ -22,7 +23,6 @@ ENV NODE_ENV=production
 # Copia dependencias, app compilada y archivos necesarios para runtime
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/generated ./generated
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
@@ -32,4 +32,3 @@ RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 3000
 ENTRYPOINT ["/bin/sh", "./docker-entrypoint.sh"]
 CMD ["node", "dist/main.js"]
-
