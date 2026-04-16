@@ -1,0 +1,5 @@
+El DER actualizado (luego de unir BD con el otro equipo de la FAU) quedó demasiado grande
+y no entra dentro de una imagen por si sola, entonces decidimos adjuntar el link para que se pueda
+acceder a través de el al mismo y poder verlo mejor.
+
+https://mermaid.ai/view/ede7241f-1322-440a-9785-d8ca94b01b67
