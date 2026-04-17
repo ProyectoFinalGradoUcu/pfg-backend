@@ -27,7 +27,7 @@ services:
     environment:
       DATABASE_URL: "postgresql://pfg_user:pfg_password@postgres:5432/pfg_database?schema=public"
       NODE_ENV: production
-      JWT_SECRET: "devsecret"
+      JWT_SECRET: "${JWT_SECRET}"
     ports:
       - "3000:3000"
     depends_on:

@@ -1,33 +1,43 @@
 # PFG Backend — Guía rápida
 
-## Levantar todo con Docker (recomendado) y comandos útiles
+## Requisitos
+
+- [Docker](https://www.docker.com/)
+- [Make](https://www.gnu.org/software/make/) (en Windows se puede instalar via [Chocolatey](https://chocolatey.org/): `choco install make`)
+
+## Comandos
+
+| Comando | Descripción |
+|---|---|
+| `make up` | Genera un JWT secret aleatorio y levanta toda la infraestructura |
+| `make down` | Detiene y elimina los contenedores (conserva los datos) |
+| `make reset` | Destruye todo (contenedores + datos) y vuelve a levantar desde cero |
+| `make backend` | Levanta o reinicia solo el backend |
+| `make db` | Levanta solo PostgreSQL |
+| `make seed` | Ejecuta el seed SQL en la base de datos |
+| `make build` | Construye las imágenes sin levantar servicios |
+| `make logs` | Logs en vivo de todos los servicios |
+| `make logs-backend` | Logs en vivo solo del backend |
+| `make logs-db` | Logs en vivo solo de la base de datos |
+| `make ps` | Estado de los contenedores |
+
+## Servicios
+
+- `postgres`: base de datos PostgreSQL en el puerto `5432`.
+- `backend`: API REST en `http://localhost:3000`.
+- Documentación Swagger: `http://localhost:3000/api/docs`.
+
+## Desarrollo local (sin Docker)
 
 ```bash
-# desde la raíz del repo
-docker compose up --build
-
-# si se quiere borrar
-docker compose down -v
-
-# logs en vivo del backend
-docker compose logs -f backend
-
-# Luego debemos entrar al backend
 cd backend
 
 # Instalar dependencias
 npm install
 
-# Lee la DB actual
-npx prisma db pull
-
-# Debemos generar el cliente de Prisma
+# Generar el cliente de Prisma
 npx prisma generate
 
-# Correr tests (hay que pararse dentro de la carpeta backend)
+# Correr tests
 npm test
 ```
-
-- `postgres`: crea el contenedor de la base de datos (puerto 5432).
-- `backend`: construye la imagen usando `backend/Dockerfile`, corre migraciones Prisma y expone el API en `http://localhost:3000`.
-- No necesitas ejecutar `npm install` en tu máquina si usas Docker: el `Dockerfile` ya corre `npm install` dentro de la imagen cada vez que haces `docker compose up --build`.
