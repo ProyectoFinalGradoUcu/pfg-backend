@@ -10,12 +10,6 @@ import { ModuloCursoDto } from './modulo-curso.dto';
 
 export class CursoDto {
 
-
-  @ApiProperty({ example: '001', maxLength: 12 })
-  @IsString()
-  @MaxLength(12)
-  id: string;
-
   @ApiProperty({ example: 'Curso de Aviacion ', maxLength: 200 })
   @IsString()
   @MaxLength(200)
