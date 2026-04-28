@@ -1,4 +1,19 @@
-COMPOSE  = docker-compose
+OS       := $(shell uname -s)
+ARCH     := $(shell uname -m)
+
+ifeq ($(OS),Darwin)
+	ifeq ($(ARCH),arm64)
+		COMPOSE = podman compose
+		CTR_CMD = podman
+	else
+		COMPOSE = docker-compose
+		CTR_CMD = docker
+	endif
+else
+	COMPOSE = docker-compose
+	CTR_CMD = docker
+endif
+
 DB_CTR   = postgres
 DB_USER  = pfg_user
 DB_NAME  = pfg_database
@@ -40,7 +55,7 @@ backend:
 
 ## Ejecuta el seed contra la base de datos en ejecución
 seed:
-	docker exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < $(SEED)
+	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < $(SEED)
 
 # ─────────────────────────────────────────────────────────────── Utilidades ───────────────────────────────────────────────────────────────
 
