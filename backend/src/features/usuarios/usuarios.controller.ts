@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -15,6 +16,7 @@ import { UsuariosService } from './usuarios.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ListUsuariosQueryDto } from './dto/list-usuarios-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
@@ -31,8 +33,8 @@ export class UsuariosController {
   @Get()
   @RequirePermissions('usuarios.ver')
   @ApiOperation({ summary: 'Listar usuarios con sus roles' })
-  findAll() {
-    return this.usuariosService.findAll();
+  findAll(@Query() query: ListUsuariosQueryDto) {
+    return this.usuariosService.findAll(query);
   }
 
   @Get(':id')
