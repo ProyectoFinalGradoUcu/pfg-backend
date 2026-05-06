@@ -13,6 +13,7 @@ services:
       - ./database/scripts/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./database/scripts/migracion_unificacion_fau.sql:/docker-entrypoint-initdb.d/02_migracion_unificacion_fau.sql:ro
       - ./database/scripts/seed.sql:/docker-entrypoint-initdb.d/03_seed.sql:ro
+      - ./database/scripts/seed_auth.sql:/docker-entrypoint-initdb.d/04_seed_auth.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pfg_user -d pfg_database"]
       interval: 10s
@@ -28,6 +29,10 @@ services:
       DATABASE_URL: "postgresql://pfg_user:pfg_password@postgres:5432/pfg_database?schema=public"
       NODE_ENV: production
       JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRES_IN: "4h"
+      MAX_LOGIN_ATTEMPTS: "5"
+      LOCK_DURATION_MIN: "15"
+      CORS_ORIGIN: "http://localhost:4200"
     ports:
       - "3000:3000"
     depends_on:
