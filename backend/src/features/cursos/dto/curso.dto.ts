@@ -3,6 +3,7 @@ import {
   IsOptional,
   MaxLength,
   IsArray,
+  IsBoolean,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FuncionarioCursoDto } from '../../funcionaro/dto/funcionario-curso.dto';
@@ -31,6 +32,11 @@ export class CursoDto {
   @IsString()
   @MaxLength(50)
   numero_orden?: string;
+
+  @ApiPropertyOptional({ example: true, description: 'Indica si el curso es obligatorio (true) u optativo (false)' })
+  @IsOptional()
+  @IsBoolean()
+  es_obligatorio?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
