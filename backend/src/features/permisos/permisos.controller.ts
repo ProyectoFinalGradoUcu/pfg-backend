@@ -1,6 +1,7 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PermisosService } from './permisos.service';
+import { ListPermisosQueryDto } from './dto/list-permisos-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
@@ -15,7 +16,7 @@ export class PermisosController {
   @Get()
   @RequirePermissions('roles.ver')
   @ApiOperation({ summary: 'Listar el catálogo fijo de permisos del sistema' })
-  findAll() {
-    return this.permisosService.findAll();
+  findAll(@Query() query: ListPermisosQueryDto) {
+    return this.permisosService.findAll(query);
   }
 }

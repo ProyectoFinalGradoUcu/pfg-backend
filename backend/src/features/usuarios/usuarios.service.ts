@@ -10,6 +10,7 @@ import { PrismaService } from '../../lib/prisma.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ListUsuariosQueryDto } from './dto/list-usuarios-query.dto';
 
 const DEFAULT_BCRYPT_ROUNDS = 12;
 const ROL_ADMIN = 'Administrador del sistema';
@@ -45,12 +46,26 @@ const USUARIO_INCLUDE = {
 export class UsuariosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
-    const usuarios = await this.prisma.usuarios.findMany({
-      orderBy: { username: 'asc' },
-      include: USUARIO_INCLUDE,
-    });
-    return usuarios.map((u) => this.toResponse(u));
+  async findAll(query: ListUsuariosQueryDto = {}) {
+    const page = query.page ?? 1;
+    const pageSize = Math.min(query.pageSize ?? 10, 100);
+
+    const [total, usuarios] = await this.prisma.$transaction([
+      this.prisma.usuarios.count(),
+      this.prisma.usuarios.findMany({
+        orderBy: { username: 'asc' },
+        include: USUARIO_INCLUDE,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    return {
+      items: usuarios.map((u) => this.toResponse(u)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async findOne(id: string) {
