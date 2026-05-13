@@ -21,6 +21,24 @@ services:
       retries: 5
     restart: unless-stopped
 
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: pfg_minio_user
+      MINIO_ROOT_PASSWORD: pfg_minio_password
+    ports:
+      - "9001:9001" 
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -33,12 +51,21 @@ services:
       MAX_LOGIN_ATTEMPTS: "5"
       LOCK_DURATION_MIN: "15"
       CORS_ORIGIN: "http://localhost:4200"
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: pfg_minio_user
+      MINIO_SECRET_KEY: pfg_minio_password
+      MINIO_BUCKET: pfg-documents
+      MINIO_USE_SSL: "false"
     ports:
       - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   pg_data:
+  minio_data:

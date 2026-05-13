@@ -8,6 +8,7 @@ import { PermisosModule } from '../features/permisos/permisos.module';
 import { RolesModule } from '../features/roles/roles.module';
 import { UsuariosModule } from '../features/usuarios/usuarios.module';
 import { SubalternosModule } from '../features/subalternos/subalternos.module';
+import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
 
 @Module({
@@ -22,6 +23,7 @@ import { PrismaModule } from '../lib/prisma.module';
     RolesModule,
     UsuariosModule,
     SubalternosModule,
+    FilesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
