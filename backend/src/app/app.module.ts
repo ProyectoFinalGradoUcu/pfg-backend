@@ -9,6 +9,7 @@ import { RolesModule } from '../features/roles/roles.module';
 import { UsuariosModule } from '../features/usuarios/usuarios.module';
 import { SubalternosModule } from '../features/subalternos/subalternos.module';
 import { PrismaModule } from '../lib/prisma.module';
+import { CursosModule } from '../features/cursos/cursos.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PrismaModule } from '../lib/prisma.module';
     RolesModule,
     UsuariosModule,
     SubalternosModule,
+    CursosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
