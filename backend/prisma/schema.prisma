@@ -213,6 +213,7 @@ model cursos {
   institucion         String?               @db.VarChar(200)
   boletin             String?               @db.VarChar(50)
   numero_orden        String?               @db.VarChar(50)
+  es_obligatorio      Boolean               @default(true)
   funcionarios_cursos funcionarios_cursos[]
   modulos_curso       modulos_curso[]
 }

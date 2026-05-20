@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(wc:*)",
-      "Bash(npm install:*)",
-      "Bash(xxd \"C:/Users/lucas/Documents/GitHub/pfg-backend/backend/docker-entrypoint.sh\")"
-    ]
-  }
-}

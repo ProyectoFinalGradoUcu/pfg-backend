@@ -22,7 +22,7 @@ export class SubalternosController {
   @ApiResponse({ status: 201, description: 'Subalterno creado exitosamente.' })
   @ApiResponse({ status: 400, description: 'Datos inválidos.' })
   @Post()
-  async create(@Body() dto: CreateSubalternoDto) {
+  async create(@Body('service_request') dto: CreateSubalternoDto) {
     return this.subalternosService.create(dto);
   }
 
@@ -33,7 +33,7 @@ export class SubalternosController {
   @Patch(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateSubalternoDto,
+    @Body('service_request') dto: UpdateSubalternoDto,
   ) {
     return this.subalternosService.update(id, dto);
   }

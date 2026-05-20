@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ServiceResponseInterceptor } from './lib/http/service-response.interceptor';
+import { ServiceResponseExceptionFilter } from './lib/http/service-response-exception.filter';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 
@@ -24,6 +26,8 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  app.useGlobalInterceptors(new ServiceResponseInterceptor());
+  app.useGlobalFilters(new ServiceResponseExceptionFilter());
 
   const config = new DocumentBuilder()
     .setTitle('PFG API')
