@@ -10,6 +10,7 @@ import { UsuariosModule } from '../features/usuarios/usuarios.module';
 import { SubalternosModule } from '../features/subalternos/subalternos.module';
 import { MisionesModule } from '../features/misiones/misiones.module';
 import { PrismaModule } from '../lib/prisma.module';
+import { CursosModule } from '../features/cursos/cursos.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PrismaModule } from '../lib/prisma.module';
     UsuariosModule,
     SubalternosModule,
     MisionesModule,
+    CursosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
