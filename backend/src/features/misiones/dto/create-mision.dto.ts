@@ -1,7 +1,5 @@
-import { IsArray, IsDateString, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { FuncionarioMisionDto } from './funcionario-mision.dto';
 
 export class CreateMisionDto {
   @ApiPropertyOptional({ example: 'Congo' })
@@ -48,11 +46,4 @@ export class CreateMisionDto {
   @IsString()
   @MaxLength(200)
   comando_responsable?: string;
-
-  @ApiPropertyOptional({ type: [FuncionarioMisionDto] })
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => FuncionarioMisionDto)
-  funcionarios_misiones?: FuncionarioMisionDto[];
 }
