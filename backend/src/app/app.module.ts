@@ -9,6 +9,7 @@ import { RolesModule } from '../features/roles/roles.module';
 import { UsuariosModule } from '../features/usuarios/usuarios.module';
 import { SubalternosModule } from '../features/subalternos/subalternos.module';
 import { MisionesModule } from '../features/misiones/misiones.module';
+import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
 import { CursosModule } from '../features/cursos/cursos.module';
 
@@ -25,6 +26,7 @@ import { CursosModule } from '../features/cursos/cursos.module';
     UsuariosModule,
     SubalternosModule,
     MisionesModule,
+    FilesModule,
     CursosModule,
   ],
   controllers: [AppController],
