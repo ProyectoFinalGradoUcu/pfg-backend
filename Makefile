@@ -1,18 +1,8 @@
 OS       := $(shell uname -s)
 ARCH     := $(shell uname -m)
 
-ifeq ($(OS),Darwin)
-	ifeq ($(ARCH),arm64)
-		COMPOSE = podman compose
-		CTR_CMD = podman
-	else
-		COMPOSE = docker-compose
-		CTR_CMD = docker
-	endif
-else
-	COMPOSE = docker-compose
-	CTR_CMD = docker
-endif
+COMPOSE = docker compose
+CTR_CMD = docker
 
 DB_CTR    = postgres
 DB_USER   = pfg_user

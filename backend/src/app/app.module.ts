@@ -12,6 +12,7 @@ import { MisionesModule } from '../features/misiones/misiones.module';
 import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
 import { CursosModule } from '../features/cursos/cursos.module';
+import { CatalogosModule } from '../features/catalogos/catalogos.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { CursosModule } from '../features/cursos/cursos.module';
     MisionesModule,
     FilesModule,
     CursosModule,
+    CatalogosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
