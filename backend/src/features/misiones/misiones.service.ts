@@ -10,6 +10,10 @@ export class MisionesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateMisionDto) {
+    if (dto.fecha_salida && dto.fecha_llegada && new Date(dto.fecha_salida) >= new Date(dto.fecha_llegada)) {
+      throw new BadRequestException('La fecha de salida debe ser menor a la fecha de llegada');
+    }
+
     const mision = await this.prisma.misiones.create({
       data: {
         ...dto,
@@ -127,6 +131,12 @@ export class MisionesService {
   async update(id: string, dto: UpdateMisionDto) {
     const exists = await this.prisma.misiones.findUnique({ where: { id: BigInt(id) } });
     if (!exists) throw new NotFoundException('Misión no encontrada');
+
+    const salida = dto.fecha_salida ? new Date(dto.fecha_salida) : exists.fecha_salida;
+    const llegada = dto.fecha_llegada ? new Date(dto.fecha_llegada) : exists.fecha_llegada;
+    if (salida && llegada && salida >= llegada) {
+      throw new BadRequestException('La fecha de salida debe ser menor a la fecha de llegada');
+    }
 
     await this.prisma.misiones.update({
       where: { id: BigInt(id) },
