@@ -9,8 +9,9 @@ DB_USER   = pfg_user
 DB_NAME   = pfg_database
 SEED      = database/scripts/seed.sql
 SEED_AUTH = database/scripts/seed_auth.sql
+SEED_DEMO = database/scripts/seed_demo_review.sql
 
-.PHONY: up down reset seed seed-auth backend db build logs logs-backend logs-db ps gen-secret help
+.PHONY: up down reset seed seed-auth seed-demo-review backend db build logs logs-backend logs-db ps gen-secret help
 
 gen-secret:
 	@node -e "require('fs').writeFileSync('.env', 'JWT_SECRET=' + require('crypto').randomBytes(32).toString('hex') + '\n')"
@@ -38,6 +39,9 @@ seed:
 seed-auth:
 	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < $(SEED_AUTH)
 
+seed-demo-review:
+	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < $(SEED_DEMO)
+
 build:
 	$(COMPOSE) build
 
@@ -64,6 +68,7 @@ help:
 	@echo "  make backend      Levanta (o reinicia) solo el backend"
 	@echo "  make seed         Ejecuta el seed de catálogos en la base de datos"
 	@echo "  make seed-auth    Ejecuta el seed de seguridad (permisos, roles, admin)"
+	@echo "  make seed-demo-review  Carga datos de demo (misiones, cursos, personas) para pruebas"
 	@echo "  make build        Construye imágenes sin levantar servicios"
 	@echo "  make logs         Logs de todos los servicios"
 	@echo "  make logs-backend Logs solo del backend"
