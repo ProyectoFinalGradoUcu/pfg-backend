@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS public.cursos (
     nombre_curso VARCHAR(200),
     institucion VARCHAR(200),
     boletin VARCHAR(50),
-    numero_orden VARCHAR(50)
+    numero_orden VARCHAR(50),
+    es_obligatorio BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS public.viviendas_servicio (
