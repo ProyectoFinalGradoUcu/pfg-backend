@@ -74,8 +74,6 @@ CREATE TABLE IF NOT EXISTS public.cursos (
     id BIGSERIAL PRIMARY KEY,
     nombre_curso VARCHAR(200),
     institucion VARCHAR(200),
-    boletin VARCHAR(50),
-    numero_orden VARCHAR(50),
     es_obligatorio BOOLEAN NOT NULL DEFAULT TRUE
 );
 
@@ -127,12 +125,15 @@ CREATE TABLE IF NOT EXISTS public.funcionarios_vuelos (
 );
 
 CREATE TABLE IF NOT EXISTS public.funcionarios_cursos (
+    id BIGSERIAL PRIMARY KEY,
     persona_id BIGINT REFERENCES public.personas(id),
     curso_id BIGINT REFERENCES public.cursos(id),
+    numero_orden VARCHAR(50),
+    boletin VARCHAR(50),
     fecha_inicio DATE,
     fecha_fin DATE,
     calificacion TEXT,
-    PRIMARY KEY (persona_id, curso_id)
+    UNIQUE (persona_id, curso_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.modulos_curso (
@@ -144,12 +145,15 @@ CREATE TABLE IF NOT EXISTS public.modulos_curso (
 );
 
 CREATE TABLE IF NOT EXISTS public.funcionarios_modulos_curso (
-    persona_id BIGINT REFERENCES public.personas(id),
+    id BIGSERIAL PRIMARY KEY,
+    funcionario_curso_id BIGINT REFERENCES public.funcionarios_cursos(id) ON DELETE CASCADE,
     modulo_id BIGINT REFERENCES public.modulos_curso(id),
+    numero_orden VARCHAR(50),
+    boletin VARCHAR(50),
     completado BOOLEAN DEFAULT FALSE,
     fecha_finalizacion DATE,
     calificacion TEXT,
-    PRIMARY KEY (persona_id, modulo_id)
+    UNIQUE (funcionario_curso_id, modulo_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.ascensos (

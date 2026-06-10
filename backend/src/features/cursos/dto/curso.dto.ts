@@ -21,18 +21,6 @@ export class CursoDto {
   @MaxLength(200)
   institucion: string;
 
-  @ApiPropertyOptional({ example: 'B001', maxLength: 100 })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  boletin?: string;
-
-  @ApiPropertyOptional({ example: 'NRO123412351', maxLength: 100 })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  numero_orden?: string;
-
   @ApiPropertyOptional({ example: true, description: 'Indica si el curso es obligatorio (true) u optativo (false)' })
   @IsOptional()
   @IsBoolean()

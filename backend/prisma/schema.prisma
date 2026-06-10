@@ -211,8 +211,6 @@ model cursos {
   id                  BigInt                @id @default(autoincrement())
   nombre_curso        String?               @db.VarChar(200)
   institucion         String?               @db.VarChar(200)
-  boletin             String?               @db.VarChar(50)
-  numero_orden        String?               @db.VarChar(50)
   es_obligatorio      Boolean               @default(true)
   funcionarios_cursos funcionarios_cursos[]
   modulos_curso       modulos_curso[]
@@ -295,15 +293,19 @@ model franjas_irpf {
 }
 
 model funcionarios_cursos {
+  id           BigInt                       @id @default(autoincrement())
   persona_id   BigInt
   curso_id     BigInt
-  fecha_inicio DateTime? @db.Date
-  fecha_fin    DateTime? @db.Date
+  numero_orden String?                      @db.VarChar(50)
+  boletin      String?                      @db.VarChar(50)
+  fecha_inicio DateTime?                    @db.Date
+  fecha_fin    DateTime?                    @db.Date
   calificacion String?
-  cursos       cursos    @relation(fields: [curso_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  personas     personas  @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cursos       cursos                       @relation(fields: [curso_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas     personas                     @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  modulos      funcionarios_modulos_curso[]
 
-  @@id([persona_id, curso_id])
+  @@unique([persona_id, curso_id])
 }
 
 model funcionarios_misiones {
@@ -319,15 +321,18 @@ model funcionarios_misiones {
 }
 
 model funcionarios_modulos_curso {
-  persona_id         BigInt
-  modulo_id          BigInt
-  completado         Boolean?      @default(false)
-  fecha_finalizacion DateTime?     @db.Date
-  calificacion       String?
-  modulos_curso      modulos_curso @relation(fields: [modulo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  personas           personas      @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                   BigInt              @id @default(autoincrement())
+  funcionario_curso_id BigInt
+  modulo_id            BigInt
+  numero_orden         String?             @db.VarChar(50)
+  boletin              String?             @db.VarChar(50)
+  completado           Boolean?            @default(false)
+  fecha_finalizacion   DateTime?           @db.Date
+  calificacion         String?
+  funcionarios_cursos  funcionarios_cursos @relation(fields: [funcionario_curso_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  modulos_curso        modulos_curso       @relation(fields: [modulo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@id([persona_id, modulo_id])
+  @@unique([funcionario_curso_id, modulo_id])
 }
 
 model funcionarios_vuelos {
@@ -596,7 +601,6 @@ model personas {
   descuentos_personales                                             descuentos_personales[]
   funcionarios_cursos                                               funcionarios_cursos[]
   funcionarios_misiones                                             funcionarios_misiones[]
-  funcionarios_modulos_curso                                        funcionarios_modulos_curso[]
   funcionarios_vuelos                                               funcionarios_vuelos[]
   irpf_mensual                                                      irpf_mensual[]
   items_liquidacion                                                 items_liquidacion[]
