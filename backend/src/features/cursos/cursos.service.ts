@@ -9,6 +9,8 @@ import { ListCursosQueryDto } from './dto/list-cursos-query.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
 import { MarcarCompletacionDto } from './dto/completacion-modulo.dto';
 import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query.dto';
+import { CreateDesignacionDto } from './dto/create-designacion.dto';
+import { UpdateCursoDto } from './dto/update-curso.dto';
 
 @Injectable()
 export class CursosService {
@@ -29,8 +31,6 @@ export class CursosService {
         data: {
           nombre_curso: dto.nombre_curso,
           institucion: dto.institucion,
-          boletin: dto.boletin,
-          numero_orden: dto.numero_orden,
           es_obligatorio: dto.es_obligatorio ?? true,
         },
       });
@@ -39,8 +39,6 @@ export class CursosService {
         id: curso.id.toString(),
         nombre_curso: curso.nombre_curso,
         institucion: curso.institucion,
-        boletin: curso.boletin,
-        numero_orden: curso.numero_orden,
         es_obligatorio: curso.es_obligatorio,
       };
     });
@@ -69,8 +67,6 @@ export class CursosService {
         id: c.id.toString(),
         nombre_curso: c.nombre_curso,
         institucion: c.institucion,
-        boletin: c.boletin,
-        numero_orden: c.numero_orden,
         es_obligatorio: c.es_obligatorio,
         modulos_curso: c.modulos_curso.map((m) => ({
           id: m.id.toString(),
@@ -104,8 +100,6 @@ export class CursosService {
       id: curso.id.toString(),
       nombre_curso: curso.nombre_curso,
       institucion: curso.institucion,
-      boletin: curso.boletin,
-      numero_orden: curso.numero_orden,
       es_obligatorio: curso.es_obligatorio,
       modulos_curso: curso.modulos_curso.map((m) => ({
         id: m.id.toString(),
@@ -153,9 +147,12 @@ export class CursosService {
       throw new NotFoundException(`No existe curso con id ${id}`);
     }
 
-    await this.prisma.cursos.delete({
-      where: { id: BigInt(id) },
-    });
+    await this.prisma.$transaction([
+      // Borra inscripciones (cascada sus filas de módulo) para no violar las FK.
+      this.prisma.funcionarios_cursos.deleteMany({ where: { curso_id: BigInt(id) } }),
+      // Borra el curso (cascada las definiciones de módulos_curso).
+      this.prisma.cursos.delete({ where: { id: BigInt(id) } }),
+    ]);
 
     return { id: id.toString(), eliminado: true };
   }
@@ -181,9 +178,14 @@ export class CursosService {
             id: true,
             nombre_curso: true,
             institucion: true,
-            boletin: true,
-            numero_orden: true,
             es_obligatorio: true,
+          },
+        },
+        modulos: {
+          include: {
+            modulos_curso: {
+              select: { id: true, nombre_modulo: true, orden_modulo: true },
+            },
           },
         },
       },
@@ -203,13 +205,26 @@ export class CursosService {
         id: r.cursos.id.toString(),
         nombre_curso: r.cursos.nombre_curso,
         institucion: r.cursos.institucion,
-        boletin: r.cursos.boletin,
-        numero_orden: r.cursos.numero_orden,
         es_obligatorio: r.cursos.es_obligatorio,
       },
+      // Orden/boletín de la inscripción (nivel curso).
+      numero_orden: r.numero_orden,
+      boletin: r.boletin,
       fecha_inicio: r.fecha_inicio,
       fecha_fin: r.fecha_fin,
       calificacion: r.calificacion,
+      // Detalle por módulo, cada uno con su propia orden/boletín.
+      modulos: r.modulos.map((m) => ({
+        id: m.id.toString(),
+        modulo_id: m.modulo_id.toString(),
+        nombre_modulo: m.modulos_curso.nombre_modulo,
+        orden_modulo: m.modulos_curso.orden_modulo,
+        numero_orden: m.numero_orden,
+        boletin: m.boletin,
+        completado: m.completado,
+        fecha_finalizacion: m.fecha_finalizacion,
+        calificacion: m.calificacion,
+      })),
     }));
   }
 
@@ -223,33 +238,58 @@ export class CursosService {
       );
     }
 
-    const completacion = await this.prisma.funcionarios_modulos_curso.upsert({
-      where: {
-        persona_id_modulo_id: {
-          persona_id: BigInt(dto.persona_id),
-          modulo_id: BigInt(moduloId),
+    const completacion = await this.prisma.$transaction(async (tx) => {
+      // 1) Asegurar la inscripción al curso (padre). Si no existe, se crea.
+      const inscripcion = await tx.funcionarios_cursos.upsert({
+        where: {
+          persona_id_curso_id: {
+            persona_id: BigInt(dto.persona_id),
+            curso_id: BigInt(cursoId),
+          },
         },
-      },
-      create: {
-        persona_id: BigInt(dto.persona_id),
-        modulo_id: BigInt(moduloId),
-        completado: dto.completado ?? false,
-        fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
-        calificacion: dto.calificacion ?? null,
-      },
-      update: {
-        completado: dto.completado ?? false,
-        fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
-        calificacion: dto.calificacion ?? null,
-      },
+        create: {
+          persona_id: BigInt(dto.persona_id),
+          curso_id: BigInt(cursoId),
+        },
+        update: {},
+      });
+
+      // 2) Marcar/actualizar el detalle del módulo (hijo) con su orden/boletín.
+      return tx.funcionarios_modulos_curso.upsert({
+        where: {
+          funcionario_curso_id_modulo_id: {
+            funcionario_curso_id: inscripcion.id,
+            modulo_id: BigInt(moduloId),
+          },
+        },
+        create: {
+          funcionario_curso_id: inscripcion.id,
+          modulo_id: BigInt(moduloId),
+          completado: dto.completado ?? false,
+          fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
+          calificacion: dto.calificacion ?? null,
+          numero_orden: dto.numero_orden ?? null,
+          boletin: dto.boletin ?? null,
+        },
+        update: {
+          completado: dto.completado ?? false,
+          fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
+          calificacion: dto.calificacion ?? null,
+          numero_orden: dto.numero_orden ?? null,
+          boletin: dto.boletin ?? null,
+        },
+      });
     });
 
     return {
-      persona_id: completacion.persona_id.toString(),
+      id: completacion.id.toString(),
+      funcionario_curso_id: completacion.funcionario_curso_id.toString(),
       modulo_id: completacion.modulo_id.toString(),
       completado: completacion.completado,
       fecha_finalizacion: completacion.fecha_finalizacion,
       calificacion: completacion.calificacion,
+      numero_orden: completacion.numero_orden,
+      boletin: completacion.boletin,
     };
   }
 
@@ -265,16 +305,24 @@ export class CursosService {
 
     const completaciones = await this.prisma.funcionarios_modulos_curso.findMany({
       where: { modulo_id: BigInt(moduloId) },
-      include: { personas: { select: { id: true, primer_nombre: true, primer_apellido: true } } },
+      include: {
+        funcionarios_cursos: {
+          include: {
+            personas: { select: { id: true, primer_nombre: true, primer_apellido: true } },
+          },
+        },
+      },
     });
 
     return completaciones.map((c) => ({
-      persona_id: c.persona_id.toString(),
-      primer_nombre: c.personas.primer_nombre,
-      primer_apellido: c.personas.primer_apellido,
+      persona_id: c.funcionarios_cursos.personas.id.toString(),
+      primer_nombre: c.funcionarios_cursos.personas.primer_nombre,
+      primer_apellido: c.funcionarios_cursos.personas.primer_apellido,
       completado: c.completado,
       fecha_finalizacion: c.fecha_finalizacion,
       calificacion: c.calificacion,
+      numero_orden: c.numero_orden,
+      boletin: c.boletin,
     }));
   }
 
@@ -300,9 +348,15 @@ export class CursosService {
       );
     }
 
-    await this.prisma.modulos_curso.delete({
-      where: { id: BigInt(moduloId) },
-    });
+    // Borrar primero las participaciones del módulo (no hay cascade en esa FK).
+    await this.prisma.$transaction([
+      this.prisma.funcionarios_modulos_curso.deleteMany({
+        where: { modulo_id: BigInt(moduloId) },
+      }),
+      this.prisma.modulos_curso.delete({
+        where: { id: BigInt(moduloId) },
+      }),
+    ]);
 
     return {
       curso_id: cursoId.toString(),
@@ -310,4 +364,131 @@ export class CursosService {
       eliminado: true,
     };
   }
+
+  // ─── Editar curso ─────────────────────────────────────────────────────────
+  async editarCurso(id: number, dto: UpdateCursoDto) {
+    const curso = await this.prisma.cursos.findUnique({
+      where: { id: BigInt(id) },
+    });
+    if (!curso) {
+      throw new NotFoundException(`No existe curso con id ${id}`);
+    }
+
+    if (dto.nombre_curso && dto.nombre_curso !== curso.nombre_curso) {
+      const dup = await this.prisma.cursos.findFirst({
+        where: { nombre_curso: dto.nombre_curso, id: { not: BigInt(id) } },
+      });
+      if (dup) {
+        throw new ConflictException(
+          `Ya existe un curso con nombre ${dto.nombre_curso}`,
+        );
+      }
+    }
+
+    const actualizado = await this.prisma.cursos.update({
+      where: { id: BigInt(id) },
+      data: {
+        nombre_curso: dto.nombre_curso ?? undefined,
+        institucion: dto.institucion ?? undefined,
+        es_obligatorio: dto.es_obligatorio ?? undefined,
+      },
+    });
+
+    return {
+      id: actualizado.id.toString(),
+      nombre_curso: actualizado.nombre_curso,
+      institucion: actualizado.institucion,
+      es_obligatorio: actualizado.es_obligatorio,
+    };
+  }
+
+  // ─── Designar / Dictar (crear una instancia) ──────────────────────────────
+  async crearDesignacion(cursoId: number, dto: CreateDesignacionDto) {
+    const curso = await this.prisma.cursos.findUnique({
+      where: { id: BigInt(cursoId) },
+    });
+    if (!curso) {
+      throw new NotFoundException(`No existe curso con id ${cursoId}`);
+    }
+
+    const moduloIds = dto.modulo_ids ?? [];
+    if (moduloIds.length) {
+      const count = await this.prisma.modulos_curso.count({
+        where: {
+          id: { in: moduloIds.map((m) => BigInt(m)) },
+          curso_id: BigInt(cursoId),
+        },
+      });
+      if (count !== moduloIds.length) {
+        throw new NotFoundException(
+          'Uno o más módulos no pertenecen a este curso',
+        );
+      }
+    }
+
+    const fechaInicio = dto.fecha_inicio ? new Date(dto.fecha_inicio) : null;
+    const fechaFin = dto.fecha_fin ? new Date(dto.fecha_fin) : null;
+    const aNivelModulo = moduloIds.length > 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const personaId of dto.persona_ids) {
+        const inscripcion = await tx.funcionarios_cursos.upsert({
+          where: {
+            persona_id_curso_id: {
+              persona_id: BigInt(personaId),
+              curso_id: BigInt(cursoId),
+            },
+          },
+          create: {
+            persona_id: BigInt(personaId),
+            curso_id: BigInt(cursoId),
+            // A nivel módulo, la orden/boletín van en las filas de módulo.
+            numero_orden: aNivelModulo ? null : (dto.numero_orden ?? null),
+            boletin: aNivelModulo ? null : (dto.boletin ?? null),
+            fecha_inicio: fechaInicio,
+            fecha_fin: fechaFin,
+          },
+          update: {
+            ...(aNivelModulo
+              ? {}
+              : { numero_orden: dto.numero_orden ?? null, boletin: dto.boletin ?? null }),
+            ...(fechaInicio ? { fecha_inicio: fechaInicio } : {}),
+            ...(fechaFin ? { fecha_fin: fechaFin } : {}),
+          },
+        });
+
+        for (const moduloId of moduloIds) {
+          await tx.funcionarios_modulos_curso.upsert({
+            where: {
+              funcionario_curso_id_modulo_id: {
+                funcionario_curso_id: inscripcion.id,
+                modulo_id: BigInt(moduloId),
+              },
+            },
+            create: {
+              funcionario_curso_id: inscripcion.id,
+              modulo_id: BigInt(moduloId),
+              numero_orden: dto.numero_orden ?? null,
+              boletin: dto.boletin ?? null,
+              completado: false,
+              fecha_finalizacion: null,
+            },
+            update: {
+              numero_orden: dto.numero_orden ?? null,
+              boletin: dto.boletin ?? null,
+            },
+          });
+        }
+      }
+    });
+
+    return {
+      curso_id: cursoId.toString(),
+      personas_designadas: dto.persona_ids.length,
+      modulos_designados: moduloIds.length,
+      numero_orden: dto.numero_orden ?? null,
+      boletin: dto.boletin ?? null,
+    };
+  }
+
 }

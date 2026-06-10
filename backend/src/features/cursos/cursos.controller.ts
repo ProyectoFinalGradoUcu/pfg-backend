@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Patch,
   Body,
   Get,
   Delete,
@@ -23,6 +24,8 @@ import { ListCursosQueryDto } from './dto/list-cursos-query.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
 import { MarcarCompletacionDto } from './dto/completacion-modulo.dto';
 import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query.dto';
+import { CreateDesignacionDto } from './dto/create-designacion.dto';
+import { UpdateCursoDto } from './dto/update-curso.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
@@ -67,6 +70,35 @@ export class CursosController {
   @ApiResponse({ status: 404, description: 'Curso no encontrado.' })
   async getById(@Param('id', ParseIntPipe) id: number) {
     return this.cursosService.getById(id);
+  }
+
+  @Patch(':id')
+  @RequirePermissions('cursos.gestionar')
+  @ApiOperation({ summary: 'Editar curso', description: 'Actualiza nombre, institución y/u obligatoriedad de un curso.' })
+  @ApiResponse({ status: 200, description: 'Curso actualizado exitosamente.' })
+  @ApiResponse({ status: 404, description: 'Curso no encontrado.' })
+  @ApiResponse({ status: 409, description: 'Ya existe un curso con ese nombre.' })
+  async editarCurso(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCursoDto,
+  ) {
+    return this.cursosService.editarCurso(id, dto);
+  }
+
+  @Post(':cursoId/designaciones')
+  @RequirePermissions('cursos.gestionar')
+  @ApiOperation({
+    summary: 'Designar / dictar curso',
+    description:
+      'Designa un grupo de personas a un curso (o a módulos puntuales) bajo una orden/boletín. Sirve para el primer dictado y para re-dictados.',
+  })
+  @ApiResponse({ status: 201, description: 'Designación registrada exitosamente.' })
+  @ApiResponse({ status: 404, description: 'Curso o módulo no encontrado.' })
+  async crearDesignacion(
+    @Param('cursoId', ParseIntPipe) cursoId: number,
+    @Body() dto: CreateDesignacionDto,
+  ) {
+    return this.cursosService.crearDesignacion(cursoId, dto);
   }
 
   @Post(':cursoId/modulos')
