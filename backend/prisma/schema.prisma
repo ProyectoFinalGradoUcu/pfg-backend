@@ -611,6 +611,7 @@ model personas {
   relaciones_laborales                                              relaciones_laborales[]
   retiros                                                           retiros?
   retroactividades                                                  retroactividades[]
+  invitaciones                                                      invitaciones[]
   usuarios                                                          usuarios[]
 }
 
@@ -873,6 +874,7 @@ model usuarios {
   beneficios_sociales                                          beneficios_sociales[]
   bitacora_auditoria                                           bitacora_auditoria[]
   cierres                                                      cierres[]
+  invitaciones                                                 invitaciones[]
   liquidaciones_liquidaciones_abierta_porTousuarios            liquidaciones[]         @relation("liquidaciones_abierta_porTousuarios")
   liquidaciones_liquidaciones_cerrada_porTousuarios            liquidaciones[]         @relation("liquidaciones_cerrada_porTousuarios")
   lotes_compensacion_lotes_compensacion_aprobado_porTousuarios lotes_compensacion[]    @relation("lotes_compensacion_aprobado_porTousuarios")
@@ -880,8 +882,35 @@ model usuarios {
   movimientos_laborales                                        movimientos_laborales[]
   parametros_periodo                                           parametros_periodo[]
   remuneraciones_grado                                         remuneraciones_grado[]
+  tokens_reset_password                                        tokens_reset_password[]
   personas                                                     personas?               @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_roles                                               usuarios_roles[]
+}
+
+model invitaciones {
+  id         BigInt    @id @default(autoincrement())
+  email      String    @db.VarChar(150)
+  token_hash String    @unique @db.VarChar(255)
+  persona_id BigInt?
+  roles      String[]
+  estado     String    @default("pendiente") @db.VarChar(20)
+  creado_por BigInt
+  creado_en  DateTime  @default(now()) @db.Timestamp(6)
+  expira_en  DateTime  @db.Timestamp(6)
+  usado_en   DateTime? @db.Timestamp(6)
+  personas   personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios   usuarios  @relation(fields: [creado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model tokens_reset_password {
+  id         BigInt    @id @default(autoincrement())
+  usuario_id BigInt
+  token_hash String    @unique @db.VarChar(255)
+  usado      Boolean   @default(false)
+  creado_en  DateTime  @default(now()) @db.Timestamp(6)
+  expira_en  DateTime  @db.Timestamp(6)
+  usado_en   DateTime? @db.Timestamp(6)
+  usuarios   usuarios  @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model usuarios_roles {

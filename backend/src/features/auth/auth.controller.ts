@@ -19,6 +19,9 @@ import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignInDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordTokenDto } from './dto/reset-password-token.dto';
+import { Public } from './decorators/public.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser, SignInResponse } from './types/auth.types';
@@ -73,6 +76,27 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(user.id, dto);
+  }
+
+  @Post('forgot-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Solicitar reset de contraseña por email' })
+  @ApiResponse({ status: 200, description: 'Solicitud procesada (respuesta siempre igual)' })
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.solicitarResetPassword(dto);
+  }
+
+  @Post('reset-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Establecer nueva contraseña con token de reset' })
+  @ApiResponse({ status: 200, description: 'Contraseña actualizada exitosamente' })
+  @ApiResponse({ status: 400, description: 'Token inválido, expirado o ya utilizado' })
+  resetPassword(@Body() dto: ResetPasswordTokenDto) {
+    return this.authService.resetPasswordConToken(dto);
   }
 
   private cookieOptions(maxAgeSeconds: number) {

@@ -11,11 +11,20 @@ SEED      = database/scripts/seed.sql
 SEED_AUTH = database/scripts/seed_auth.sql
 SEED_DEMO = database/scripts/seed_demo_review.sql
 
-.PHONY: up down reset seed seed-auth seed-demo-review backend db build logs logs-backend logs-db ps gen-secret help
+.PHONY: up down reset seed seed-auth seed-demo-review migrate-invitaciones backend db build logs logs-backend logs-db ps gen-secret help
 
 gen-secret:
-	@node -e "require('fs').writeFileSync('.env', 'JWT_SECRET=' + require('crypto').randomBytes(32).toString('hex') + '\n')"
-	@echo "  [ok] JWT_SECRET generado en .env"
+	@node -e " \
+		const fs = require('fs'); \
+		const path = '.env'; \
+		const existing = fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : ''; \
+		if (!existing.includes('JWT_SECRET=')) { \
+			fs.appendFileSync(path, 'JWT_SECRET=' + require('crypto').randomBytes(32).toString('hex') + '\n'); \
+			console.log('  [ok] JWT_SECRET generado en .env'); \
+		} else { \
+			console.log('  [skip] JWT_SECRET ya existe en .env'); \
+		} \
+	"
 
 up: gen-secret
 	$(COMPOSE) up -d --build
@@ -41,6 +50,10 @@ seed-auth:
 
 seed-demo-review:
 	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < $(SEED_DEMO)
+
+migrate-invitaciones:
+	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < database/scripts/migracion_invitaciones_reset.sql
+	@echo "  [ok] Tablas invitaciones y tokens_reset_password creadas"
 
 build:
 	$(COMPOSE) build

@@ -57,6 +57,11 @@ services:
       MINIO_SECRET_KEY: pfg_minio_password
       MINIO_BUCKET: pfg-documents
       MINIO_USE_SSL: "false"
+      RESEND_API_KEY: "${RESEND_API_KEY}"
+      MAILER_FROM: "${MAILER_FROM:-onboarding@resend.dev}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:4200}"
+      INVITATION_TTL_HOURS: "${INVITATION_TTL_HOURS:-48}"
+      RESET_PASSWORD_TTL_HOURS: "${RESET_PASSWORD_TTL_HOURS:-1}"
     ports:
       - "3000:3000"
     depends_on:

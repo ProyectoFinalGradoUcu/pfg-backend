@@ -3,7 +3,9 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { MailerModule } from '../features/mailer/mailer.module';
 import { AuthModule } from '../features/auth/auth.module';
+import { InvitacionesModule } from '../features/invitaciones/invitaciones.module';
 import { PermisosModule } from '../features/permisos/permisos.module';
 import { RolesModule } from '../features/roles/roles.module';
 import { UsuariosModule } from '../features/usuarios/usuarios.module';
@@ -21,7 +23,9 @@ import { CatalogosModule } from '../features/catalogos/catalogos.module';
       { name: 'default', ttl: 60_000, limit: 120 },
     ]),
     PrismaModule,
+    MailerModule,
     AuthModule,
+    InvitacionesModule,
     PermisosModule,
     RolesModule,
     UsuariosModule,
