@@ -13,6 +13,7 @@ import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
 import { CursosModule } from '../features/cursos/cursos.module';
 import { CatalogosModule } from '../features/catalogos/catalogos.module';
+import { HistorialCursosModule } from '../features/historial-cursos/historial-cursos.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { CatalogosModule } from '../features/catalogos/catalogos.module';
     FilesModule,
     CursosModule,
     CatalogosModule,
+    HistorialCursosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
