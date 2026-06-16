@@ -3,9 +3,11 @@ import {
   IsArray,
   IsDateString,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -25,25 +27,25 @@ export class CreateDesignacionDto {
   @IsInt({ each: true })
   modulo_ids?: number[];
 
-  @ApiPropertyOptional({ example: 'ORD-1542', maxLength: 50 })
-  @IsOptional()
+  @ApiPropertyOptional({ example: 'ORD-1542', maxLength: 50, description: 'Requerido si no se indica boletín' })
+  @ValidateIf((o) => !o.boletin)
   @IsString()
+  @IsNotEmpty()
   @MaxLength(50)
   numero_orden?: string;
 
-  @ApiPropertyOptional({ example: 'BOL-2026-04', maxLength: 50 })
-  @IsOptional()
+  @ApiPropertyOptional({ example: 'BOL-2026-04', maxLength: 50, description: 'Requerido si no se indica número de orden' })
+  @ValidateIf((o) => !o.numero_orden)
   @IsString()
+  @IsNotEmpty()
   @MaxLength(50)
   boletin?: string;
 
-  @ApiPropertyOptional({ example: '2026-03-01' })
-  @IsOptional()
+  @ApiProperty({ example: '2026-03-01' })
   @IsDateString()
-  fecha_inicio?: string;
+  fecha_inicio: string;
 
-  @ApiPropertyOptional({ example: '2026-06-30' })
-  @IsOptional()
+  @ApiProperty({ example: '2026-06-30' })
   @IsDateString()
-  fecha_fin?: string;
+  fecha_fin: string;
 }

@@ -26,6 +26,7 @@ import { MarcarCompletacionDto } from './dto/completacion-modulo.dto';
 import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query.dto';
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
+import { UpdateDesignacionDto } from './dto/update-designacion.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
@@ -99,6 +100,20 @@ export class CursosController {
     @Body() dto: CreateDesignacionDto,
   ) {
     return this.cursosService.crearDesignacion(cursoId, dto);
+  }
+
+  @Patch(':cursoId/designaciones/:designacionId')
+  @RequirePermissions('cursos.gestionar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cargar calificación', description: 'Actualiza la calificación de una designación y marca el estado como completado.' })
+  @ApiResponse({ status: 200, description: 'Calificación registrada.' })
+  @ApiResponse({ status: 404, description: 'Designación no encontrada.' })
+  async actualizarDesignacion(
+    @Param('cursoId', ParseIntPipe) cursoId: number,
+    @Param('designacionId', ParseIntPipe) designacionId: number,
+    @Body() dto: UpdateDesignacionDto,
+  ) {
+    return this.cursosService.actualizarDesignacion(cursoId, designacionId, dto);
   }
 
   @Post(':cursoId/modulos')
