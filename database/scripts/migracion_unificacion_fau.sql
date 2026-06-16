@@ -126,13 +126,17 @@ CREATE TABLE IF NOT EXISTS public.funcionarios_vuelos (
 
 CREATE TABLE IF NOT EXISTS public.funcionarios_cursos (
     id BIGSERIAL PRIMARY KEY,
-    persona_id BIGINT REFERENCES public.personas(id),
-    curso_id BIGINT REFERENCES public.cursos(id),
+    persona_id BIGINT NOT NULL REFERENCES public.personas(id),
+    curso_id BIGINT NOT NULL REFERENCES public.cursos(id),
     numero_orden VARCHAR(50),
     boletin VARCHAR(50),
     fecha_inicio DATE,
     fecha_fin DATE,
     calificacion TEXT,
+    dado_de_baja BOOLEAN NOT NULL DEFAULT FALSE,
+    motivo_baja TEXT,
+    fecha_baja TIMESTAMPTZ,
+    dado_de_baja_por BIGINT REFERENCES public.usuarios(id),
     UNIQUE (persona_id, curso_id)
 );
 
@@ -146,8 +150,8 @@ CREATE TABLE IF NOT EXISTS public.modulos_curso (
 
 CREATE TABLE IF NOT EXISTS public.funcionarios_modulos_curso (
     id BIGSERIAL PRIMARY KEY,
-    funcionario_curso_id BIGINT REFERENCES public.funcionarios_cursos(id) ON DELETE CASCADE,
-    modulo_id BIGINT REFERENCES public.modulos_curso(id),
+    funcionario_curso_id BIGINT NOT NULL REFERENCES public.funcionarios_cursos(id) ON DELETE CASCADE,
+    modulo_id BIGINT NOT NULL REFERENCES public.modulos_curso(id),
     numero_orden VARCHAR(50),
     boletin VARCHAR(50),
     completado BOOLEAN DEFAULT FALSE,
