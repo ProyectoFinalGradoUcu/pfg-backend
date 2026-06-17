@@ -1,5 +1,6 @@
 import {
   IsString,
+  IsNotEmpty,
   IsOptional,
   MaxLength,
   IsArray,
@@ -13,11 +14,13 @@ export class CursoDto {
 
   @ApiProperty({ example: 'Curso de Aviacion ', maxLength: 200 })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(200)
   nombre_curso: string;
 
   @ApiProperty({ example: 'Institucion Aviacion', maxLength: 100 })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(200)
   institucion: string;
 

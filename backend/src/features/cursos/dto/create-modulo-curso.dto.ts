@@ -1,9 +1,10 @@
-import { IsString, IsOptional, MaxLength, IsInt, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, IsInt, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateModuloCursoDto {
   @ApiProperty({ example: 'Módulo de Navegación Aérea', maxLength: 200 })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(200)
   nombre_modulo: string;
 
