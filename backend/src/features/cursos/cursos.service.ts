@@ -168,7 +168,10 @@ export class CursosService {
   async getCursosPorFuncionario(query: CursosPorFuncionarioQueryDto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
-    const where = query.cedula ? { personas: { cedula: query.cedula } } : undefined;
+    const where = {
+      ...(query.cedula ? { personas: { cedula: query.cedula } } : {}),
+      ...(query.incluir_bajas ? {} : { dado_de_baja: false }),
+    };
 
     const [total, registros] = await this.prisma.$transaction([
       this.prisma.funcionarios_cursos.count({ where }),
@@ -200,6 +203,9 @@ export class CursosService {
               },
             },
           },
+          usuarios: {
+            select: { id: true, username: true },
+          },
         },
         orderBy: [{ persona_id: 'asc' }, { curso_id: 'asc' }],
         skip: (page - 1) * pageSize,
@@ -229,6 +235,12 @@ export class CursosService {
       fecha_inicio: r.fecha_inicio,
       fecha_fin: r.fecha_fin,
       calificacion: r.calificacion !== null && r.calificacion !== undefined ? Number(r.calificacion) : null,
+      dado_de_baja: r.dado_de_baja,
+      motivo_baja: r.motivo_baja,
+      fecha_baja: r.fecha_baja,
+      dado_de_baja_por: r.usuarios
+        ? { id: r.usuarios.id.toString(), username: r.usuarios.username }
+        : null,
       modulos: r.modulos.map((m) => ({
         id: m.id.toString(),
         modulo_id: m.modulo_id.toString(),
@@ -532,6 +544,77 @@ export class CursosService {
       curso_id: actualizado.curso_id.toString(),
       persona_id: actualizado.persona_id.toString(),
       calificacion: Number(actualizado.calificacion),
+    };
+  }
+
+  // ─── Dar de baja (baja lógica con motivo) ──────────────────────────────────
+  async darDeBajaDesignacion(
+    cursoId: number,
+    designacionId: number,
+    motivo: string,
+    usuarioId: string,
+  ) {
+    const designacion = await this.prisma.funcionarios_cursos.findFirst({
+      where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
+    });
+    if (!designacion) {
+      throw new NotFoundException(
+        `No existe designación con id ${designacionId} para el curso ${cursoId}`,
+      );
+    }
+    if (designacion.dado_de_baja) {
+      throw new ConflictException('La inscripción ya está dada de baja.');
+    }
+
+    const actualizado = await this.prisma.funcionarios_cursos.update({
+      where: { id: BigInt(designacionId) },
+      data: {
+        dado_de_baja: true,
+        motivo_baja: motivo,
+        fecha_baja: new Date(),
+        dado_de_baja_por: BigInt(usuarioId),
+      },
+    });
+
+    return {
+      id: actualizado.id.toString(),
+      curso_id: actualizado.curso_id.toString(),
+      persona_id: actualizado.persona_id.toString(),
+      dado_de_baja: actualizado.dado_de_baja,
+      motivo_baja: actualizado.motivo_baja,
+      fecha_baja: actualizado.fecha_baja,
+    };
+  }
+
+  // ─── Reactivar (revertir la baja) ──────────────────────────────────────────
+  async reactivarDesignacion(cursoId: number, designacionId: number) {
+    const designacion = await this.prisma.funcionarios_cursos.findFirst({
+      where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
+    });
+    if (!designacion) {
+      throw new NotFoundException(
+        `No existe designación con id ${designacionId} para el curso ${cursoId}`,
+      );
+    }
+    if (!designacion.dado_de_baja) {
+      throw new ConflictException('La inscripción no está dada de baja.');
+    }
+
+    const actualizado = await this.prisma.funcionarios_cursos.update({
+      where: { id: BigInt(designacionId) },
+      data: {
+        dado_de_baja: false,
+        motivo_baja: null,
+        fecha_baja: null,
+        dado_de_baja_por: null,
+      },
+    });
+
+    return {
+      id: actualizado.id.toString(),
+      curso_id: actualizado.curso_id.toString(),
+      persona_id: actualizado.persona_id.toString(),
+      dado_de_baja: actualizado.dado_de_baja,
     };
   }
 
