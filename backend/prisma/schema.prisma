@@ -293,17 +293,22 @@ model franjas_irpf {
 }
 
 model funcionarios_cursos {
-  id           BigInt                       @id @default(autoincrement())
-  persona_id   BigInt
-  curso_id     BigInt
-  numero_orden String?                      @db.VarChar(50)
-  boletin      String?                      @db.VarChar(50)
-  fecha_inicio DateTime?                    @db.Date
-  fecha_fin    DateTime?                    @db.Date
-  calificacion String?
-  cursos       cursos                       @relation(fields: [curso_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  personas     personas                     @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  modulos      funcionarios_modulos_curso[]
+  id               BigInt                       @id @default(autoincrement())
+  persona_id       BigInt
+  curso_id         BigInt
+  numero_orden     String?                      @db.VarChar(50)
+  boletin          String?                      @db.VarChar(50)
+  fecha_inicio     DateTime?                    @db.Date
+  fecha_fin        DateTime?                    @db.Date
+  calificacion     String?
+  dado_de_baja     Boolean                      @default(false)
+  motivo_baja      String?
+  fecha_baja       DateTime?                    @db.Timestamptz(6)
+  dado_de_baja_por BigInt?
+  cursos           cursos                       @relation(fields: [curso_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios         usuarios?                    @relation(fields: [dado_de_baja_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas         personas                     @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  modulos          funcionarios_modulos_curso[]
 
   @@unique([persona_id, curso_id])
 }
@@ -572,26 +577,26 @@ model permisos {
 }
 
 model personas {
-  id                                                                BigInt                       @id @default(autoincrement())
-  cedula                                                            String                       @unique @db.VarChar(12)
-  primer_nombre                                                     String                       @db.VarChar(100)
-  primer_apellido                                                   String                       @db.VarChar(100)
-  fecha_nacimiento                                                  DateTime?                    @db.Date
-  email                                                             String?                      @db.VarChar(150)
-  telefono                                                          String?                      @db.VarChar(30)
-  direccion                                                         String?                      @db.VarChar(200)
-  fecha_actualizacion                                               DateTime                     @default(now()) @db.Timestamp(6)
-  segundo_nombre                                                    String?                      @db.VarChar(100)
-  segundo_apellido                                                  String?                      @db.VarChar(100)
-  lugar_nacimiento                                                  String?                      @db.VarChar(200)
-  genero                                                            String?                      @db.VarChar(20)
-  etnia                                                             String?                      @db.VarChar(50)
-  estado_civil                                                      String?                      @db.VarChar(50)
-  codigo_postal                                                     String?                      @db.VarChar(20)
-  seccional                                                         String?                      @db.VarChar(100)
+  id                                                                BigInt                     @id @default(autoincrement())
+  cedula                                                            String                     @unique @db.VarChar(12)
+  primer_nombre                                                     String                     @db.VarChar(100)
+  primer_apellido                                                   String                     @db.VarChar(100)
+  fecha_nacimiento                                                  DateTime?                  @db.Date
+  email                                                             String?                    @db.VarChar(150)
+  telefono                                                          String?                    @db.VarChar(30)
+  direccion                                                         String?                    @db.VarChar(200)
+  fecha_actualizacion                                               DateTime                   @default(now()) @db.Timestamp(6)
+  segundo_nombre                                                    String?                    @db.VarChar(100)
+  segundo_apellido                                                  String?                    @db.VarChar(100)
+  lugar_nacimiento                                                  String?                    @db.VarChar(200)
+  genero                                                            String?                    @db.VarChar(20)
+  etnia                                                             String?                    @db.VarChar(50)
+  estado_civil                                                      String?                    @db.VarChar(50)
+  codigo_postal                                                     String?                    @db.VarChar(20)
+  seccional                                                         String?                    @db.VarChar(100)
   foto                                                              Bytes?
-  fecha_fallecimiento                                               DateTime?                    @db.Date
-  es_civil                                                          Boolean?                     @default(false)
+  fecha_fallecimiento                                               DateTime?                  @db.Date
+  es_civil                                                          Boolean?                   @default(false)
   aguinaldos                                                        aguinaldos[]
   ascensos                                                          ascensos[]
   asignaciones_funcionario                                          asignaciones_funcionario[]
@@ -606,8 +611,8 @@ model personas {
   items_liquidacion                                                 items_liquidacion[]
   items_lote_compensacion                                           items_lote_compensacion[]
   ocupaciones_vivienda                                              ocupaciones_vivienda[]
-  relaciones_familiares_relaciones_familiares_familiar_idTopersonas relaciones_familiares[]      @relation("relaciones_familiares_familiar_idTopersonas")
-  relaciones_familiares_relaciones_familiares_persona_idTopersonas  relaciones_familiares[]      @relation("relaciones_familiares_persona_idTopersonas")
+  relaciones_familiares_relaciones_familiares_familiar_idTopersonas relaciones_familiares[]    @relation("relaciones_familiares_familiar_idTopersonas")
+  relaciones_familiares_relaciones_familiares_persona_idTopersonas  relaciones_familiares[]    @relation("relaciones_familiares_persona_idTopersonas")
   relaciones_laborales                                              relaciones_laborales[]
   retiros                                                           retiros?
   retroactividades                                                  retroactividades[]
@@ -873,6 +878,7 @@ model usuarios {
   beneficios_sociales                                          beneficios_sociales[]
   bitacora_auditoria                                           bitacora_auditoria[]
   cierres                                                      cierres[]
+  funcionarios_cursos                                          funcionarios_cursos[]
   liquidaciones_liquidaciones_abierta_porTousuarios            liquidaciones[]         @relation("liquidaciones_abierta_porTousuarios")
   liquidaciones_liquidaciones_cerrada_porTousuarios            liquidaciones[]         @relation("liquidaciones_cerrada_porTousuarios")
   lotes_compensacion_lotes_compensacion_aprobado_porTousuarios lotes_compensacion[]    @relation("lotes_compensacion_aprobado_porTousuarios")
