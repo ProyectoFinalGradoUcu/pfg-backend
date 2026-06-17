@@ -485,6 +485,10 @@ export class CursosService {
               : { numero_orden: dto.numero_orden ?? null, boletin: dto.boletin ?? null }),
             fecha_inicio: fechaInicio,
             fecha_fin: fechaFin,
+            dado_de_baja: false,
+            motivo_baja: null,
+            fecha_baja: null,
+            dado_de_baja_por: null,
           },
         });
 
