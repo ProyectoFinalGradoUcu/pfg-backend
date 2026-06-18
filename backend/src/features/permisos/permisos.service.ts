@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
 import { Prisma } from '@prisma/client';
+import { APLICACION } from '../../lib/aplicacion.const';
 import { ListPermisosQueryDto } from './dto/list-permisos-query.dto';
 
 @Injectable()
@@ -12,14 +13,17 @@ export class PermisosService {
     const pageSize = Math.min(query.pageSize ?? 10, 100);
     const search = query.search?.trim();
 
-    const where: Prisma.permisosWhereInput = search
-      ? {
-          OR: [
-            { nombre: { contains: search, mode: Prisma.QueryMode.insensitive } },
-            { descripcion: { contains: search, mode: Prisma.QueryMode.insensitive } },
-          ],
-        }
-      : {};
+    const where: Prisma.permisosWhereInput = {
+      aplicacion: APLICACION,
+      ...(search
+        ? {
+            OR: [
+              { nombre: { contains: search, mode: Prisma.QueryMode.insensitive } },
+              { descripcion: { contains: search, mode: Prisma.QueryMode.insensitive } },
+            ],
+          }
+        : {}),
+    };
 
     const [total, permisos] = await this.prisma.$transaction([
       this.prisma.permisos.count({ where }),
