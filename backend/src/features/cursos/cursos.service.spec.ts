@@ -580,7 +580,7 @@ describe('CursosService', () => {
 
       expect(prisma.funcionarios_cursos.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { personas: { cedula: '12345678' } },
+          where: { dado_de_baja: false, personas: { cedula: '12345678' } },
         }),
       );
     });
