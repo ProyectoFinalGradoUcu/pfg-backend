@@ -68,8 +68,8 @@ export class CatalogosService {
     return items.map((i) => ({ id: Number(i.id), codigo: i.codigo, denominacion: i.denominacion }));
   }
 
-  async findCompanias() {
-    const items = await this.prisma.compa_ia.findMany({
+  async findSubUnidades() {
+    const items = await this.prisma.sub_unidades.findMany({
       where: { vigente: true },
       orderBy: { denominacion: 'asc' },
       select: { id: true, codigo: true, denominacion: true },

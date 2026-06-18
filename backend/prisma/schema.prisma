@@ -16,14 +16,16 @@ model acciones {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model acreedores {
-  id                    BigInt                  @id @default(autoincrement())
-  codigo                String                  @unique @db.VarChar(20)
-  nombre                String                  @db.VarChar(150)
-  prioridad_deficit     Int                     @unique @db.SmallInt
-  formato_archivo       String?                 @default("txt") @db.VarChar(10)
-  contacto              String?                 @db.VarChar(200)
-  activo                Boolean                 @default(true)
-  descuentos_personales descuentos_personales[]
+  id                          BigInt                        @id @default(autoincrement())
+  codigo                      String                        @unique @db.VarChar(20)
+  nombre                      String                        @db.VarChar(150)
+  formato_archivo             String?                       @default("txt") @db.VarChar(10)
+  contacto                    String?                       @db.VarChar(200)
+  activo                      Boolean                       @default(true)
+  categoria_deficit           String                        @default("otras_retenciones") @db.VarChar(60)
+  orden_legal_deficit         Int                           @default(100) @db.SmallInt
+  descuentos_personal_periodo descuentos_personal_periodo[]
+  descuentos_personales       descuentos_personales[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -74,23 +76,25 @@ model bancos {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model beneficios_sociales {
-  id                       BigInt          @id @default(autoincrement())
-  persona_id               BigInt
-  tipo_beneficio_id        BigInt
-  cantidad                 Int             @default(1) @db.SmallInt
-  vigente_desde            DateTime        @db.Date
-  vigente_hasta            DateTime?       @db.Date
-  estado                   String          @default("activo") @db.VarChar(20)
-  documento_respaldo       String?         @db.VarChar(200)
-  observaciones            String?
-  creado_en                DateTime        @default(now()) @db.Timestamp(6)
-  creado_por               BigInt?
-  fecha_evento             DateTime?       @db.Date
-  clave_evento             String?         @db.VarChar(80)
-  retroactividad_pendiente Boolean         @default(false)
-  usuarios                 usuarios?       @relation(fields: [creado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  personas                 personas        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  tipos_beneficio          tipos_beneficio @relation(fields: [tipo_beneficio_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                             BigInt                           @id @default(autoincrement())
+  persona_id                     BigInt
+  tipo_beneficio_id              BigInt
+  cantidad                       Int                              @default(1) @db.SmallInt
+  vigente_desde                  DateTime                         @db.Date
+  vigente_hasta                  DateTime?                        @db.Date
+  estado                         String                           @default("activo") @db.VarChar(20)
+  documento_respaldo             String?                          @db.VarChar(200)
+  observaciones                  String?
+  creado_en                      DateTime                         @default(now()) @db.Timestamp(6)
+  creado_por                     BigInt?
+  fecha_evento                   DateTime?                        @db.Date
+  clave_evento                   String?                          @db.VarChar(80)
+  retroactividad_pendiente       Boolean                          @default(false)
+  subtipo                        String?                          @db.VarChar(20)
+  beneficio_social_beneficiarios beneficio_social_beneficiarios[]
+  usuarios                       usuarios?                        @relation(fields: [creado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas                       personas                         @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tipos_beneficio                tipos_beneficio                  @relation(fields: [tipo_beneficio_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([persona_id, estado], map: "idx_beneficios_persona")
   @@index([persona_id, tipo_beneficio_id, clave_evento], map: "idx_beneficios_persona_tipo_clave")
@@ -115,26 +119,30 @@ model bitacora_auditoria {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model catalogo_items {
-  id                    BigInt                  @id @default(autoincrement())
-  codigo                Int                     @unique
-  nombre                String                  @db.VarChar(150)
-  tipo                  String                  @db.VarChar(30)
-  es_grabado            Boolean                 @default(true)
-  contribuye_w_para_5_3 Boolean                 @default(false)
-  contribuye_w_para_10  Boolean                 @default(false)
-  contribuye_w_para_20  Boolean                 @default(false)
-  clasificacion_siif    String?                 @db.VarChar(20)
-  formula_calculo       String?                 @db.VarChar(50)
-  orden_calculo         Int                     @default(0) @db.SmallInt
-  item_par_ficto_id     BigInt?
-  vigente               Boolean                 @default(true)
-  catalogo_items        catalogo_items?         @relation("catalogo_itemsTocatalogo_items", fields: [item_par_ficto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  other_catalogo_items  catalogo_items[]        @relation("catalogo_itemsTocatalogo_items")
-  config_compensaciones config_compensaciones[]
-  items_liquidacion     items_liquidacion[]
-  remuneraciones_grado  remuneraciones_grado[]
-  tarifas_por_categoria tarifas_por_categoria[]
-  tipos_beneficio       tipos_beneficio[]
+  id                          BigInt                        @id @default(autoincrement())
+  codigo                      Int                           @unique
+  nombre                      String                        @db.VarChar(150)
+  tipo                        String                        @db.VarChar(30)
+  es_gravado                  Boolean                       @default(true)
+  contribuye_w_para_5_3       Boolean                       @default(false)
+  contribuye_w_para_10        Boolean                       @default(false)
+  contribuye_w_para_20        Boolean                       @default(false)
+  contribuye_w_nominal        Boolean                       @default(false)
+  clasificacion_siif          String?                       @db.VarChar(20)
+  formula_calculo             String?                       @db.VarChar(50)
+  orden_calculo               Int                           @default(0) @db.SmallInt
+  item_par_ficto_id           BigInt?
+  vigente                     Boolean                       @default(true)
+  norma_legal                 String?                       @db.VarChar(100)
+  acumula_aguinaldo           Boolean                       @default(false)
+  lleva_aumento               Boolean                       @default(false)
+  catalogo_items              catalogo_items?               @relation("catalogo_itemsTocatalogo_items", fields: [item_par_ficto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_catalogo_items        catalogo_items[]              @relation("catalogo_itemsTocatalogo_items")
+  descuentos_personal_periodo descuentos_personal_periodo[]
+  items_liquidacion           items_liquidacion[]
+  remuneraciones_grado        remuneraciones_grado[]
+  tarifas_por_categoria       tarifas_por_categoria[]
+  tipos_beneficio             tipos_beneficio[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -151,14 +159,16 @@ model cierres {
   liquidaciones  liquidaciones @relation(fields: [liquidacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
-model compa_ia {
+model sub_unidades {
   id                   BigInt                 @id @default(autoincrement())
-  codigo               String                 @unique @db.VarChar(30)
-  denominacion         String                 @db.VarChar(100)
+  unidad_id            BigInt
+  codigo               String                 @db.VarChar(30)
+  denominacion         String                 @db.VarChar(150)
   vigente              Boolean                @default(true)
   relaciones_laborales relaciones_laborales[]
+  unidades             unidades               @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@map("compañia")
+  @@unique([unidad_id, codigo])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -167,22 +177,21 @@ model config_compensaciones {
   tipo_compensacion_id BigInt
   regimen_id           BigInt?
   grado_id             BigInt?
+  escalafon_id         BigInt?
+  funcion              String?            @db.VarChar(50)
   unidad_medida        String             @db.VarChar(10)
   formula              String             @db.VarChar(30)
   valor_por_unidad     Decimal?           @db.Decimal(14, 2)
   monto                Decimal?           @db.Decimal(14, 2)
   tope                 Decimal?           @db.Decimal(14, 2)
-  vigente_desde        DateTime           @db.Date
-  vigente_hasta        DateTime?          @db.Date
-  activo               Boolean            @default(true)
-  escalafon_id         BigInt?
-  funcion              String?            @db.VarChar(50)
   tope_unidades        Int?               @db.SmallInt
   valor_minimo         Decimal?           @db.Decimal(14, 2)
   valor_maximo         Decimal?           @db.Decimal(14, 2)
   sujeto_desc_legales  Boolean            @default(false)
   catalogo_item_id     BigInt?
-  catalogo_items       catalogo_items?    @relation(fields: [catalogo_item_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vigente_desde        DateTime           @db.Date
+  vigente_hasta        DateTime?          @db.Date
+  activo               Boolean            @default(true)
   escalafones          escalafones?       @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   grados               grados?            @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   regimenes            regimenes?         @relation(fields: [regimen_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -350,22 +359,25 @@ model funcionarios_vuelos {
 }
 
 model grados {
-  id                                                     BigInt                    @id @default(autoincrement())
-  escalafon_id                                           BigInt
-  codigo                                                 String                    @db.VarChar(30)
-  denominacion                                           String                    @db.VarChar(100)
-  orden                                                  Int                       @db.SmallInt
-  vigente                                                Boolean                   @default(true)
-  es_oficial                                             Boolean                   @default(false)
-  es_subalterno                                          Boolean                   @default(false)
-  ascensos                                               ascensos[]
-  config_compensaciones                                  config_compensaciones[]
-  escalafones                                            escalafones               @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  items_lote_compensacion                                items_lote_compensacion[]
-  reglas_ascenso_reglas_ascenso_grado_destino_idTogrados reglas_ascenso[]          @relation("reglas_ascenso_grado_destino_idTogrados")
-  reglas_ascenso_reglas_ascenso_grado_origen_idTogrados  reglas_ascenso?           @relation("reglas_ascenso_grado_origen_idTogrados")
-  relaciones_laborales                                   relaciones_laborales[]
-  remuneraciones_grado                                   remuneraciones_grado[]
+  id                                                                                         BigInt                              @id @default(autoincrement())
+  codigo                                                                                     String                              @unique @db.VarChar(30)
+  escalafon_id                                                                               BigInt?
+  denominacion                                                                               String                              @db.VarChar(100)
+  orden                                                                                      Int                                 @db.SmallInt
+  vigente                                                                                    Boolean                             @default(true)
+  es_oficial                                                                                 Boolean                             @default(false)
+  es_subalterno                                                                              Boolean                             @default(false)
+  ascensos                                                                                   ascensos[]
+  compensaciones_diferencia_ascenso_compensaciones_diferencia_ascenso_grado_nuevo_idTogrados compensaciones_diferencia_ascenso[] @relation("compensaciones_diferencia_ascenso_grado_nuevo_idTogrados")
+  compensaciones_diferencia_ascenso_compensaciones_diferencia_ascenso_grado_viejo_idTogrados compensaciones_diferencia_ascenso[] @relation("compensaciones_diferencia_ascenso_grado_viejo_idTogrados")
+  config_compensaciones                                                                      config_compensaciones[]
+  escalafones                                                                                escalafones?                        @relation(fields: [escalafon_id], references: [id], onUpdate: NoAction)
+  items_lote_compensacion                                                                    items_lote_compensacion[]
+  reglas_ascenso_reglas_ascenso_grado_destino_idTogrados                                     reglas_ascenso[]                    @relation("reglas_ascenso_grado_destino_idTogrados")
+  reglas_ascenso_reglas_ascenso_grado_origen_idTogrados                                      reglas_ascenso?                     @relation("reglas_ascenso_grado_origen_idTogrados")
+  relaciones_laborales                                                                       relaciones_laborales[]
+  relaciones_laborales_relaciones_laborales_grado_reincorporacion_idTogrados                 relaciones_laborales[]              @relation("relaciones_laborales_grado_reincorporacion_idTogrados")
+  remuneraciones_grado                                                                       remuneraciones_grado[]
 }
 
 model irpf_detalle_franjas {
@@ -393,7 +405,7 @@ model irpf_mensual {
   base_imponible_neta        Decimal                @db.Decimal(14, 2)
   total_irpf                 Decimal                @db.Decimal(14, 2)
   irpf_detalle_franjas       irpf_detalle_franjas[]
-  liquidaciones              liquidaciones          @relation(fields: [liquidacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  liquidaciones              periodos_liquidacion   @relation(fields: [liquidacion_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   personas                   personas               @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([liquidacion_id, persona_id])
@@ -466,12 +478,10 @@ model liquidaciones {
   aguinaldos                                   aguinaldos[]
   cierres                                      cierres?
   descuentos_personales                        descuentos_personales[]
-  irpf_mensual                                 irpf_mensual[]
   items_liquidacion                            items_liquidacion[]
   usuarios_liquidaciones_abierta_porTousuarios usuarios                @relation("liquidaciones_abierta_porTousuarios", fields: [abierta_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_liquidaciones_cerrada_porTousuarios usuarios?               @relation("liquidaciones_cerrada_porTousuarios", fields: [cerrada_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   parametros_periodo                           parametros_periodo      @relation(fields: [parametros_periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  retroactividades                             retroactividades[]
 
   @@unique([anio, mes, version])
   @@index([estado], map: "idx_liquidaciones_estado")
@@ -482,7 +492,7 @@ model lotes_compensacion {
   id                                                 BigInt                    @id @default(autoincrement())
   tipo_compensacion_id                               BigInt
   periodo                                            DateTime                  @db.Date
-  estado                                             String                    @db.VarChar(20)
+  estado                                             String                    @default("borrador") @db.VarChar(20)
   fuente                                             String?                   @db.VarChar(150)
   nombre_archivo                                     String?                   @db.VarChar(200)
   hash_archivo                                       String?                   @db.VarChar(100)
@@ -531,6 +541,8 @@ model movimientos_laborales {
   observaciones        String?
   es_automatico        Boolean              @default(false)
   creado_en            DateTime             @default(now()) @db.Timestamp(6)
+  puesto               String?              @db.VarChar(100)
+  plaza                String?              @db.VarChar(50)
   relaciones_laborales relaciones_laborales @relation(fields: [relacion_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tipos_movimiento     tipos_movimiento     @relation(fields: [tipo_movimiento_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios             usuarios?            @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -561,6 +573,7 @@ model parametros_periodo {
   tasa_deduccion_alta       Decimal         @default(0.0800) @db.Decimal(5, 4)
   tasa_deduccion_baja       Decimal         @default(0.1400) @db.Decimal(5, 4)
   porcentaje_minimo_deficit Decimal         @default(0.3500) @db.Decimal(5, 4)
+  tasa_aporte_civil         Decimal         @default(0.1950) @db.Decimal(5, 4)
   creado_por                BigInt?
   creado_en                 DateTime        @default(now()) @db.Timestamp(6)
   liquidaciones             liquidaciones[]
@@ -577,42 +590,49 @@ model permisos {
 }
 
 model personas {
-  id                                                                BigInt                     @id @default(autoincrement())
-  cedula                                                            String                     @unique @db.VarChar(12)
-  primer_nombre                                                     String                     @db.VarChar(100)
-  primer_apellido                                                   String                     @db.VarChar(100)
-  fecha_nacimiento                                                  DateTime?                  @db.Date
-  email                                                             String?                    @db.VarChar(150)
-  telefono                                                          String?                    @db.VarChar(30)
-  direccion                                                         String?                    @db.VarChar(200)
-  fecha_actualizacion                                               DateTime                   @default(now()) @db.Timestamp(6)
-  segundo_nombre                                                    String?                    @db.VarChar(100)
-  segundo_apellido                                                  String?                    @db.VarChar(100)
-  lugar_nacimiento                                                  String?                    @db.VarChar(200)
-  genero                                                            String?                    @db.VarChar(20)
-  etnia                                                             String?                    @db.VarChar(50)
-  estado_civil                                                      String?                    @db.VarChar(50)
-  codigo_postal                                                     String?                    @db.VarChar(20)
-  seccional                                                         String?                    @db.VarChar(100)
+  id                                                                BigInt                              @id @default(autoincrement())
+  cedula                                                            String                              @unique @db.VarChar(12)
+  primer_nombre                                                     String                              @db.VarChar(100)
+  segundo_nombre                                                    String?                             @db.VarChar(100)
+  primer_apellido                                                   String                              @db.VarChar(100)
+  segundo_apellido                                                  String?                             @db.VarChar(100)
+  fecha_nacimiento                                                  DateTime?                           @db.Date
+  email                                                             String?                             @db.VarChar(150)
+  telefono                                                          String?                             @db.VarChar(30)
+  direccion                                                         String?                             @db.VarChar(200)
+  codigo_postal                                                     String?                             @db.VarChar(10)
+  departamento                                                      String?                             @db.VarChar(100)
+  localidad                                                         String?                             @db.VarChar(100)
+  fecha_actualizacion                                               DateTime                            @default(now()) @db.Timestamp(6)
+  lugar_nacimiento                                                  String?                             @db.VarChar(200)
+  genero                                                            String?                             @db.VarChar(20)
+  etnia                                                             String?                             @db.VarChar(50)
+  estado_civil                                                      String?                             @db.VarChar(50)
+  seccional                                                         String?                             @db.VarChar(100)
   foto                                                              Bytes?
-  fecha_fallecimiento                                               DateTime?                  @db.Date
-  es_civil                                                          Boolean?                   @default(false)
+  fecha_fallecimiento                                               DateTime?                           @db.Date
+  es_civil                                                          Boolean?                            @default(false)
   aguinaldos                                                        aguinaldos[]
   ascensos                                                          ascensos[]
   asignaciones_funcionario                                          asignaciones_funcionario[]
   beneficios_sociales                                               beneficios_sociales[]
+  compensaciones_diferencia_ascenso                                 compensaciones_diferencia_ascenso[]
   cuentas_bancarias                                                 cuentas_bancarias[]
   dependientes                                                      dependientes[]
+  descuentos_personal_periodo                                       descuentos_personal_periodo[]
   descuentos_personales                                             descuentos_personales[]
+  form3100                                                          form3100[]
   funcionarios_cursos                                               funcionarios_cursos[]
   funcionarios_misiones                                             funcionarios_misiones[]
   funcionarios_vuelos                                               funcionarios_vuelos[]
+  incidencias_calculo                                               incidencias_calculo[]
   irpf_mensual                                                      irpf_mensual[]
   items_liquidacion                                                 items_liquidacion[]
   items_lote_compensacion                                           items_lote_compensacion[]
+  novedades_periodo                                                 novedades_periodo[]
   ocupaciones_vivienda                                              ocupaciones_vivienda[]
-  relaciones_familiares_relaciones_familiares_familiar_idTopersonas relaciones_familiares[]    @relation("relaciones_familiares_familiar_idTopersonas")
-  relaciones_familiares_relaciones_familiares_persona_idTopersonas  relaciones_familiares[]    @relation("relaciones_familiares_persona_idTopersonas")
+  relaciones_familiares_relaciones_familiares_familiar_idTopersonas relaciones_familiares[]             @relation("relaciones_familiares_familiar_idTopersonas")
+  relaciones_familiares_relaciones_familiares_persona_idTopersonas  relaciones_familiares[]             @relation("relaciones_familiares_persona_idTopersonas")
   relaciones_laborales                                              relaciones_laborales[]
   retiros                                                           retiros?
   retroactividades                                                  retroactividades[]
@@ -633,6 +653,7 @@ model regimenes {
   numero_ley            String                  @unique @db.VarChar(30)
   denominacion          String                  @db.VarChar(100)
   vigente               Boolean                 @default(true)
+  es_ley_vieja          Boolean                 @default(false)
   config_compensaciones config_compensaciones[]
   relaciones_laborales  relaciones_laborales[]
 }
@@ -663,39 +684,48 @@ model relaciones_familiares {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model relaciones_laborales {
-  id                       BigInt                  @id @default(autoincrement())
-  persona_id               BigInt
-  regimen_id               BigInt
-  unidad_id                BigInt
-  programa_id              BigInt
-  situacion_id             BigInt
-  escalafon_id             BigInt
-  grado_id                 BigInt
-  fecha_inicio             DateTime                @db.Date
-  fecha_fin                DateTime?               @db.Date
-  estado                   String                  @db.VarChar(20)
-  fecha_actualizacion      DateTime                @default(now()) @db.Timestamp(6)
-  prima_tecnica            String?                 @default("VACIO") @db.VarChar(10)
-  prima_solidaria_familiar String?                 @db.VarChar(30)
-  riesgo_vuelo             Decimal?                @db.Decimal(14, 2)
-  anios_inactivos          Int?
-  observaciones            String?
-  compania_id              BigInt?
-  fecha_ultimo_ascenso     DateTime?               @db.Date
-  tipo_funcionario         String?                 @db.VarChar(20)
-  tiene_mando              Boolean?
-  mutaciones               String?
-  conducta                 String?
-  items_liquidacion        items_liquidacion[]
-  movimientos_laborales    movimientos_laborales[]
-  compa_ia                 compa_ia?               @relation(fields: [compania_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  escalafones              escalafones             @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  grados                   grados                  @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  personas                 personas                @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  programas                programas               @relation(fields: [programa_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  regimenes                regimenes               @relation(fields: [regimen_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  situaciones              situaciones             @relation(fields: [situacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  unidades                 unidades                @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                                                           BigInt                              @id @default(autoincrement())
+  persona_id                                                   BigInt
+  regimen_id                                                   BigInt
+  unidad_id                                                    BigInt
+  programa_id                                                  BigInt
+  situacion_id                                                 BigInt
+  escalafon_id                                                 BigInt
+  grado_id                                                     BigInt
+  fecha_inicio                                                 DateTime                            @db.Date
+  fecha_fin                                                    DateTime?                           @db.Date
+  estado                                                       String                              @db.VarChar(20)
+  prima_tecnica                                                String?                             @default("VACIO") @db.VarChar(10)
+  prima_solidaria_familiar                                     String?                             @db.VarChar(30)
+  riesgo_vuelo                                                 Decimal?                            @db.Decimal(14, 2)
+  anios_inactivos                                              Int?
+  observaciones                                                String?
+  sub_unidad_id                                                BigInt?
+  motivo_baja_id                                               BigInt?
+  fecha_ultimo_ascenso                                         DateTime?                           @db.Date
+  grado_reincorporacion_id                                     BigInt?
+  haber_retiro                                                 Decimal?                            @db.Decimal(14, 2)
+  porcentaje_progresivo                                        Decimal?                            @db.Decimal(5, 4)
+  fecha_actualizacion                                          DateTime                            @default(now()) @db.Timestamp(6)
+  fecha_ascenso_oficial                                        DateTime?                           @db.Date
+  superprima                                                   Boolean                             @default(false)
+  tipo_funcionario                                             String?                             @db.VarChar(20)
+  tiene_mando                                                  Boolean?
+  mutaciones                                                   String?
+  conducta                                                     String?
+  compensaciones_diferencia_ascenso                            compensaciones_diferencia_ascenso[]
+  items_liquidacion                                            items_liquidacion[]
+  movimientos_laborales                                        movimientos_laborales[]
+  escalafones                                                  escalafones                         @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grados                                                       grados                              @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grados_relaciones_laborales_grado_reincorporacion_idTogrados grados?                             @relation("relaciones_laborales_grado_reincorporacion_idTogrados", fields: [grado_reincorporacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  motivos_baja                                                 motivos_baja?                       @relation(fields: [motivo_baja_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas                                                     personas                            @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  programas                                                    programas                           @relation(fields: [programa_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  regimenes                                                    regimenes                           @relation(fields: [regimen_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  situaciones                                                  situaciones                         @relation(fields: [situacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades                                                 sub_unidades?                       @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidades                                                     unidades                            @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([grado_id], map: "idx_relaciones_laborales_grado")
   @@index([persona_id, estado], map: "idx_relaciones_laborales_persona_activo")
@@ -708,11 +738,11 @@ model remuneraciones_grado {
   grado_id       BigInt
   item_id        BigInt
   monto          Decimal        @db.Decimal(14, 2)
+  tipo_monto     String         @default("mensual") @db.VarChar(20)
   vigente_desde  DateTime       @db.Date
   vigente_hasta  DateTime?      @db.Date
   creado_por     BigInt?
   creado_en      DateTime       @default(now()) @db.Timestamp(6)
-  tipo_monto     String         @default("mensual") @db.VarChar(20)
   usuarios       usuarios?      @relation(fields: [creado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   grados         grados         @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   catalogo_items catalogo_items @relation(fields: [item_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -731,20 +761,28 @@ model retiros {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model retroactividades {
-  id                       BigInt        @id @default(autoincrement())
-  liquidacion_id           BigInt
-  persona_id               BigInt
-  mes_origen_anio          Int           @db.SmallInt
-  mes_origen_mes           Int           @db.SmallInt
-  concepto                 String        @db.VarChar(100)
-  monto_original           Decimal       @db.Decimal(14, 2)
-  monto_nuevo              Decimal       @db.Decimal(14, 2)
-  diferencia               Decimal       @db.Decimal(14, 2)
-  descuentos_legales_retro Decimal       @default(0) @db.Decimal(14, 2)
-  estado                   String        @default("calculada") @db.VarChar(20)
-  creado_en                DateTime      @default(now()) @db.Timestamp(6)
-  liquidaciones            liquidaciones @relation(fields: [liquidacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  personas                 personas      @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                                                                                BigInt                 @id @default(autoincrement())
+  periodo_id                                                                        BigInt
+  persona_id                                                                        BigInt
+  periodo_referencia_id                                                             BigInt
+  tipo                                                                              String                 @db.VarChar(30)
+  meses_retro                                                                       Int                    @db.SmallInt
+  estado                                                                            String                 @default("pendiente") @db.VarChar(20)
+  creado_por                                                                        BigInt?
+  creado_en                                                                         DateTime               @default(now()) @db.Timestamp(6)
+  confirmado_por                                                                    BigInt?
+  confirmado_en                                                                     DateTime?              @db.Timestamp(6)
+  calculado_en                                                                      DateTime?              @db.Timestamp(6)
+  retroactividad_items                                                              retroactividad_items[]
+  usuarios_retroactividades_confirmado_porTousuarios                                usuarios?              @relation("retroactividades_confirmado_porTousuarios", fields: [confirmado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_retroactividades_creado_porTousuarios                                    usuarios?              @relation("retroactividades_creado_porTousuarios", fields: [creado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  periodos_liquidacion_retroactividades_periodo_idToperiodos_liquidacion            periodos_liquidacion   @relation("retroactividades_periodo_idToperiodos_liquidacion", fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  periodos_liquidacion_retroactividades_periodo_referencia_idToperiodos_liquidacion periodos_liquidacion   @relation("retroactividades_periodo_referencia_idToperiodos_liquidacion", fields: [periodo_referencia_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas                                                                          personas               @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([periodo_id, persona_id, tipo])
+  @@index([periodo_id, estado], map: "idx_retroactividades_periodo")
+  @@index([persona_id], map: "idx_retroactividades_persona")
 }
 
 model roles {
@@ -789,7 +827,7 @@ model situaciones {
   vigente                 Boolean                   @default(true)
   calculador              String?                   @db.VarChar(50)
   afecta_cobro            Boolean                   @default(true)
-  sistema_salud           String                    @db.VarChar(10)
+  sistema_salud           String                    @default("ssffaa") @db.VarChar(10)
   items_lote_compensacion items_lote_compensacion[]
   relaciones_laborales    relaciones_laborales[]
 }
@@ -804,6 +842,7 @@ model tabla_permanencia {
   monto_fijo    Decimal?    @db.Decimal(14, 2)
   vigente_desde DateTime    @db.Date
   vigente_hasta DateTime?   @db.Date
+  activo        Boolean     @default(true)
   escalafones   escalafones @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
@@ -825,7 +864,7 @@ model tarifas_por_categoria {
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model tipos_beneficio {
   id                      BigInt                @id @default(autoincrement())
-  codigo                  String                @unique @db.VarChar(30)
+  codigo                  String                @db.VarChar(30)
   nombre                  String                @db.VarChar(150)
   es_mensual              Boolean               @default(true)
   permite_retroactividad  Boolean               @default(false)
@@ -851,7 +890,7 @@ model tipos_compensacion {
 
 model tipos_movimiento {
   id                    BigInt                  @id @default(autoincrement())
-  nombre                String                  @db.VarChar(100)
+  nombre                String                  @unique(map: "uq_tipos_movimiento_nombre") @db.VarChar(100)
   es_alta               Boolean
   movimientos_laborales movimientos_laborales[]
 }
@@ -863,31 +902,44 @@ model unidades {
   vigente                 Boolean                   @default(true)
   items_lote_compensacion items_lote_compensacion[]
   relaciones_laborales    relaciones_laborales[]
+  sub_unidades            sub_unidades[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model usuarios {
-  id                                                           BigInt                  @id @default(autoincrement())
-  username                                                     String                  @unique @db.VarChar(60)
-  password_hash                                                String                  @db.VarChar(255)
-  estado                                                       String                  @default("activo") @db.VarChar(20)
-  intentos_fallidos                                            Int                     @default(0) @db.SmallInt
-  bloqueado_hasta                                              DateTime?               @db.Timestamp(6)
-  persona_id                                                   BigInt?
-  fecha_actualizacion                                          DateTime                @default(now()) @db.Timestamp(6)
-  beneficios_sociales                                          beneficios_sociales[]
-  bitacora_auditoria                                           bitacora_auditoria[]
-  cierres                                                      cierres[]
-  funcionarios_cursos                                          funcionarios_cursos[]
-  liquidaciones_liquidaciones_abierta_porTousuarios            liquidaciones[]         @relation("liquidaciones_abierta_porTousuarios")
-  liquidaciones_liquidaciones_cerrada_porTousuarios            liquidaciones[]         @relation("liquidaciones_cerrada_porTousuarios")
-  lotes_compensacion_lotes_compensacion_aprobado_porTousuarios lotes_compensacion[]    @relation("lotes_compensacion_aprobado_porTousuarios")
-  lotes_compensacion_lotes_compensacion_usuario_idTousuarios   lotes_compensacion[]    @relation("lotes_compensacion_usuario_idTousuarios")
-  movimientos_laborales                                        movimientos_laborales[]
-  parametros_periodo                                           parametros_periodo[]
-  remuneraciones_grado                                         remuneraciones_grado[]
-  personas                                                     personas?               @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  usuarios_roles                                               usuarios_roles[]
+  id                                                                         BigInt                           @id @default(autoincrement())
+  username                                                                   String                           @unique @db.VarChar(60)
+  password_hash                                                              String                           @db.VarChar(255)
+  estado                                                                     String                           @default("activo") @db.VarChar(20)
+  intentos_fallidos                                                          Int                              @default(0) @db.SmallInt
+  bloqueado_hasta                                                            DateTime?                        @db.Timestamp(6)
+  persona_id                                                                 BigInt?
+  fecha_actualizacion                                                        DateTime                         @default(now()) @db.Timestamp(6)
+  beneficio_social_beneficiarios                                             beneficio_social_beneficiarios[]
+  beneficios_sociales                                                        beneficios_sociales[]
+  bitacora_auditoria                                                         bitacora_auditoria[]
+  cierres                                                                    cierres[]
+  descuentos_personal_periodo                                                descuentos_personal_periodo[]
+  documentos                                                                 documentos[]
+  form3100                                                                   form3100[]
+  funcionarios_cursos                                                        funcionarios_cursos[]
+  liquidaciones_liquidaciones_abierta_porTousuarios                          liquidaciones[]                  @relation("liquidaciones_abierta_porTousuarios")
+  liquidaciones_liquidaciones_cerrada_porTousuarios                          liquidaciones[]                  @relation("liquidaciones_cerrada_porTousuarios")
+  lotes_compensacion_lotes_compensacion_aprobado_porTousuarios               lotes_compensacion[]             @relation("lotes_compensacion_aprobado_porTousuarios")
+  lotes_compensacion_lotes_compensacion_usuario_idTousuarios                 lotes_compensacion[]             @relation("lotes_compensacion_usuario_idTousuarios")
+  movimientos_laborales                                                      movimientos_laborales[]
+  novedades_periodo_novedades_periodo_confirmado_porTousuarios               novedades_periodo[]              @relation("novedades_periodo_confirmado_porTousuarios")
+  novedades_periodo_novedades_periodo_creado_porTousuarios                   novedades_periodo[]              @relation("novedades_periodo_creado_porTousuarios")
+  parametros_periodo                                                         parametros_periodo[]
+  periodos_liquidacion_periodos_liquidacion_usuario_aperturaTousuarios       periodos_liquidacion[]           @relation("periodos_liquidacion_usuario_aperturaTousuarios")
+  periodos_liquidacion_periodos_liquidacion_usuario_calculoTousuarios        periodos_liquidacion[]           @relation("periodos_liquidacion_usuario_calculoTousuarios")
+  periodos_liquidacion_periodos_liquidacion_usuario_cierreTousuarios         periodos_liquidacion[]           @relation("periodos_liquidacion_usuario_cierreTousuarios")
+  periodos_liquidacion_periodos_liquidacion_usuario_cierre_insumosTousuarios periodos_liquidacion[]           @relation("periodos_liquidacion_usuario_cierre_insumosTousuarios")
+  remuneraciones_grado                                                       remuneraciones_grado[]
+  retroactividades_retroactividades_confirmado_porTousuarios                 retroactividades[]               @relation("retroactividades_confirmado_porTousuarios")
+  retroactividades_retroactividades_creado_porTousuarios                     retroactividades[]               @relation("retroactividades_creado_porTousuarios")
+  personas                                                                   personas?                        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_roles                                                             usuarios_roles[]
 }
 
 model usuarios_roles {
@@ -919,4 +971,353 @@ model vuelos {
   tipo_licencia         String?               @db.VarChar(100)
   fecha_licencia        DateTime?             @db.Date
   funcionarios_vuelos   funcionarios_vuelos[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model beneficio_social_beneficiarios {
+  id                  BigInt              @id @default(autoincrement())
+  beneficio_id        BigInt
+  nombre              String              @db.VarChar(100)
+  apellido            String              @db.VarChar(100)
+  cedula              String?             @db.VarChar(20)
+  fecha_nacimiento    DateTime            @db.Date
+  discapacidad        Boolean             @default(false)
+  vigente_desde       DateTime            @db.Date
+  vigente_hasta       DateTime?           @db.Date
+  activo              Boolean             @default(true)
+  creado_por          BigInt?
+  creado_en           DateTime            @default(now()) @db.Timestamptz(6)
+  beneficios_sociales beneficios_sociales @relation(fields: [beneficio_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  usuarios            usuarios?           @relation(fields: [creado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([beneficio_id, activo], map: "idx_beneficio_beneficiarios_beneficio")
+  @@index([cedula], map: "idx_beneficio_beneficiarios_cedula", where: raw("(cedula IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model compensaciones_diferencia_ascenso {
+  id                                                              BigInt                @id @default(autoincrement())
+  persona_id                                                      BigInt
+  relacion_laboral_nueva_id                                       BigInt
+  periodo_id                                                      BigInt?
+  grado_viejo_id                                                  BigInt
+  grado_nuevo_id                                                  BigInt
+  monto                                                           Decimal               @db.Decimal(14, 2)
+  dias_desde_ascenso                                              Int
+  tiene_permanencia                                               Boolean               @default(false)
+  fecha_ascenso                                                   DateTime              @db.Date
+  estado                                                          String                @default("pendiente") @db.VarChar(20)
+  incidencias                                                     String?
+  creado_en                                                       DateTime              @default(now()) @db.Timestamp(6)
+  relaciones_laborales                                            relaciones_laborales  @relation(fields: [relacion_laboral_nueva_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "compensaciones_diferencia_ascens_relacion_laboral_nueva_id_fkey")
+  grados_compensaciones_diferencia_ascenso_grado_nuevo_idTogrados grados                @relation("compensaciones_diferencia_ascenso_grado_nuevo_idTogrados", fields: [grado_nuevo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grados_compensaciones_diferencia_ascenso_grado_viejo_idTogrados grados                @relation("compensaciones_diferencia_ascenso_grado_viejo_idTogrados", fields: [grado_viejo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  periodos_liquidacion                                            periodos_liquidacion? @relation(fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas                                                        personas              @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([estado], map: "idx_comp_diff_asc_estado")
+  @@index([periodo_id], map: "idx_comp_diff_asc_periodo")
+  @@index([persona_id], map: "idx_comp_diff_asc_persona")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model descuentos_personal_periodo {
+  id                   BigInt               @id @default(autoincrement())
+  periodo_id           BigInt
+  persona_id           BigInt
+  catalogo_item_id     BigInt
+  importe              Decimal              @db.Decimal(14, 2)
+  estado               String               @default("borrador") @db.VarChar(20)
+  observaciones        String?
+  fecha_creacion       DateTime             @default(now()) @db.Timestamp(6)
+  usuario_creacion_id  BigInt?
+  monto_aplicado       Decimal?             @default(0) @db.Decimal(14, 2)
+  monto_no_aplicado    Decimal?             @default(0) @db.Decimal(14, 2)
+  enviada_acreedor_en  DateTime?            @db.Timestamptz(6)
+  acreedor_id          BigInt?
+  fecha_comunicacion   DateTime?            @db.Timestamptz(6)
+  fecha_hasta          DateTime?            @db.Date
+  catalogo_items       catalogo_items       @relation(fields: [catalogo_item_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  periodos_liquidacion periodos_liquidacion @relation(fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas             personas             @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios             usuarios?            @relation(fields: [usuario_creacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  acreedores           acreedores?          @relation(fields: [acreedor_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_descuentos_personal_periodo_acreedor")
+
+  @@index([acreedor_id], map: "ix_desc_personal_acreedor")
+  @@index([periodo_id], map: "ix_desc_personal_periodo")
+  @@index([persona_id], map: "ix_desc_personal_persona")
+}
+
+model documentos {
+  id               BigInt     @id @default(autoincrement())
+  tipo             String     @db.VarChar(50)
+  entidad_id       BigInt
+  ruta_relativa    String     @db.VarChar(500)
+  nombre_original  String     @db.VarChar(255)
+  content_type     String     @db.VarChar(100)
+  tamanio_bytes    BigInt
+  fecha_carga      DateTime   @default(now()) @db.Timestamp(6)
+  usuario_carga_id BigInt?
+  usuarios         usuarios?  @relation(fields: [usuario_carga_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  form3100         form3100[]
+
+  @@index([tipo, entidad_id], map: "ix_documentos_tipo_entidad")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model form3100 {
+  id                          BigInt                    @id @default(autoincrement())
+  persona_id                  BigInt
+  cappu_categoria             Int?                      @db.SmallInt
+  fondo_solidaridad           String?                   @db.VarChar(10)
+  adicional_fondo_solidaridad Boolean                   @default(false)
+  aplica_minimo_no_imponible  Boolean                   @default(false)
+  conyuge_nombre              String?                   @db.VarChar(100)
+  conyuge_apellido            String?                   @db.VarChar(100)
+  conyuge_fecha_nacimiento    DateTime?                 @db.Date
+  conyuge_cedula              String?                   @db.VarChar(20)
+  conyuge_sexo                String?                   @db.VarChar(1)
+  conyuge_nacionalidad        String?                   @db.VarChar(100)
+  vigente_desde_mes           Int                       @db.SmallInt
+  vigente_desde_anio          Int                       @db.SmallInt
+  documento_id                BigInt?
+  fecha_creacion              DateTime                  @default(now()) @db.Timestamp(6)
+  usuario_creacion_id         BigInt?
+  documentos                  documentos?               @relation(fields: [documento_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas                    personas                  @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios                    usuarios?                 @relation(fields: [usuario_creacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  form3100_personas_cargo     form3100_personas_cargo[]
+
+  @@unique([persona_id, vigente_desde_anio, vigente_desde_mes])
+  @@index([persona_id], map: "ix_form3100_persona")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model form3100_personas_cargo {
+  id                    BigInt   @id @default(autoincrement())
+  form3100_id           BigInt
+  nombre                String   @db.VarChar(100)
+  apellido              String   @db.VarChar(100)
+  fecha_nacimiento      DateTime @db.Date
+  cedula                String?  @db.VarChar(20)
+  sexo                  String   @db.VarChar(1)
+  porcentaje_atribucion Int      @db.SmallInt
+  relacion              String   @db.VarChar(100)
+  discapacidad          Boolean  @default(false)
+  form3100              form3100 @relation(fields: [form3100_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model incidencias_calculo {
+  id                   BigInt               @id @default(autoincrement())
+  periodo_id           BigInt
+  version              Int
+  persona_id           BigInt
+  tipo                 String               @db.VarChar(50)
+  descripcion          String
+  creado_en            DateTime             @default(now()) @db.Timestamptz(6)
+  periodos_liquidacion periodos_liquidacion @relation(fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas             personas             @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([periodo_id, persona_id], map: "idx_incidencias_calculo_periodo_persona")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model instructivo_asig_familiar {
+  id                     BigInt   @id @default(autoincrement())
+  tipo_franja            String   @db.VarChar(20)
+  importe                Decimal  @db.Decimal(14, 2)
+  vigente_desde          DateTime @db.Date
+  descripcion_porcentaje String?  @db.VarChar(10)
+
+  @@index([vigente_desde, tipo_franja], map: "idx_instructivo_asig_familiar_vigencia")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model instructivo_psf {
+  id               BigInt   @id @default(autoincrement())
+  numero_categoria Int      @db.SmallInt
+  descripcion      String   @db.VarChar(80)
+  importe          Decimal  @db.Decimal(14, 2)
+  vigente_desde    DateTime @db.Date
+
+  @@index([vigente_desde, numero_categoria], map: "idx_instructivo_psf_vigencia")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model liquidacion_estados_personal {
+  id                   BigInt               @id @default(autoincrement())
+  periodo_id           BigInt
+  cedula               String               @db.VarChar(20)
+  version              Int
+  estado               String               @db.VarChar(20)
+  mensaje_error        String?
+  fecha_actualizacion  DateTime             @default(now()) @db.Timestamp(6)
+  periodos_liquidacion periodos_liquidacion @relation(fields: [periodo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([periodo_id, cedula, version], map: "idx_liquidacion_estados_personal_periodo_cedula_version")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model liquidacion_items {
+  id                   BigInt               @id @default(autoincrement())
+  periodo_id           BigInt
+  cedula               String               @db.VarChar(20)
+  version              Int
+  codigo_concepto      String               @db.VarChar(20)
+  nombre_concepto      String               @db.VarChar(150)
+  importe              Decimal              @db.Decimal(14, 2)
+  rubro_contable       String               @db.VarChar(50)
+  objeto_gasto         String?              @db.VarChar(50)
+  programa_id          BigInt?
+  regimen_id           BigInt?
+  rubro_083            Boolean              @default(false)
+  fecha_creacion       DateTime             @default(now()) @db.Timestamp(6)
+  clave_evento         String?              @db.VarChar(80)
+  periodos_liquidacion periodos_liquidacion @relation(fields: [periodo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([periodo_id, cedula, version], map: "idx_liquidacion_items_periodo_cedula_version")
+  @@index([periodo_id, version], map: "idx_liquidacion_items_periodo_version")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model liquidacion_resumenes {
+  id                   BigInt               @id @default(autoincrement())
+  periodo_id           BigInt
+  version              Int
+  programa_id          BigInt?
+  regimen_id           BigInt?
+  rubro_083            Boolean              @default(false)
+  total_importe        Decimal              @db.Decimal(14, 2)
+  descripcion          String?              @db.VarChar(100)
+  periodos_liquidacion periodos_liquidacion @relation(fields: [periodo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([periodo_id, version, programa_id, regimen_id, rubro_083], map: "idx_liquidacion_resumenes_periodo_version_grupo")
+}
+
+model motivos_baja {
+  id                   BigInt                 @id @default(autoincrement())
+  codigo               String                 @unique @db.VarChar(50)
+  denominacion         String                 @db.VarChar(200)
+  vigente              Boolean                @default(true)
+  relaciones_laborales relaciones_laborales[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model novedades_periodo {
+  id                                                  BigInt               @id @default(autoincrement())
+  periodo_id                                          BigInt
+  persona_id                                          BigInt
+  tipo                                                String               @db.VarChar(30)
+  dias_afectados                                      Int                  @db.SmallInt
+  porcentaje_subsidio                                 Decimal?             @db.Decimal(5, 2)
+  fecha_desde                                         DateTime?            @db.Date
+  fecha_hasta                                         DateTime?            @db.Date
+  observaciones                                       String?
+  estado                                              String               @default("borrador") @db.VarChar(20)
+  creado_por                                          BigInt?
+  creado_en                                           DateTime             @default(now()) @db.Timestamp(6)
+  confirmado_por                                      BigInt?
+  confirmado_en                                       DateTime?            @db.Timestamp(6)
+  usuarios_novedades_periodo_confirmado_porTousuarios usuarios?            @relation("novedades_periodo_confirmado_porTousuarios", fields: [confirmado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_novedades_periodo_creado_porTousuarios     usuarios?            @relation("novedades_periodo_creado_porTousuarios", fields: [creado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  periodos_liquidacion                                periodos_liquidacion @relation(fields: [periodo_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  personas                                            personas             @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([periodo_id, persona_id, tipo])
+  @@index([periodo_id, estado], map: "idx_novedades_periodo_periodo_estado")
+  @@index([persona_id], map: "idx_novedades_periodo_persona")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model periodos_liquidacion {
+  id                                                                            BigInt                              @id @default(autoincrement())
+  anio                                                                          Int                                 @db.SmallInt
+  mes                                                                           Int                                 @db.SmallInt
+  estado                                                                        String                              @default("ABIERTA") @db.VarChar(20)
+  snapshot_id                                                                   BigInt
+  fecha_apertura                                                                DateTime                            @default(now()) @db.Timestamp(6)
+  usuario_apertura                                                              BigInt
+  hash_snapshot                                                                 String                              @db.VarChar(64)
+  activo                                                                        Boolean                             @default(true)
+  fecha_cierre_insumos                                                          DateTime?                           @db.Timestamp(6)
+  usuario_cierre_insumos                                                        BigInt?
+  fecha_calculo                                                                 DateTime?                           @db.Timestamp(6)
+  usuario_calculo                                                               BigInt?
+  fecha_cierre                                                                  DateTime?                           @db.Timestamp(6)
+  usuario_cierre                                                                BigInt?
+  compensaciones_diferencia_ascenso                                             compensaciones_diferencia_ascenso[]
+  descuentos_personal_periodo                                                   descuentos_personal_periodo[]
+  incidencias_calculo                                                           incidencias_calculo[]
+  irpf_mensual                                                                  irpf_mensual[]
+  liquidacion_estados_personal                                                  liquidacion_estados_personal[]
+  liquidacion_items                                                             liquidacion_items[]
+  liquidacion_resumenes                                                         liquidacion_resumenes[]
+  novedades_periodo                                                             novedades_periodo[]
+  snapshots_insumos                                                             snapshots_insumos                   @relation(fields: [snapshot_id], references: [id], onUpdate: NoAction)
+  usuarios_periodos_liquidacion_usuario_aperturaTousuarios                      usuarios                            @relation("periodos_liquidacion_usuario_aperturaTousuarios", fields: [usuario_apertura], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_periodos_liquidacion_usuario_calculoTousuarios                       usuarios?                           @relation("periodos_liquidacion_usuario_calculoTousuarios", fields: [usuario_calculo], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_periodos_liquidacion_usuario_cierreTousuarios                        usuarios?                           @relation("periodos_liquidacion_usuario_cierreTousuarios", fields: [usuario_cierre], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_periodos_liquidacion_usuario_cierre_insumosTousuarios                usuarios?                           @relation("periodos_liquidacion_usuario_cierre_insumosTousuarios", fields: [usuario_cierre_insumos], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  retroactividades_retroactividades_periodo_idToperiodos_liquidacion            retroactividades[]                  @relation("retroactividades_periodo_idToperiodos_liquidacion")
+  retroactividades_retroactividades_periodo_referencia_idToperiodos_liquidacion retroactividades[]                  @relation("retroactividades_periodo_referencia_idToperiodos_liquidacion")
+
+  @@unique([anio, mes], map: "idx_periodos_liquidacion_anio_mes_activo", where: raw("(activo = true)"))
+  @@index([estado], map: "idx_periodos_liquidacion_estado")
+}
+
+model retroactividad_items {
+  id                BigInt           @id @default(autoincrement())
+  retroactividad_id BigInt
+  codigo_item       Int
+  monto_anterior    Decimal          @db.Decimal(14, 2)
+  monto_nuevo       Decimal          @db.Decimal(14, 2)
+  diferencia        Decimal          @db.Decimal(14, 2)
+  monto_total_retro Decimal          @db.Decimal(14, 2)
+  es_descuento      Boolean          @default(false)
+  retroactividades  retroactividades @relation(fields: [retroactividad_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([retroactividad_id], map: "idx_retroactividad_items_retro")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model snapshots_insumos {
+  id                   BigInt                 @id @default(autoincrement())
+  fecha_creacion       DateTime               @default(now()) @db.Timestamp(6)
+  contenido_json       Json
+  hash_integridad      String                 @db.VarChar(64)
+  periodos_liquidacion periodos_liquidacion[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tabla_hogar_constituido {
+  id             BigInt   @id @default(autoincrement())
+  hasta_haberes  Decimal? @db.Decimal(14, 2)
+  importe        Decimal  @db.Decimal(14, 2)
+  ref_porcentaje String?  @db.VarChar(10)
+  vigente_desde  DateTime @db.Date
+
+  @@index([vigente_desde, hasta_haberes], map: "idx_tabla_hogar_vigencia")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tramos_sanidad_militar {
+  id               BigInt    @id @default(autoincrement())
+  desde            Decimal   @db.Decimal(14, 2)
+  hasta            Decimal?  @db.Decimal(14, 2)
+  porcentaje       Decimal   @db.Decimal(5, 4)
+  codigo_retencion Int
+  vigente_desde    DateTime  @db.Date
+  vigente_hasta    DateTime? @db.Date
+
+  @@unique([codigo_retencion, vigente_desde])
 }

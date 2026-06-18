@@ -25,7 +25,7 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() regimen_id?: number;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() programa_id?: number;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() escalafon_id?: number;
-  @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() compania_id?: number;
+  @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() sub_unidad_id?: number;
   @ApiPropertyOptional({ example: 'A' }) @IsOptional() @IsString() @MaxLength(10) prima_tecnica?: string;
   @ApiPropertyOptional({ example: true }) @IsOptional() @IsBoolean() tiene_mando?: boolean;
   @ApiPropertyOptional({ example: 'Sin novedades' }) @IsOptional() @IsString() observaciones_laborales?: string;
