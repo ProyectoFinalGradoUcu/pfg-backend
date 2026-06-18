@@ -47,7 +47,7 @@ export class PersonalPerfilService {
             regimenes: { select: { id: true, denominacion: true } },
             programas: { select: { id: true, denominacion: true } },
             escalafones: { select: { id: true, denominacion: true } },
-            compa_ia: { select: { id: true, denominacion: true } },
+            sub_unidades: { select: { id: true, denominacion: true } },
           },
         },
       },
@@ -92,7 +92,7 @@ export class PersonalPerfilService {
         regimen: rel.regimenes ? { id: Number(rel.regimenes.id), denominacion: rel.regimenes.denominacion } : null,
         programa: rel.programas ? { id: Number(rel.programas.id), denominacion: rel.programas.denominacion } : null,
         escalafon: rel.escalafones ? { id: Number(rel.escalafones.id), denominacion: rel.escalafones.denominacion } : null,
-        compania: rel.compa_ia ? { id: Number(rel.compa_ia.id), denominacion: rel.compa_ia.denominacion } : null,
+        sub_unidad: rel.sub_unidades ? { id: Number(rel.sub_unidades.id), denominacion: rel.sub_unidades.denominacion } : null,
       } : null,
     };
   }
@@ -322,7 +322,7 @@ export class PersonalPerfilService {
       }),
       persona.relaciones_laborales[0] && (
         dto.grado_id || dto.unidad_id || dto.situacion_id || dto.regimen_id ||
-        dto.programa_id || dto.escalafon_id || dto.compania_id !== undefined ||
+        dto.programa_id || dto.escalafon_id || dto.sub_unidad_id !== undefined ||
         dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined || dto.observaciones_laborales !== undefined
       )
         ? this.prisma.relaciones_laborales.update({
@@ -334,7 +334,7 @@ export class PersonalPerfilService {
               ...(dto.regimen_id && { regimen_id: BigInt(dto.regimen_id) }),
               ...(dto.programa_id && { programa_id: BigInt(dto.programa_id) }),
               ...(dto.escalafon_id && { escalafon_id: BigInt(dto.escalafon_id) }),
-              ...(dto.compania_id !== undefined && { compania_id: dto.compania_id ? BigInt(dto.compania_id) : null }),
+              ...(dto.sub_unidad_id !== undefined && { sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null }),
               ...(dto.prima_tecnica !== undefined && { prima_tecnica: dto.prima_tecnica }),
               ...(dto.tiene_mando !== undefined && { tiene_mando: dto.tiene_mando }),
               ...(dto.observaciones_laborales !== undefined && { observaciones: dto.observaciones_laborales }),

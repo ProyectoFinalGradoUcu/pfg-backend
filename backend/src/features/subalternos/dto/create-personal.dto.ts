@@ -137,10 +137,10 @@ export class CreatePersonalDto {
   @IsDateString()
   fecha_inicio?: string;
 
-  @ApiPropertyOptional({ description: 'ID de compañía (opcional)' })
+  @ApiPropertyOptional({ description: 'ID de sub-unidad (opcional)' })
   @IsOptional()
   @IsInt()
-  compania_id?: number;
+  sub_unidad_id?: number;
 
   // --- Vínculos familiares (requerido solo si es_civil = true, al menos uno) ---
 

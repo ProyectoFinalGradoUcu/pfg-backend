@@ -107,7 +107,7 @@ export class CreateSubalternoDto {
   @ApiPropertyOptional({ example: 2 })
   @IsOptional()
   @IsInt()
-  compania_id?: number;
+  sub_unidad_id?: number;
 
   @ApiPropertyOptional({ example: 'Sin observaciones' })
   @IsOptional()

@@ -17,7 +17,7 @@ const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_programa_id_fkey: 'programa_id no existe en la tabla de programas',
   relaciones_laborales_escalafon_id_fkey: 'escalafon_id no existe en la tabla de escalafones',
   relaciones_laborales_grado_id_fkey: 'grado_id no existe en la tabla de grados',
-  relaciones_laborales_compania_id_fkey: 'compania_id no existe en la tabla de compañías',
+  relaciones_laborales_sub_unidad_id_fkey: 'sub_unidad_id no existe en la tabla de sub-unidades',
   relaciones_familiares_familiar_id_fkey: 'familiar_id no existe en personas',
 };
 
@@ -179,8 +179,8 @@ export class SubalternosService {
           fecha_inicio: new Date(dto.fecha_inicio),
           estado: 'activo',
           tipo_funcionario: 'subalterno',
-          compania_id: dto.compania_id
-            ? BigInt(dto.compania_id)
+          sub_unidad_id: dto.sub_unidad_id
+            ? BigInt(dto.sub_unidad_id)
             : undefined,
           observaciones: dto.observaciones,
         },
@@ -361,7 +361,7 @@ export class SubalternosService {
             fecha_inicio: new Date(dto.fecha_inicio!),
             estado: 'activo',
             tipo_funcionario: dto.tipo_funcionario,
-            compania_id: dto.compania_id ? BigInt(dto.compania_id) : undefined,
+            sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : undefined,
             observaciones: dto.observaciones,
           },
         });
