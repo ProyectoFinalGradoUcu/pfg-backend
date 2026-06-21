@@ -24,18 +24,6 @@ export class CreateMisionDto {
   @IsDateString()
   fecha_llegada?: string;
 
-  @ApiPropertyOptional({ example: 'ORD-12345' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  numero_orden?: string;
-
-  @ApiPropertyOptional({ example: 'BOL-987' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  boletin?: string;
-
   @ApiPropertyOptional({ example: 'Observaciones adicionales' })
   @IsOptional()
   @IsString()
