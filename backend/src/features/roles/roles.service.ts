@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
+import { APLICACION } from '../../lib/aplicacion.const';
 import { CreateRolDto } from './dto/create-rol.dto';
 import { UpdateRolDto } from './dto/update-rol.dto';
 
@@ -21,6 +22,7 @@ export class RolesService {
 
   async findAll() {
     const roles = await this.prisma.roles.findMany({
+      where: { aplicacion: APLICACION },
       orderBy: { nombre: 'asc' },
       include: {
         roles_permisos: { include: { permisos: true } },
@@ -32,8 +34,8 @@ export class RolesService {
   }
 
   async findOne(id: string) {
-    const rol = await this.prisma.roles.findUnique({
-      where: { id: BigInt(id) },
+    const rol = await this.prisma.roles.findFirst({
+      where: { id: BigInt(id), aplicacion: APLICACION },
       include: {
         roles_permisos: { include: { permisos: true } },
         _count: { select: { usuarios_roles: true } },
@@ -44,18 +46,18 @@ export class RolesService {
   }
 
   async create(dto: CreateRolDto) {
-    const existente = await this.prisma.roles.findUnique({
-      where: { nombre: dto.nombre },
+    const existente = await this.prisma.roles.findFirst({
+      where: { nombre: dto.nombre, aplicacion: APLICACION },
     });
     if (existente) throw new ConflictException('Ya existe un rol con ese nombre');
 
     const rol = await this.prisma.roles.create({
-      data: { nombre: dto.nombre, descripcion: dto.descripcion },
+      data: { nombre: dto.nombre, descripcion: dto.descripcion, aplicacion: APLICACION },
     });
 
     if (dto.permisos && dto.permisos.length > 0) {
       const permisos = await this.prisma.permisos.findMany({
-        where: { nombre: { in: dto.permisos } },
+        where: { nombre: { in: dto.permisos }, aplicacion: APLICACION },
       });
       if (permisos.length !== dto.permisos.length) {
         throw new BadRequestException('Uno o más permisos no existen');
@@ -70,15 +72,17 @@ export class RolesService {
   }
 
   async update(id: string, dto: UpdateRolDto) {
-    const rol = await this.prisma.roles.findUnique({ where: { id: BigInt(id) } });
+    const rol = await this.prisma.roles.findFirst({
+      where: { id: BigInt(id), aplicacion: APLICACION },
+    });
     if (!rol) throw new NotFoundException('Rol no encontrado');
 
     if (dto.nombre && dto.nombre !== rol.nombre) {
       if (ROLES_PROTEGIDOS.includes(rol.nombre)) {
         throw new ForbiddenException('No se puede renombrar un rol base del sistema');
       }
-      const existente = await this.prisma.roles.findUnique({
-        where: { nombre: dto.nombre },
+      const existente = await this.prisma.roles.findFirst({
+        where: { nombre: dto.nombre, aplicacion: APLICACION },
       });
       if (existente) throw new ConflictException('Ya existe un rol con ese nombre');
     }
@@ -92,8 +96,8 @@ export class RolesService {
   }
 
   async remove(id: string) {
-    const rol = await this.prisma.roles.findUnique({
-      where: { id: BigInt(id) },
+    const rol = await this.prisma.roles.findFirst({
+      where: { id: BigInt(id), aplicacion: APLICACION },
       include: { _count: { select: { usuarios_roles: true } } },
     });
     if (!rol) throw new NotFoundException('Rol no encontrado');
@@ -111,8 +115,8 @@ export class RolesService {
 
   async activarPermiso(rolId: string, permisoId: string) {
     const [rol, permiso] = await Promise.all([
-      this.prisma.roles.findUnique({ where: { id: BigInt(rolId) } }),
-      this.prisma.permisos.findUnique({ where: { id: BigInt(permisoId) } }),
+      this.prisma.roles.findFirst({ where: { id: BigInt(rolId), aplicacion: APLICACION } }),
+      this.prisma.permisos.findFirst({ where: { id: BigInt(permisoId), aplicacion: APLICACION } }),
     ]);
     if (!rol) throw new NotFoundException('Rol no encontrado');
     if (!permiso) throw new NotFoundException('Permiso no encontrado');
@@ -127,8 +131,8 @@ export class RolesService {
   }
 
   async desactivarPermiso(rolId: string, permisoId: string) {
-    const rol = await this.prisma.roles.findUnique({
-      where: { id: BigInt(rolId) },
+    const rol = await this.prisma.roles.findFirst({
+      where: { id: BigInt(rolId), aplicacion: APLICACION },
     });
     if (!rol) throw new NotFoundException('Rol no encontrado');
 

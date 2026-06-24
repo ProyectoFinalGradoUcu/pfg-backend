@@ -112,6 +112,7 @@ model bitacora_auditoria {
   entidad     String?   @db.VarChar(60)
   entidad_id  BigInt?
   detalle     Json?
+  aplicacion  String    @default("liquidacion") @db.VarChar(20)
   acciones    acciones  @relation(fields: [accion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   contextos   contextos @relation(fields: [contexto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios    usuarios  @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -584,9 +585,12 @@ model parametros_periodo {
 
 model permisos {
   id             BigInt           @id @default(autoincrement())
-  nombre         String           @unique @db.VarChar(60)
+  nombre         String           @db.VarChar(60)
   descripcion    String?          @db.VarChar(200)
+  aplicacion     String           @default("liquidacion") @db.VarChar(20)
   roles_permisos roles_permisos[]
+
+  @@unique([nombre, aplicacion])
 }
 
 model personas {
@@ -787,10 +791,13 @@ model retroactividades {
 
 model roles {
   id             BigInt           @id @default(autoincrement())
-  nombre         String           @unique @db.VarChar(60)
+  nombre         String           @db.VarChar(60)
   descripcion    String?          @db.VarChar(200)
+  aplicacion     String           @default("liquidacion") @db.VarChar(20)
   roles_permisos roles_permisos[]
   usuarios_roles usuarios_roles[]
+
+  @@unique([nombre, aplicacion])
 }
 
 model roles_permisos {
@@ -908,13 +915,14 @@ model unidades {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model usuarios {
   id                                                                         BigInt                           @id @default(autoincrement())
-  username                                                                   String                           @unique @db.VarChar(60)
+  username                                                                   String                           @db.VarChar(60)
   password_hash                                                              String                           @db.VarChar(255)
   estado                                                                     String                           @default("activo") @db.VarChar(20)
   intentos_fallidos                                                          Int                              @default(0) @db.SmallInt
   bloqueado_hasta                                                            DateTime?                        @db.Timestamp(6)
   persona_id                                                                 BigInt?
   fecha_actualizacion                                                        DateTime                         @default(now()) @db.Timestamp(6)
+  aplicacion                                                                 String                           @default("liquidacion") @db.VarChar(20)
   beneficio_social_beneficiarios                                             beneficio_social_beneficiarios[]
   beneficios_sociales                                                        beneficios_sociales[]
   bitacora_auditoria                                                         bitacora_auditoria[]
@@ -940,6 +948,8 @@ model usuarios {
   retroactividades_retroactividades_creado_porTousuarios                     retroactividades[]               @relation("retroactividades_creado_porTousuarios")
   personas                                                                   personas?                        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_roles                                                             usuarios_roles[]
+
+  @@unique([username, aplicacion])
 }
 
 model usuarios_roles {

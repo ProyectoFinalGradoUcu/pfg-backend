@@ -7,6 +7,7 @@ import {
 import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
+import { APLICACION } from '../../lib/aplicacion.const';
 import { SignInDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import {
@@ -25,8 +26,8 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
   async signIn(dto: SignInDto): Promise<SignInResult> {
-    const usuario = await this.prisma.usuarios.findUnique({
-      where: { username: dto.username },
+    const usuario = await this.prisma.usuarios.findFirst({
+      where: { username: dto.username, aplicacion: APLICACION },
       include: {
         usuarios_roles: {
           include: {

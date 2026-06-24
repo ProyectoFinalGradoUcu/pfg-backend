@@ -2,7 +2,8 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-INSERT INTO permisos (nombre, descripcion) VALUES
+INSERT INTO permisos (nombre, descripcion, aplicacion)
+SELECT nombre, descripcion, 'personal' FROM (VALUES
   ('personas.ver',                    'Consultar datos de personas'),
   ('personas.crear',                  'Dar de alta personas'),
   ('personas.editar',                 'Modificar datos de personas'),
@@ -30,25 +31,30 @@ INSERT INTO permisos (nombre, descripcion) VALUES
   ('roles.ver',                       'Consultar roles y sus permisos'),
   ('roles.gestionar',                 'Crear, modificar roles y asignar permisos'),
   ('auditoria.ver',                   'Consultar la bitácora de auditoría')
-ON CONFLICT (nombre) DO NOTHING;
+) AS t(nombre, descripcion)
+ON CONFLICT (nombre, aplicacion) DO NOTHING;
 
-INSERT INTO roles (nombre, descripcion) VALUES
+INSERT INTO roles (nombre, descripcion, aplicacion)
+SELECT nombre, descripcion, 'personal' FROM (VALUES
   ('Administrador del sistema', 'Acceso completo al sistema'),
   ('Oficina de Personal',       'Operación completa del módulo de Personal'),
   ('Usuario',                   'Acceso de solo lectura al módulo de Personal')
-ON CONFLICT (nombre) DO NOTHING;
+) AS t(nombre, descripcion)
+ON CONFLICT (nombre, aplicacion) DO NOTHING;
 
 INSERT INTO roles_permisos (rol_id, permiso_id)
 SELECT r.id, p.id
 FROM roles r
 CROSS JOIN permisos p
 WHERE r.nombre = 'Administrador del sistema'
+  AND r.aplicacion = 'personal'
+  AND p.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO roles_permisos (rol_id, permiso_id)
 SELECT r.id, p.id
 FROM roles r
-JOIN permisos p ON p.nombre IN (
+JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'personas.ver', 'personas.crear', 'personas.editar', 'personas.eliminar',
   'relaciones_laborales.ver', 'relaciones_laborales.gestionar',
   'ascensos.ver', 'ascensos.registrar',
@@ -61,12 +67,13 @@ JOIN permisos p ON p.nombre IN (
   'catalogos.ver', 'catalogos.gestionar'
 )
 WHERE r.nombre = 'Oficina de Personal'
+  AND r.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO roles_permisos (rol_id, permiso_id)
 SELECT r.id, p.id
 FROM roles r
-JOIN permisos p ON p.nombre IN (
+JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'personas.ver',
   'relaciones_laborales.ver',
   'ascensos.ver',
@@ -79,21 +86,24 @@ JOIN permisos p ON p.nombre IN (
   'catalogos.ver'
 )
 WHERE r.nombre = 'Usuario'
+  AND r.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
-INSERT INTO usuarios (username, password_hash, estado)
+INSERT INTO usuarios (username, password_hash, estado, aplicacion)
 VALUES (
   'admin@fau.mil.uy',
   crypt('FAUadmin1!', gen_salt('bf', 12)),
-  'activo'
+  'activo',
+  'personal'
 )
-ON CONFLICT (username) DO NOTHING;
+ON CONFLICT (username, aplicacion) DO NOTHING;
 
 INSERT INTO usuarios_roles (usuario_id, rol_id)
 SELECT u.id, r.id
 FROM usuarios u
-JOIN roles r ON r.nombre = 'Administrador del sistema'
+JOIN roles r ON r.nombre = 'Administrador del sistema' AND r.aplicacion = 'personal'
 WHERE u.username = 'admin@fau.mil.uy'
+  AND u.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
 COMMIT;
