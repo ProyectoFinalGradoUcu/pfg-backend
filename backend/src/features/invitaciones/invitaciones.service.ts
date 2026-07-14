@@ -45,6 +45,14 @@ export class InvitacionesService {
       }
     }
 
+    const usuarioExistente = await this.prisma.usuarios.findUnique({
+      where: { username: dto.email },
+      select: { id: true },
+    });
+    if (usuarioExistente) {
+      throw new ConflictException('Ya existe un usuario registrado con ese email');
+    }
+
     const pendienteExistente = await this.prisma.invitaciones.findFirst({
       where: {
         email: dto.email,

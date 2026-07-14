@@ -43,10 +43,13 @@ services:
     build:
       context: ./backend
     container_name: backend
+    env_file:
+      - ./backend/.env
     environment:
+      # Overrides del .env local: DATABASE_URL apunta al contenedor postgres, no a localhost
       DATABASE_URL: "postgresql://pfg_user:pfg_password@postgres:5432/pfg_database?schema=public"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
       NODE_ENV: production
-      JWT_SECRET: "${JWT_SECRET}"
       JWT_EXPIRES_IN: "4h"
       MAX_LOGIN_ATTEMPTS: "5"
       LOCK_DURATION_MIN: "15"
@@ -57,8 +60,6 @@ services:
       MINIO_SECRET_KEY: pfg_minio_password
       MINIO_BUCKET: pfg-documents
       MINIO_USE_SSL: "false"
-      RESEND_API_KEY: "${RESEND_API_KEY}"
-      MAILER_FROM: "${MAILER_FROM:-onboarding@resend.dev}"
       FRONTEND_URL: "${FRONTEND_URL:-http://localhost:4200}"
       INVITATION_TTL_HOURS: "${INVITATION_TTL_HOURS:-48}"
       RESET_PASSWORD_TTL_HOURS: "${RESET_PASSWORD_TTL_HOURS:-1}"

@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { MailerService } from './mailer.service';
-import { ResendEmailProvider } from './providers/resend.provider';
+import { MsGraphEmailProvider } from './providers/ms-graph.provider';
 import { EMAIL_PROVIDER } from './providers/email-provider.interface';
 
 @Global()
@@ -8,7 +8,7 @@ import { EMAIL_PROVIDER } from './providers/email-provider.interface';
   providers: [
     {
       provide: EMAIL_PROVIDER,
-      useClass: ResendEmailProvider,
+      useClass: MsGraphEmailProvider,
     },
     MailerService,
   ],
