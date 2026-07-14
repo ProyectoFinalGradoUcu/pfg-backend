@@ -5,6 +5,7 @@ import {
   Body,
   HttpCode,
   HttpStatus,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -15,20 +16,24 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignInDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser, SignInResponse } from './types/auth.types';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 
 const COOKIE_NAME = 'auth_token';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   @Post('sign-in')
   @HttpCode(HttpStatus.OK)
@@ -38,10 +43,19 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Credenciales inválidas o usuario bloqueado' })
   async signIn(
     @Body() dto: SignInDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SignInResponse> {
     const result = await this.authService.signIn(dto);
     res.cookie(COOKIE_NAME, result.token, this.cookieOptions(result.expiresIn));
+    void this.auditoria.registrar({
+      usuarioId: result.user.id,
+      accion: 'LOGIN',
+      contexto: 'Autenticación',
+      entidad: 'Usuario',
+      entidadId: result.user.id,
+      host: this.getHost(req),
+    });
     return { user: result.user };
   }
 
@@ -50,8 +64,20 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiCookieAuth('auth_token')
   @ApiOperation({ summary: 'Cerrar sesión' })
-  signOut(@Res({ passthrough: true }) res: Response) {
+  signOut(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     res.clearCookie(COOKIE_NAME, this.cookieOptions(0));
+    void this.auditoria.registrar({
+      usuarioId: user.id,
+      accion: 'LOGOUT',
+      contexto: 'Autenticación',
+      entidad: 'Usuario',
+      entidadId: user.id,
+      host: this.getHost(req),
+    });
     return { ok: true };
   }
 
@@ -68,11 +94,29 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiCookieAuth('auth_token')
   @ApiOperation({ summary: 'Cambiar la contraseña del usuario autenticado' })
-  changePassword(
+  async changePassword(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ChangePasswordDto,
+    @Req() req: Request,
   ) {
-    return this.authService.changePassword(user.id, dto);
+    const result = await this.authService.changePassword(user.id, dto);
+    void this.auditoria.registrar({
+      usuarioId: user.id,
+      accion: 'CAMBIAR_PASSWORD',
+      contexto: 'Autenticación',
+      entidad: 'Usuario',
+      entidadId: user.id,
+      host: this.getHost(req),
+    });
+    return result;
+  }
+
+  private getHost(req: Request): string | null {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.length > 0) {
+      return forwarded.split(',')[0].trim();
+    }
+    return req.ip ?? req.socket?.remoteAddress ?? null;
   }
 
   private cookieOptions(maxAgeSeconds: number) {

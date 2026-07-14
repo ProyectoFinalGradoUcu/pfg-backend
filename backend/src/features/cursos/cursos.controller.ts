@@ -33,10 +33,12 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Cursos')
 @ApiCookieAuth('auth_token')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
+@Auditar({ contexto: 'Cursos', entidad: 'Curso' })
 @Controller('cursos')
 export class CursosController {
   constructor(private readonly cursosService: CursosService) {}

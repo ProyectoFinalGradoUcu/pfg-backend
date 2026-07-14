@@ -22,10 +22,12 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Usuarios')
 @ApiCookieAuth('auth_token')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
+@Auditar({ contexto: 'Usuarios', entidad: 'Usuario' })
 @Controller('usuarios')
 export class UsuariosController {
   constructor(private readonly usuariosService: UsuariosService) {}
@@ -73,6 +75,7 @@ export class UsuariosController {
   @Post(':id/roles/:rolId')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('usuarios.gestionar')
+  @Auditar({ contexto: 'Usuarios', accion: 'ASIGNAR', entidad: 'Usuario' })
   @ApiOperation({ summary: 'Asignar un rol a un usuario' })
   asignarRol(@Param('id') id: string, @Param('rolId') rolId: string) {
     return this.usuariosService.asignarRol(id, rolId);
@@ -81,6 +84,7 @@ export class UsuariosController {
   @Delete(':id/roles/:rolId')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('usuarios.gestionar')
+  @Auditar({ contexto: 'Usuarios', accion: 'DESASIGNAR', entidad: 'Usuario' })
   @ApiOperation({ summary: 'Quitar un rol a un usuario' })
   quitarRol(
     @Param('id') id: string,
@@ -93,6 +97,7 @@ export class UsuariosController {
   @Post(':id/reset-password')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('usuarios.gestionar')
+  @Auditar({ contexto: 'Usuarios', accion: 'RESETEAR_PASSWORD', entidad: 'Usuario' })
   @ApiOperation({ summary: 'Resetear la contraseña de un usuario' })
   resetPassword(@Param('id') id: string, @Body() dto: ResetPasswordDto) {
     return this.usuariosService.resetPassword(id, dto);

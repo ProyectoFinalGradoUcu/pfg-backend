@@ -20,10 +20,12 @@ import { UpdateFuncionarioRequestDto } from './dto/update-funcionario-request.dt
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
+import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Misiones')
 @ApiCookieAuth('auth_token')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
+@Auditar({ contexto: 'Misiones', entidad: 'Misión' })
 @Controller('misiones')
 export class MisionesController {
   constructor(private readonly misionesService: MisionesService) {}
