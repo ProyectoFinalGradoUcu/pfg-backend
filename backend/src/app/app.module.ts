@@ -14,6 +14,8 @@ import { PrismaModule } from '../lib/prisma.module';
 import { CursosModule } from '../features/cursos/cursos.module';
 import { CatalogosModule } from '../features/catalogos/catalogos.module';
 import { HistorialCursosModule } from '../features/historial-cursos/historial-cursos.module';
+import { AuditoriaModule } from '../features/auditoria/auditoria.module';
+import { AuditoriaHttpModule } from '../features/auditoria/auditoria-http.module';
 
 @Module({
   imports: [
@@ -22,6 +24,7 @@ import { HistorialCursosModule } from '../features/historial-cursos/historial-cu
       { name: 'default', ttl: 60_000, limit: 120 },
     ]),
     PrismaModule,
+    AuditoriaModule,
     AuthModule,
     PermisosModule,
     RolesModule,
@@ -32,6 +35,7 @@ import { HistorialCursosModule } from '../features/historial-cursos/historial-cu
     CursosModule,
     CatalogosModule,
     HistorialCursosModule,
+    AuditoriaHttpModule,
   ],
   controllers: [AppController],
   providers: [AppService],

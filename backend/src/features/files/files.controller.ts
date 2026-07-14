@@ -19,6 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiCookieAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { FilesService } from './files.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 const ALLOWED_MIMETYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -35,6 +36,7 @@ function serviceResponse(httpStatus: number, httpMessage: string, data: unknown)
 @ApiTags('Files')
 @ApiCookieAuth('auth_token')
 @UseGuards(JwtAuthGuard)
+@Auditar({ contexto: 'Archivos', entidad: 'Archivo' })
 @Controller('files')
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}

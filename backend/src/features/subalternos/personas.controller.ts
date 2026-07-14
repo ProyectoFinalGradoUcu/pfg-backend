@@ -1,9 +1,9 @@
 import {
-  Controller, Get, Post, Patch, Query, Body, Param, ParseIntPipe, Res,
+  Controller, Get, Post, Patch, Query, Body, Param, ParseIntPipe, Res, UseGuards,
   UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes, ApiBody, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth, ApiConsumes, ApiBody, ApiParam } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { SubalternosService } from './subalternos.service.js';
 import { PersonasCargaService } from './personas-carga.service.js';
@@ -11,9 +11,15 @@ import { PersonalPerfilService } from './personal-perfil.service.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
+import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from '../auth/guards/permissions.guard.js';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 
 @ApiTags('Personas')
-@ApiBearerAuth()
+@ApiCookieAuth('auth_token')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Auditar({ contexto: 'Personas', entidad: 'Persona' })
 @Controller('personas')
 export class PersonasController {
   constructor(
@@ -25,6 +31,7 @@ export class PersonasController {
   // ─── Listado ───────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Listado paginado de personal' })
+  @RequirePermissions('personas.ver')
   @Get()
   findAll(@Query() query: ListPersonasQueryDto) {
     return this.subalternosService.findAllPersonas(query);
@@ -33,6 +40,7 @@ export class PersonasController {
   // ─── Carga masiva ─────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Descargar plantilla Excel para carga masiva' })
+  @RequirePermissions('personas.crear')
   @Get('plantilla')
   descargarPlantilla(@Res() res: Response) {
     const buffer = this.cargaService.generarPlantilla();
@@ -44,6 +52,7 @@ export class PersonasController {
   @ApiOperation({ summary: 'Carga masiva de personal desde Excel' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { archivo: { type: 'string', format: 'binary' } } } })
+  @RequirePermissions('personas.crear')
   @Post('carga-masiva')
   @UseInterceptors(FileInterceptor('archivo'))
   cargaMasiva(
@@ -66,6 +75,7 @@ export class PersonasController {
   @ApiResponse({ status: 201 })
   @ApiResponse({ status: 400 })
   @ApiResponse({ status: 409, description: 'Cédula duplicada.' })
+  @RequirePermissions('personas.crear')
   @Post()
   create(@Body() dto: CreatePersonalDto) {
     return this.subalternosService.createPersonal(dto);
@@ -75,6 +85,7 @@ export class PersonasController {
 
   @ApiOperation({ summary: 'Datos personales + relación laboral activa (tab Datos Personales)' })
   @ApiParam({ name: 'id', type: Number })
+  @RequirePermissions('personas.ver')
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.perfilService.findOne(id);
@@ -82,6 +93,7 @@ export class PersonasController {
 
   @ApiOperation({ summary: 'Familiares militares vinculados (tab Información Familiar)' })
   @ApiParam({ name: 'id', type: Number })
+  @RequirePermissions('personas.ver')
   @Get(':id/familiares')
   findFamiliares(@Param('id', ParseIntPipe) id: number) {
     return this.perfilService.findFamiliares(id);
@@ -89,6 +101,7 @@ export class PersonasController {
 
   @ApiOperation({ summary: 'Historial de rangos / ascensos (tab Historial Militar)' })
   @ApiParam({ name: 'id', type: Number })
+  @RequirePermissions('personas.ver')
   @Get(':id/historial-militar')
   findHistorialMilitar(@Param('id', ParseIntPipe) id: number) {
     return this.perfilService.findHistorialMilitar(id);
@@ -96,6 +109,7 @@ export class PersonasController {
 
   @ApiOperation({ summary: 'Cursos realizados (tab Cursos)' })
   @ApiParam({ name: 'id', type: Number })
+  @RequirePermissions('personas.ver')
   @Get(':id/cursos')
   findCursos(@Param('id', ParseIntPipe) id: number) {
     return this.perfilService.findCursos(id);
@@ -103,6 +117,7 @@ export class PersonasController {
 
   @ApiOperation({ summary: 'Misiones internacionales (tab Misiones)' })
   @ApiParam({ name: 'id', type: Number })
+  @RequirePermissions('personas.ver')
   @Get(':id/misiones')
   findMisiones(@Param('id', ParseIntPipe) id: number) {
     return this.perfilService.findMisiones(id);
@@ -113,6 +128,7 @@ export class PersonasController {
   @ApiOperation({ summary: 'Editar datos personales y/o laborales' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: 200, description: 'Devuelve el perfil actualizado completo.' })
+  @RequirePermissions('personas.editar')
   @Patch(':id')
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePersonalDto) {
     return this.perfilService.update(id, dto);

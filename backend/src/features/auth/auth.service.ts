@@ -8,6 +8,7 @@ import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
 import { APLICACION } from '../../lib/aplicacion.const';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { SignInDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import {
@@ -23,7 +24,10 @@ const DEFAULT_BCRYPT_ROUNDS = 12;
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   async signIn(dto: SignInDto): Promise<SignInResult> {
     const usuario = await this.prisma.usuarios.findFirst({
@@ -57,6 +61,14 @@ export class AuthService {
 
     if (!passwordOk) {
       await this.registrarIntentoFallido(usuario.id, usuario.intentos_fallidos);
+      void this.auditoria.registrar({
+        usuarioId: usuario.id,
+        accion: 'LOGIN_FALLIDO',
+        contexto: 'Autenticación',
+        entidad: 'Usuario',
+        entidadId: usuario.id,
+        detalle: { username: dto.username, motivo: 'contraseña incorrecta' },
+      });
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
