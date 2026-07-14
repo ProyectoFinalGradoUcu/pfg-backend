@@ -8,6 +8,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CrearInvitacionDto } from './dto/crear-invitacion.dto';
 import { AceptarInvitacionDto } from './dto/aceptar-invitacion.dto';
 
@@ -19,6 +20,7 @@ export class InvitacionesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailer: MailerService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async crear(dto: CrearInvitacionDto, adminId: string) {
@@ -175,7 +177,7 @@ export class InvitacionesService {
     const passwordHash = await bcrypt.hash(dto.password, rounds);
     const ahora = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
+    const usuarioCreado = await this.prisma.$transaction(async (tx) => {
       const usuario = await tx.usuarios.create({
         data: {
           username: invitacion.email,
@@ -203,6 +205,19 @@ export class InvitacionesService {
         where: { id: invitacion.id },
         data: { estado: 'aceptada', usado_en: ahora },
       });
+
+      return usuario;
+    });
+
+    // Sin usuario autenticado (endpoint público): se registra manualmente con
+    // el propio usuario recién creado como actor, igual que LOGIN en AuthService.
+    void this.auditoria.registrar({
+      usuarioId: usuarioCreado.id,
+      accion: 'CREAR',
+      contexto: 'Usuarios',
+      entidad: 'Usuario',
+      entidadId: usuarioCreado.id,
+      detalle: { email: invitacion.email, viaInvitacion: true, invitacionId: invitacion.id },
     });
 
     return { ok: true };

@@ -27,10 +27,12 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { InvitacionesService } from './invitaciones.service';
 import { CrearInvitacionDto } from './dto/crear-invitacion.dto';
 import { AceptarInvitacionDto } from './dto/aceptar-invitacion.dto';
+import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Invitaciones')
 @Controller('invitaciones')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
+@Auditar({ contexto: 'Usuarios', entidad: 'Invitación' })
 export class InvitacionesController {
   constructor(private readonly invitacionesService: InvitacionesService) {}
 
