@@ -6,14 +6,21 @@ import {
   Body,
   Param,
   ParseIntPipe,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth, ApiParam } from '@nestjs/swagger';
 import { SubalternosService } from './subalternos.service.js';
 import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
 import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
+import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { PermissionsGuard } from '../auth/guards/permissions.guard.js';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 
 @ApiTags('Subalternos')
-@ApiBearerAuth()
+@ApiCookieAuth('auth_token')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Auditar({ contexto: 'Subalternos', entidad: 'Subalterno' })
 @Controller('subalternos')
 export class SubalternosController {
   constructor(private readonly subalternosService: SubalternosService) {}
@@ -21,6 +28,7 @@ export class SubalternosController {
   @ApiOperation({ summary: 'Crear subalterno', description: 'Registra un nuevo subalterno en el sistema.' })
   @ApiResponse({ status: 201, description: 'Subalterno creado exitosamente.' })
   @ApiResponse({ status: 400, description: 'Datos inválidos.' })
+  @RequirePermissions('personas.crear')
   @Post()
   async create(@Body('service_request') dto: CreateSubalternoDto) {
     return this.subalternosService.create(dto);
@@ -30,6 +38,7 @@ export class SubalternosController {
   @ApiParam({ name: 'id', description: 'ID del subalterno', example: 1 })
   @ApiResponse({ status: 200, description: 'Subalterno actualizado exitosamente.' })
   @ApiResponse({ status: 404, description: 'Subalterno no encontrado.' })
+  @RequirePermissions('personas.editar')
   @Patch(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
@@ -42,6 +51,7 @@ export class SubalternosController {
   @ApiParam({ name: 'id', description: 'ID del subalterno', example: 1 })
   @ApiResponse({ status: 200, description: 'Subalterno eliminado exitosamente.' })
   @ApiResponse({ status: 404, description: 'Subalterno no encontrado.' })
+  @RequirePermissions('personas.eliminar')
   @Delete(':id')
   async remove(@Param('id', ParseIntPipe) id: number) {
     return this.subalternosService.remove(id);

@@ -45,9 +45,9 @@ export class CatalogosController {
     return this.catalogosService.findProgramas();
   }
 
-  @ApiOperation({ summary: 'Listar compañías' })
-  @Get('companias')
-  findCompanias() {
-    return this.catalogosService.findCompanias();
+  @ApiOperation({ summary: 'Listar sub-unidades' })
+  @Get('sub-unidades')
+  findSubUnidades() {
+    return this.catalogosService.findSubUnidades();
   }
 }

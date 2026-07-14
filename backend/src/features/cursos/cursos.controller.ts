@@ -26,13 +26,19 @@ import { MarcarCompletacionDto } from './dto/completacion-modulo.dto';
 import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query.dto';
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
+import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { BajaDesignacionDto } from './dto/baja-designacion.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Cursos')
 @ApiCookieAuth('auth_token')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
+@Auditar({ contexto: 'Cursos', entidad: 'Curso' })
 @Controller('cursos')
 export class CursosController {
   constructor(private readonly cursosService: CursosService) {}
@@ -99,6 +105,56 @@ export class CursosController {
     @Body() dto: CreateDesignacionDto,
   ) {
     return this.cursosService.crearDesignacion(cursoId, dto);
+  }
+
+  @Patch(':cursoId/designaciones/:designacionId')
+  @RequirePermissions('cursos.gestionar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cargar calificación', description: 'Actualiza la calificación de una designación y marca el estado como completado.' })
+  @ApiResponse({ status: 200, description: 'Calificación registrada.' })
+  @ApiResponse({ status: 404, description: 'Designación no encontrada.' })
+  async actualizarDesignacion(
+    @Param('cursoId', ParseIntPipe) cursoId: number,
+    @Param('designacionId', ParseIntPipe) designacionId: number,
+    @Body() dto: UpdateDesignacionDto,
+  ) {
+    return this.cursosService.actualizarDesignacion(cursoId, designacionId, dto);
+  }
+
+  @Patch(':cursoId/designaciones/:designacionId/baja')
+  @RequirePermissions('cursos.gestionar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Dar de baja a un funcionario de un curso',
+    description: 'Baja lógica de la inscripción con motivo obligatorio. Se registra fecha y autor.',
+  })
+  @ApiResponse({ status: 200, description: 'Inscripción dada de baja.' })
+  @ApiResponse({ status: 404, description: 'Designación no encontrada.' })
+  @ApiResponse({ status: 409, description: 'La inscripción ya estaba dada de baja.' })
+  async darDeBaja(
+    @Param('cursoId', ParseIntPipe) cursoId: number,
+    @Param('designacionId', ParseIntPipe) designacionId: number,
+    @Body() dto: BajaDesignacionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.cursosService.darDeBajaDesignacion(cursoId, designacionId, dto.motivo, user.id);
+  }
+
+  @Patch(':cursoId/designaciones/:designacionId/reactivar')
+  @RequirePermissions('cursos.gestionar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reactivar una inscripción dada de baja',
+    description: 'Revierte la baja lógica: la inscripción vuelve a estar activa.',
+  })
+  @ApiResponse({ status: 200, description: 'Inscripción reactivada.' })
+  @ApiResponse({ status: 404, description: 'Designación no encontrada.' })
+  @ApiResponse({ status: 409, description: 'La inscripción no estaba dada de baja.' })
+  async reactivar(
+    @Param('cursoId', ParseIntPipe) cursoId: number,
+    @Param('designacionId', ParseIntPipe) designacionId: number,
+  ) {
+    return this.cursosService.reactivarDesignacion(cursoId, designacionId);
   }
 
   @Post(':cursoId/modulos')

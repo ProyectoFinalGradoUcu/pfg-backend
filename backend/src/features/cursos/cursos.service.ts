@@ -11,6 +11,7 @@ import { MarcarCompletacionDto } from './dto/completacion-modulo.dto';
 import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query.dto';
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
+import { UpdateDesignacionDto } from './dto/update-designacion.dto';
 
 @Injectable()
 export class CursosService {
@@ -48,9 +49,16 @@ export class CursosService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
+    const where = {
+      ...(query.institucion ? { institucion: { contains: query.institucion, mode: 'insensitive' as const } } : {}),
+      ...(query.nombre ? { nombre_curso: { contains: query.nombre, mode: 'insensitive' as const } } : {}),
+      ...(query.es_obligatorio !== undefined ? { es_obligatorio: query.es_obligatorio } : {}),
+    };
+
     const [total, cursos] = await this.prisma.$transaction([
-      this.prisma.cursos.count(),
+      this.prisma.cursos.count({ where }),
       this.prisma.cursos.findMany({
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -158,41 +166,56 @@ export class CursosService {
   }
 
   async getCursosPorFuncionario(query: CursosPorFuncionarioQueryDto) {
-    const registros = await this.prisma.funcionarios_cursos.findMany({
-      where: query.cedula
-        ? { personas: { cedula: query.cedula } }
-        : undefined,
-      include: {
-        personas: {
-          select: {
-            id: true,
-            cedula: true,
-            primer_nombre: true,
-            segundo_nombre: true,
-            primer_apellido: true,
-            segundo_apellido: true,
-          },
-        },
-        cursos: {
-          select: {
-            id: true,
-            nombre_curso: true,
-            institucion: true,
-            es_obligatorio: true,
-          },
-        },
-        modulos: {
-          include: {
-            modulos_curso: {
-              select: { id: true, nombre_modulo: true, orden_modulo: true },
+    const page = query.page ?? 1;
+    const pageSize = Math.min(query.pageSize ?? 10, 100);
+    const where = {
+      ...(query.cedula ? { personas: { cedula: query.cedula } } : {}),
+      ...(query.incluir_bajas ? {} : { dado_de_baja: false }),
+    };
+
+    const [total, registros] = await this.prisma.$transaction([
+      this.prisma.funcionarios_cursos.count({ where }),
+      this.prisma.funcionarios_cursos.findMany({
+        where,
+        include: {
+          personas: {
+            select: {
+              id: true,
+              cedula: true,
+              primer_nombre: true,
+              segundo_nombre: true,
+              primer_apellido: true,
+              segundo_apellido: true,
             },
           },
+          cursos: {
+            select: {
+              id: true,
+              nombre_curso: true,
+              institucion: true,
+              es_obligatorio: true,
+            },
+          },
+          modulos: {
+            include: {
+              modulos_curso: {
+                select: { id: true, nombre_modulo: true, orden_modulo: true },
+              },
+            },
+          },
+          usuarios: {
+            select: { id: true, username: true },
+          },
         },
-      },
-      orderBy: [{ persona_id: 'asc' }, { curso_id: 'asc' }],
-    });
+        orderBy: [{ persona_id: 'asc' }, { curso_id: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
 
-    return registros.map((r) => ({
+    return {
+      items: registros.map((r) => ({
+      id: r.id.toString(),
       persona: {
         id: r.personas.id.toString(),
         cedula: r.personas.cedula,
@@ -207,13 +230,17 @@ export class CursosService {
         institucion: r.cursos.institucion,
         es_obligatorio: r.cursos.es_obligatorio,
       },
-      // Orden/boletín de la inscripción (nivel curso).
       numero_orden: r.numero_orden,
       boletin: r.boletin,
       fecha_inicio: r.fecha_inicio,
       fecha_fin: r.fecha_fin,
-      calificacion: r.calificacion,
-      // Detalle por módulo, cada uno con su propia orden/boletín.
+      calificacion: r.calificacion !== null && r.calificacion !== undefined ? Number(r.calificacion) : null,
+      dado_de_baja: r.dado_de_baja,
+      motivo_baja: r.motivo_baja,
+      fecha_baja: r.fecha_baja,
+      dado_de_baja_por: r.usuarios
+        ? { id: r.usuarios.id.toString(), username: r.usuarios.username }
+        : null,
       modulos: r.modulos.map((m) => ({
         id: m.id.toString(),
         modulo_id: m.modulo_id.toString(),
@@ -223,9 +250,13 @@ export class CursosService {
         boletin: m.boletin,
         completado: m.completado,
         fecha_finalizacion: m.fecha_finalizacion,
-        calificacion: m.calificacion,
+        calificacion: m.calificacion !== null && m.calificacion !== undefined ? Number(m.calificacion) : null,
       })),
-    }));
+    })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async marcarCompletacion(cursoId: number, moduloId: number, dto: MarcarCompletacionDto) {
@@ -426,8 +457,8 @@ export class CursosService {
       }
     }
 
-    const fechaInicio = dto.fecha_inicio ? new Date(dto.fecha_inicio) : null;
-    const fechaFin = dto.fecha_fin ? new Date(dto.fecha_fin) : null;
+    const fechaInicio = new Date(dto.fecha_inicio);
+    const fechaFin = new Date(dto.fecha_fin);
     const aNivelModulo = moduloIds.length > 0;
 
     await this.prisma.$transaction(async (tx) => {
@@ -452,8 +483,12 @@ export class CursosService {
             ...(aNivelModulo
               ? {}
               : { numero_orden: dto.numero_orden ?? null, boletin: dto.boletin ?? null }),
-            ...(fechaInicio ? { fecha_inicio: fechaInicio } : {}),
-            ...(fechaFin ? { fecha_fin: fechaFin } : {}),
+            fecha_inicio: fechaInicio,
+            fecha_fin: fechaFin,
+            dado_de_baja: false,
+            motivo_baja: null,
+            fecha_baja: null,
+            dado_de_baja_por: null,
           },
         });
 
@@ -488,6 +523,102 @@ export class CursosService {
       modulos_designados: moduloIds.length,
       numero_orden: dto.numero_orden ?? null,
       boletin: dto.boletin ?? null,
+    };
+  }
+
+  async actualizarDesignacion(cursoId: number, designacionId: number, dto: UpdateDesignacionDto) {
+    const designacion = await this.prisma.funcionarios_cursos.findFirst({
+      where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
+    });
+    if (!designacion) {
+      throw new NotFoundException(
+        `No existe designación con id ${designacionId} para el curso ${cursoId}`,
+      );
+    }
+
+    const actualizado = await this.prisma.funcionarios_cursos.update({
+      where: { id: BigInt(designacionId) },
+      data: {
+        calificacion: dto.calificacion.toString(),
+      },
+    });
+
+    return {
+      id: actualizado.id.toString(),
+      curso_id: actualizado.curso_id.toString(),
+      persona_id: actualizado.persona_id.toString(),
+      calificacion: Number(actualizado.calificacion),
+    };
+  }
+
+  // ─── Dar de baja (baja lógica con motivo) ──────────────────────────────────
+  async darDeBajaDesignacion(
+    cursoId: number,
+    designacionId: number,
+    motivo: string,
+    usuarioId: string,
+  ) {
+    const designacion = await this.prisma.funcionarios_cursos.findFirst({
+      where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
+    });
+    if (!designacion) {
+      throw new NotFoundException(
+        `No existe designación con id ${designacionId} para el curso ${cursoId}`,
+      );
+    }
+    if (designacion.dado_de_baja) {
+      throw new ConflictException('La inscripción ya está dada de baja.');
+    }
+
+    const actualizado = await this.prisma.funcionarios_cursos.update({
+      where: { id: BigInt(designacionId) },
+      data: {
+        dado_de_baja: true,
+        motivo_baja: motivo,
+        fecha_baja: new Date(),
+        dado_de_baja_por: BigInt(usuarioId),
+      },
+    });
+
+    return {
+      id: actualizado.id.toString(),
+      curso_id: actualizado.curso_id.toString(),
+      persona_id: actualizado.persona_id.toString(),
+      dado_de_baja: actualizado.dado_de_baja,
+      motivo_baja: actualizado.motivo_baja,
+      fecha_baja: actualizado.fecha_baja,
+    };
+  }
+
+  // ─── Reactivar (revertir la baja) ──────────────────────────────────────────
+  async reactivarDesignacion(cursoId: number, designacionId: number) {
+    const designacion = await this.prisma.funcionarios_cursos.findFirst({
+      where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
+    });
+    if (!designacion) {
+      throw new NotFoundException(
+        `No existe designación con id ${designacionId} para el curso ${cursoId}`,
+      );
+    }
+    if (!designacion.dado_de_baja) {
+      throw new ConflictException('La inscripción no está dada de baja.');
+    }
+
+    const actualizado = await this.prisma.funcionarios_cursos.update({
+      where: { id: BigInt(designacionId) },
+      data: {
+        dado_de_baja: false,
+        motivo_baja: null,
+        fecha_baja: null,
+        dado_de_baja_por: null,
+      },
+    });
+
+    return {
+      id: actualizado.id.toString(),
+      curso_id: actualizado.curso_id.toString(),
+      persona_id: actualizado.persona_id.toString(),
+      dado_de_baja: actualizado.dado_de_baja,
     };
   }
 

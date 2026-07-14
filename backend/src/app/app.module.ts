@@ -15,15 +15,17 @@ import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
 import { CursosModule } from '../features/cursos/cursos.module';
 import { CatalogosModule } from '../features/catalogos/catalogos.module';
+import { HistorialCursosModule } from '../features/historial-cursos/historial-cursos.module';
+import { AuditoriaModule } from '../features/auditoria/auditoria.module';
+import { AuditoriaHttpModule } from '../features/auditoria/auditoria-http.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([
-      { name: 'default', ttl: 60_000, limit: 120 },
-    ]),
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     PrismaModule,
     MailerModule,
+    AuditoriaModule,
     AuthModule,
     InvitacionesModule,
     PermisosModule,
@@ -34,6 +36,8 @@ import { CatalogosModule } from '../features/catalogos/catalogos.module';
     FilesModule,
     CursosModule,
     CatalogosModule,
+    HistorialCursosModule,
+    AuditoriaHttpModule,
   ],
   controllers: [AppController],
   providers: [AppService],

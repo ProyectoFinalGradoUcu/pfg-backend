@@ -27,7 +27,7 @@ interface FilaCarga {
   escalafon_id?: number;
   grado_id?: number;
   fecha_inicio?: string;
-  compania_id?: number;
+  sub_unidad_id?: number;
   // Civil: "cedula1:tipo_relacion1|cedula2:tipo_relacion2"
   familiares?: string;
 }
@@ -63,7 +63,7 @@ const COLUMNAS = [
   'escalafon_id',
   'grado_id',
   'fecha_inicio',
-  'compania_id',
+  'sub_unidad_id',
   'familiares',
 ];
 
@@ -98,7 +98,7 @@ export class PersonasCargaService {
       'escalafon_id — solo si NO civil',
       'grado_id — solo si NO civil',
       'fecha_inicio (AAAA-MM-DD) — solo si NO civil',
-      'compania_id — solo si NO civil (opcional)',
+      'sub_unidad_id — solo si NO civil (opcional)',
       'familiares — solo si civil (cedula1:tipo_relacion|cedula2:tipo_relacion)',
     ];
 
@@ -238,7 +238,7 @@ export class PersonasCargaService {
       escalafon_id: numCol('escalafon_id'),
       grado_id: numCol('grado_id'),
       fecha_inicio: col('fecha_inicio') || undefined,
-      compania_id: numCol('compania_id'),
+      sub_unidad_id: numCol('sub_unidad_id'),
       familiares: col('familiares') || undefined,
     };
   }
@@ -349,7 +349,7 @@ export class PersonasCargaService {
           fecha_inicio: new Date(datos.fecha_inicio!),
           estado: 'activo',
           tipo_funcionario: datos.tipo_funcionario,
-          compania_id: datos.compania_id ? BigInt(datos.compania_id) : undefined,
+          sub_unidad_id: datos.sub_unidad_id ? BigInt(datos.sub_unidad_id) : undefined,
           observaciones: datos.observaciones,
         },
       });

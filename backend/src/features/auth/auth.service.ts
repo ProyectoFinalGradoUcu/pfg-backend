@@ -9,6 +9,8 @@ import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
+import { APLICACION } from '../../lib/aplicacion.const';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { SignInDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -31,11 +33,12 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailer: MailerService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async signIn(dto: SignInDto): Promise<SignInResult> {
-    const usuario = await this.prisma.usuarios.findUnique({
-      where: { username: dto.username },
+    const usuario = await this.prisma.usuarios.findFirst({
+      where: { username: dto.username, aplicacion: APLICACION },
       include: {
         usuarios_roles: {
           include: {
@@ -61,10 +64,21 @@ export class AuthService {
       throw new UnauthorizedException('Usuario bloqueado temporalmente');
     }
 
-    const passwordOk = await bcrypt.compare(dto.password, usuario.password_hash);
+    const passwordOk = await bcrypt.compare(
+      dto.password,
+      usuario.password_hash,
+    );
 
     if (!passwordOk) {
       await this.registrarIntentoFallido(usuario.id, usuario.intentos_fallidos);
+      void this.auditoria.registrar({
+        usuarioId: usuario.id,
+        accion: 'LOGIN_FALLIDO',
+        contexto: 'Autenticación',
+        entidad: 'Usuario',
+        entidadId: usuario.id,
+        detalle: { username: dto.username, motivo: 'contraseña incorrecta' },
+      });
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
@@ -92,7 +106,9 @@ export class AuthService {
     };
 
     const expiresIn = process.env.JWT_EXPIRES_IN ?? DEFAULT_EXPIRES_IN;
-    const token = jwt.sign(payload, this.getSecret(), { expiresIn } as jwt.SignOptions);
+    const token = jwt.sign(payload, this.getSecret(), {
+      expiresIn,
+    } as jwt.SignOptions);
     const decoded = jwt.decode(token) as { exp?: number; iat?: number } | null;
     const ttl = decoded?.exp && decoded?.iat ? decoded.exp - decoded.iat : 0;
 
@@ -113,10 +129,13 @@ export class AuthService {
     if (!usuario) throw new UnauthorizedException('Usuario no encontrado');
 
     const ok = await bcrypt.compare(dto.passwordActual, usuario.password_hash);
-    if (!ok) throw new UnauthorizedException('La contraseña actual es incorrecta');
+    if (!ok)
+      throw new UnauthorizedException('La contraseña actual es incorrecta');
 
     if (dto.passwordActual === dto.passwordNueva) {
-      throw new BadRequestException('La nueva contraseña debe ser distinta a la actual');
+      throw new BadRequestException(
+        'La nueva contraseña debe ser distinta a la actual',
+      );
     }
 
     const rounds = Number(process.env.BCRYPT_ROUNDS ?? DEFAULT_BCRYPT_ROUNDS);
@@ -175,7 +194,9 @@ export class AuthService {
 
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = hashToken(rawToken);
-    const ttlHoras = Number(process.env.RESET_PASSWORD_TTL_HOURS ?? DEFAULT_RESET_TTL_HOURS);
+    const ttlHoras = Number(
+      process.env.RESET_PASSWORD_TTL_HOURS ?? DEFAULT_RESET_TTL_HOURS,
+    );
 
     await this.prisma.tokens_reset_password.create({
       data: {
@@ -190,7 +211,9 @@ export class AuthService {
     return { ok: true };
   }
 
-  async resetPasswordConToken(dto: ResetPasswordTokenDto): Promise<{ ok: true }> {
+  async resetPasswordConToken(
+    dto: ResetPasswordTokenDto,
+  ): Promise<{ ok: true }> {
     const tokenHash = hashToken(dto.token);
     const record = await this.prisma.tokens_reset_password.findUnique({
       where: { token_hash: tokenHash },

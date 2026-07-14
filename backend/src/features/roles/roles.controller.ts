@@ -18,10 +18,12 @@ import { UpdateRolDto } from './dto/update-rol.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
+import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Roles')
 @ApiCookieAuth('auth_token')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
+@Auditar({ contexto: 'Roles', entidad: 'Rol' })
 @Controller('roles')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
@@ -64,6 +66,7 @@ export class RolesController {
 
   @Put(':id/permisos/:permisoId')
   @RequirePermissions('roles.gestionar')
+  @Auditar({ contexto: 'Roles', accion: 'ASIGNAR', entidad: 'Rol' })
   @ApiOperation({ summary: 'Activar un permiso para el rol' })
   activarPermiso(
     @Param('id') id: string,
@@ -75,6 +78,7 @@ export class RolesController {
   @Delete(':id/permisos/:permisoId')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('roles.gestionar')
+  @Auditar({ contexto: 'Roles', accion: 'DESASIGNAR', entidad: 'Rol' })
   @ApiOperation({ summary: 'Desactivar un permiso para el rol' })
   desactivarPermiso(
     @Param('id') id: string,

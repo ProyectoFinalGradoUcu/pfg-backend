@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
+import { APLICACION } from '../../lib/aplicacion.const';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -51,8 +52,9 @@ export class UsuariosService {
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
     const [total, usuarios] = await this.prisma.$transaction([
-      this.prisma.usuarios.count(),
+      this.prisma.usuarios.count({ where: { aplicacion: APLICACION } }),
       this.prisma.usuarios.findMany({
+        where: { aplicacion: APLICACION },
         orderBy: { username: 'asc' },
         include: USUARIO_INCLUDE,
         skip: (page - 1) * pageSize,
@@ -69,8 +71,8 @@ export class UsuariosService {
   }
 
   async findOne(id: string) {
-    const usuario = await this.prisma.usuarios.findUnique({
-      where: { id: BigInt(id) },
+    const usuario = await this.prisma.usuarios.findFirst({
+      where: { id: BigInt(id), aplicacion: APLICACION },
       include: USUARIO_INCLUDE,
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
@@ -78,8 +80,8 @@ export class UsuariosService {
   }
 
   async create(dto: CreateUsuarioDto) {
-    const existente = await this.prisma.usuarios.findUnique({
-      where: { username: dto.username },
+    const existente = await this.prisma.usuarios.findFirst({
+      where: { username: dto.username, aplicacion: APLICACION },
     });
     if (existente) throw new ConflictException('Ya existe un usuario con ese username');
 
@@ -98,13 +100,14 @@ export class UsuariosService {
         username: dto.username,
         password_hash: passwordHash,
         estado: 'activo',
+        aplicacion: APLICACION,
         persona_id: dto.personaId ? BigInt(dto.personaId) : null,
       },
     });
 
     if (dto.roles && dto.roles.length > 0) {
       const roles = await this.prisma.roles.findMany({
-        where: { nombre: { in: dto.roles } },
+        where: { nombre: { in: dto.roles }, aplicacion: APLICACION },
       });
       if (roles.length !== dto.roles.length) {
         throw new BadRequestException('Uno o más roles no existen');
@@ -119,8 +122,8 @@ export class UsuariosService {
   }
 
   async update(id: string, dto: UpdateUsuarioDto, currentUserId: string) {
-    const usuario = await this.prisma.usuarios.findUnique({
-      where: { id: BigInt(id) },
+    const usuario = await this.prisma.usuarios.findFirst({
+      where: { id: BigInt(id), aplicacion: APLICACION },
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
 
@@ -157,8 +160,8 @@ export class UsuariosService {
     if (id === currentUserId) {
       throw new ForbiddenException('No podés eliminar tu propio usuario');
     }
-    const usuario = await this.prisma.usuarios.findUnique({
-      where: { id: BigInt(id) },
+    const usuario = await this.prisma.usuarios.findFirst({
+      where: { id: BigInt(id), aplicacion: APLICACION },
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
 
@@ -171,8 +174,8 @@ export class UsuariosService {
 
   async asignarRol(usuarioId: string, rolId: string) {
     const [usuario, rol] = await Promise.all([
-      this.prisma.usuarios.findUnique({ where: { id: BigInt(usuarioId) } }),
-      this.prisma.roles.findUnique({ where: { id: BigInt(rolId) } }),
+      this.prisma.usuarios.findFirst({ where: { id: BigInt(usuarioId), aplicacion: APLICACION } }),
+      this.prisma.roles.findFirst({ where: { id: BigInt(rolId), aplicacion: APLICACION } }),
     ]);
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
     if (!rol) throw new NotFoundException('Rol no encontrado');
@@ -188,8 +191,8 @@ export class UsuariosService {
 
   async quitarRol(usuarioId: string, rolId: string, currentUserId: string) {
     const [usuario, rol] = await Promise.all([
-      this.prisma.usuarios.findUnique({ where: { id: BigInt(usuarioId) } }),
-      this.prisma.roles.findUnique({ where: { id: BigInt(rolId) } }),
+      this.prisma.usuarios.findFirst({ where: { id: BigInt(usuarioId), aplicacion: APLICACION } }),
+      this.prisma.roles.findFirst({ where: { id: BigInt(rolId), aplicacion: APLICACION } }),
     ]);
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
     if (!rol) throw new NotFoundException('Rol no encontrado');
@@ -208,8 +211,8 @@ export class UsuariosService {
   }
 
   async resetPassword(id: string, dto: ResetPasswordDto) {
-    const usuario = await this.prisma.usuarios.findUnique({
-      where: { id: BigInt(id) },
+    const usuario = await this.prisma.usuarios.findFirst({
+      where: { id: BigInt(id), aplicacion: APLICACION },
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
 

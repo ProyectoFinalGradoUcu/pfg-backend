@@ -34,6 +34,42 @@ BEGIN
     END IF;
 END $$;
 
+ALTER TABLE IF EXISTS public.roles
+    ADD COLUMN IF NOT EXISTS aplicacion VARCHAR(20) NOT NULL DEFAULT 'liquidacion'
+        CHECK (aplicacion IN ('personal', 'liquidacion'));
+
+ALTER TABLE IF EXISTS public.permisos
+    ADD COLUMN IF NOT EXISTS aplicacion VARCHAR(20) NOT NULL DEFAULT 'liquidacion'
+        CHECK (aplicacion IN ('personal', 'liquidacion'));
+
+ALTER TABLE IF EXISTS public.usuarios
+    ADD COLUMN IF NOT EXISTS aplicacion VARCHAR(20) NOT NULL DEFAULT 'liquidacion'
+        CHECK (aplicacion IN ('personal', 'liquidacion'));
+
+ALTER TABLE IF EXISTS public.bitacora_auditoria
+    ADD COLUMN IF NOT EXISTS aplicacion VARCHAR(20) NOT NULL DEFAULT 'liquidacion'
+        CHECK (aplicacion IN ('personal', 'liquidacion'));
+
+ALTER TABLE IF EXISTS public.roles    DROP CONSTRAINT IF EXISTS roles_nombre_key;
+ALTER TABLE IF EXISTS public.permisos DROP CONSTRAINT IF EXISTS permisos_nombre_key;
+ALTER TABLE IF EXISTS public.usuarios DROP CONSTRAINT IF EXISTS usuarios_username_key;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'roles_nombre_aplicacion_key') THEN
+        ALTER TABLE public.roles
+            ADD CONSTRAINT roles_nombre_aplicacion_key UNIQUE (nombre, aplicacion);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'permisos_nombre_aplicacion_key') THEN
+        ALTER TABLE public.permisos
+            ADD CONSTRAINT permisos_nombre_aplicacion_key UNIQUE (nombre, aplicacion);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'usuarios_username_aplicacion_key') THEN
+        ALTER TABLE public.usuarios
+            ADD CONSTRAINT usuarios_username_aplicacion_key UNIQUE (username, aplicacion);
+    END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS public.misiones (
     id BIGSERIAL PRIMARY KEY,
     pais VARCHAR(100),
@@ -126,13 +162,17 @@ CREATE TABLE IF NOT EXISTS public.funcionarios_vuelos (
 
 CREATE TABLE IF NOT EXISTS public.funcionarios_cursos (
     id BIGSERIAL PRIMARY KEY,
-    persona_id BIGINT REFERENCES public.personas(id),
-    curso_id BIGINT REFERENCES public.cursos(id),
+    persona_id BIGINT NOT NULL REFERENCES public.personas(id),
+    curso_id BIGINT NOT NULL REFERENCES public.cursos(id),
     numero_orden VARCHAR(50),
     boletin VARCHAR(50),
     fecha_inicio DATE,
     fecha_fin DATE,
     calificacion TEXT,
+    dado_de_baja BOOLEAN NOT NULL DEFAULT FALSE,
+    motivo_baja TEXT,
+    fecha_baja TIMESTAMPTZ,
+    dado_de_baja_por BIGINT REFERENCES public.usuarios(id),
     UNIQUE (persona_id, curso_id)
 );
 
@@ -146,8 +186,8 @@ CREATE TABLE IF NOT EXISTS public.modulos_curso (
 
 CREATE TABLE IF NOT EXISTS public.funcionarios_modulos_curso (
     id BIGSERIAL PRIMARY KEY,
-    funcionario_curso_id BIGINT REFERENCES public.funcionarios_cursos(id) ON DELETE CASCADE,
-    modulo_id BIGINT REFERENCES public.modulos_curso(id),
+    funcionario_curso_id BIGINT NOT NULL REFERENCES public.funcionarios_cursos(id) ON DELETE CASCADE,
+    modulo_id BIGINT NOT NULL REFERENCES public.modulos_curso(id),
     numero_orden VARCHAR(50),
     boletin VARCHAR(50),
     completado BOOLEAN DEFAULT FALSE,
