@@ -947,6 +947,8 @@ model usuarios {
   remuneraciones_grado                                                       remuneraciones_grado[]
   retroactividades_retroactividades_confirmado_porTousuarios                 retroactividades[]               @relation("retroactividades_confirmado_porTousuarios")
   retroactividades_retroactividades_creado_porTousuarios                     retroactividades[]               @relation("retroactividades_creado_porTousuarios")
+  invitaciones                                                               invitaciones[]
+  tokens_reset_password                                                      tokens_reset_password[]
   personas                                                                   personas?                        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_roles                                                             usuarios_roles[]
 
