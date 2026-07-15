@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import {
   BadRequestException,
   Injectable,
@@ -7,10 +8,13 @@ import {
 import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
+import { MailerService } from '../mailer/mailer.service';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { SignInDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordTokenDto } from './dto/reset-password-token.dto';
 import {
   AuthPayload,
   AuthenticatedUser,
@@ -22,10 +26,13 @@ const DEFAULT_LOCK_MINUTES = 15;
 const DEFAULT_EXPIRES_IN = '4h';
 const DEFAULT_BCRYPT_ROUNDS = 12;
 
+const DEFAULT_RESET_TTL_HOURS = 1;
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly mailer: MailerService,
     private readonly auditoria: AuditoriaService,
   ) {}
 
@@ -57,7 +64,10 @@ export class AuthService {
       throw new UnauthorizedException('Usuario bloqueado temporalmente');
     }
 
-    const passwordOk = await bcrypt.compare(dto.password, usuario.password_hash);
+    const passwordOk = await bcrypt.compare(
+      dto.password,
+      usuario.password_hash,
+    );
 
     if (!passwordOk) {
       await this.registrarIntentoFallido(usuario.id, usuario.intentos_fallidos);
@@ -96,7 +106,9 @@ export class AuthService {
     };
 
     const expiresIn = process.env.JWT_EXPIRES_IN ?? DEFAULT_EXPIRES_IN;
-    const token = jwt.sign(payload, this.getSecret(), { expiresIn } as jwt.SignOptions);
+    const token = jwt.sign(payload, this.getSecret(), {
+      expiresIn,
+    } as jwt.SignOptions);
     const decoded = jwt.decode(token) as { exp?: number; iat?: number } | null;
     const ttl = decoded?.exp && decoded?.iat ? decoded.exp - decoded.iat : 0;
 
@@ -117,10 +129,13 @@ export class AuthService {
     if (!usuario) throw new UnauthorizedException('Usuario no encontrado');
 
     const ok = await bcrypt.compare(dto.passwordActual, usuario.password_hash);
-    if (!ok) throw new UnauthorizedException('La contraseña actual es incorrecta');
+    if (!ok)
+      throw new UnauthorizedException('La contraseña actual es incorrecta');
 
     if (dto.passwordActual === dto.passwordNueva) {
-      throw new BadRequestException('La nueva contraseña debe ser distinta a la actual');
+      throw new BadRequestException(
+        'La nueva contraseña debe ser distinta a la actual',
+      );
     }
 
     const rounds = Number(process.env.BCRYPT_ROUNDS ?? DEFAULT_BCRYPT_ROUNDS);
@@ -157,6 +172,93 @@ export class AuthService {
     }
   }
 
+  async solicitarResetPassword(dto: ForgotPasswordDto): Promise<{ ok: true }> {
+    const usuario = await this.prisma.usuarios.findUnique({
+      where: { username: dto.username },
+      select: { id: true, username: true, estado: true, bloqueado_hasta: true },
+    });
+
+    // Respuesta siempre igual para evitar enumeración de usuarios
+    if (!usuario || usuario.estado !== 'activo') {
+      return { ok: true };
+    }
+    if (usuario.bloqueado_hasta && usuario.bloqueado_hasta > new Date()) {
+      return { ok: true };
+    }
+
+    // Invalida tokens anteriores no utilizados
+    await this.prisma.tokens_reset_password.updateMany({
+      where: { usuario_id: usuario.id, usado: false },
+      data: { usado: true },
+    });
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const ttlHoras = Number(
+      process.env.RESET_PASSWORD_TTL_HOURS ?? DEFAULT_RESET_TTL_HOURS,
+    );
+
+    await this.prisma.tokens_reset_password.create({
+      data: {
+        usuario_id: usuario.id,
+        token_hash: tokenHash,
+        expira_en: new Date(Date.now() + ttlHoras * 60 * 60 * 1000),
+      },
+    });
+
+    await this.mailer.sendResetPassword(usuario.username, rawToken);
+
+    return { ok: true };
+  }
+
+  async resetPasswordConToken(
+    dto: ResetPasswordTokenDto,
+  ): Promise<{ ok: true }> {
+    const tokenHash = hashToken(dto.token);
+    const record = await this.prisma.tokens_reset_password.findUnique({
+      where: { token_hash: tokenHash },
+    });
+
+    if (!record) {
+      throw new BadRequestException('Token inválido');
+    }
+    if (record.usado) {
+      throw new BadRequestException('Token ya utilizado');
+    }
+    if (record.expira_en <= new Date()) {
+      throw new BadRequestException('Token expirado');
+    }
+
+    const usuario = await this.prisma.usuarios.findUnique({
+      where: { id: record.usuario_id },
+      select: { id: true, estado: true },
+    });
+
+    if (!usuario || usuario.estado !== 'activo') {
+      throw new BadRequestException('Usuario inactivo o no encontrado');
+    }
+
+    const rounds = Number(process.env.BCRYPT_ROUNDS ?? DEFAULT_BCRYPT_ROUNDS);
+    const passwordHash = await bcrypt.hash(dto.passwordNueva, rounds);
+
+    await this.prisma.$transaction([
+      this.prisma.usuarios.update({
+        where: { id: usuario.id },
+        data: {
+          password_hash: passwordHash,
+          intentos_fallidos: 0,
+          bloqueado_hasta: null,
+        },
+      }),
+      this.prisma.tokens_reset_password.update({
+        where: { id: record.id },
+        data: { usado: true, usado_en: new Date() },
+      }),
+    ]);
+
+    return { ok: true };
+  }
+
   private async registrarIntentoFallido(
     usuarioId: bigint,
     intentosActuales: number,
@@ -191,4 +293,8 @@ export class AuthService {
     }
     return secret;
   }
+}
+
+function hashToken(rawToken: string): string {
+  return crypto.createHash('sha256').update(rawToken).digest('hex');
 }
