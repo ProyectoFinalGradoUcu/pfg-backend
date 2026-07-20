@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { APLICACION } from '../../lib/aplicacion.const';
 import { CrearInvitacionDto } from './dto/crear-invitacion.dto';
 import { AceptarInvitacionDto } from './dto/aceptar-invitacion.dto';
 
@@ -185,12 +186,13 @@ export class InvitacionesService {
           persona_id: invitacion.persona_id ?? null,
           estado: 'activo',
           intentos_fallidos: 0,
+          aplicacion: APLICACION,
         },
       });
 
       if (invitacion.roles.length > 0) {
         const roles = await tx.roles.findMany({
-          where: { nombre: { in: invitacion.roles } },
+          where: { nombre: { in: invitacion.roles }, aplicacion: APLICACION },
           select: { id: true },
         });
         await tx.usuarios_roles.createMany({
