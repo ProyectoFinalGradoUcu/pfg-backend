@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -17,14 +16,11 @@ import { CreateMisionRequestDto } from './dto/create-mision-request.dto';
 import { UpdateMisionRequestDto } from './dto/update-mision-request.dto';
 import { AddFuncionariosRequestDto } from './dto/add-funcionarios-request.dto';
 import { UpdateFuncionarioRequestDto } from './dto/update-funcionario-request.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Misiones')
 @ApiCookieAuth('auth_token')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Auditar({ contexto: 'Misiones', entidad: 'Misión' })
 @Controller('misiones')
 export class MisionesController {

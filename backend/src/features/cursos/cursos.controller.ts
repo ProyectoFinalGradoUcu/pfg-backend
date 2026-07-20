@@ -8,7 +8,6 @@ import {
   Param,
   ParseIntPipe,
   Query,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -28,8 +27,6 @@ import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
 import { BajaDesignacionDto } from './dto/baja-designacion.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
@@ -37,7 +34,6 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Cursos')
 @ApiCookieAuth('auth_token')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Auditar({ contexto: 'Cursos', entidad: 'Curso' })
 @Controller('cursos')
 export class CursosController {

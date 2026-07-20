@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: pfg_password
       POSTGRES_DB: pfg_database
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./database/scripts/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
@@ -31,7 +31,8 @@ services:
       MINIO_ROOT_USER: pfg_minio_user
       MINIO_ROOT_PASSWORD: pfg_minio_password
     ports:
-      - "9001:9001" 
+      - "9000:9000"
+      - "9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:

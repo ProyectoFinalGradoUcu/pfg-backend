@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, InternalServerErrorException, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Minio from 'minio';
 
@@ -14,7 +14,7 @@ export class FilesService implements OnModuleInit {
   private client: Minio.Client;
   private bucket: string;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
   async onModuleInit() {
     this.bucket = this.config.get<string>('MINIO_BUCKET', 'pfg-documents');
@@ -27,9 +27,13 @@ export class FilesService implements OnModuleInit {
       secretKey: this.config.get<string>('MINIO_SECRET_KEY', ''),
     });
 
-    const exists = await this.client.bucketExists(this.bucket);
-    if (!exists) {
-      await this.client.makeBucket(this.bucket);
+    try {
+      const exists = await this.client.bucketExists(this.bucket);
+      if (!exists) {
+        await this.client.makeBucket(this.bucket);
+      }
+    } catch (err) {
+      console.warn('[FilesService] No se pudo conectar a MinIO:', err.message);
     }
   }
 

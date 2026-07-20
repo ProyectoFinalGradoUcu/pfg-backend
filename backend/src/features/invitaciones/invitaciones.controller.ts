@@ -8,7 +8,6 @@ import {
   Param,
   Post,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiCookieAuth,
@@ -18,8 +17,6 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -31,7 +28,6 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Invitaciones')
 @Controller('invitaciones')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Auditar({ contexto: 'Usuarios', entidad: 'Invitación' })
 export class InvitacionesController {
   constructor(private readonly invitacionesService: InvitacionesService) {}

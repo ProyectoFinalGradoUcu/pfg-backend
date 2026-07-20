@@ -173,7 +173,7 @@ export class AuthService {
   }
 
   async solicitarResetPassword(dto: ForgotPasswordDto): Promise<{ ok: true }> {
-    const usuario = await this.prisma.usuarios.findUnique({
+    const usuario = await this.prisma.usuarios.findFirst({
       where: { username: dto.username },
       select: { id: true, username: true, estado: true, bloqueado_hasta: true },
     });

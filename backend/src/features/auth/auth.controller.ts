@@ -7,7 +7,6 @@ import {
   HttpStatus,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiCookieAuth,
@@ -23,7 +22,6 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordTokenDto } from './dto/reset-password-token.dto';
 import { Public } from './decorators/public.decorator';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser, SignInResponse } from './types/auth.types';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -39,6 +37,7 @@ export class AuthController {
   ) {}
 
   @Post('sign-in')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Iniciar sesión con usuario y contraseña' })
@@ -64,7 +63,6 @@ export class AuthController {
 
   @Post('sign-out')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
   @ApiCookieAuth('auth_token')
   @ApiOperation({ summary: 'Cerrar sesión' })
   signOut(
@@ -85,7 +83,6 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   @ApiCookieAuth('auth_token')
   @ApiOperation({ summary: 'Obtener datos del usuario autenticado' })
   me(@CurrentUser() user: AuthenticatedUser) {
@@ -94,7 +91,6 @@ export class AuthController {
 
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
   @ApiCookieAuth('auth_token')
   @ApiOperation({ summary: 'Cambiar la contraseña del usuario autenticado' })
   async changePassword(

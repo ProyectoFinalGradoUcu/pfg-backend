@@ -47,7 +47,7 @@ export class InvitacionesService {
       }
     }
 
-    const usuarioExistente = await this.prisma.usuarios.findUnique({
+    const usuarioExistente = await this.prisma.usuarios.findFirst({
       where: { username: dto.email },
       select: { id: true },
     });
@@ -166,7 +166,7 @@ export class InvitacionesService {
       throw new BadRequestException('Invitación expirada');
     }
 
-    const usuarioExistente = await this.prisma.usuarios.findUnique({
+    const usuarioExistente = await this.prisma.usuarios.findFirst({
       where: { username: invitacion.email },
     });
     if (usuarioExistente) {

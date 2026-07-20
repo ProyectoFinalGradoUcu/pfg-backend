@@ -6,20 +6,16 @@ import {
   Body,
   Param,
   ParseIntPipe,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth, ApiParam } from '@nestjs/swagger';
 import { SubalternosService } from './subalternos.service.js';
 import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
 import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { PermissionsGuard } from '../auth/guards/permissions.guard.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 
 @ApiTags('Subalternos')
 @ApiCookieAuth('auth_token')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Auditar({ contexto: 'Subalternos', entidad: 'Subalterno' })
 @Controller('subalternos')
 export class SubalternosController {
