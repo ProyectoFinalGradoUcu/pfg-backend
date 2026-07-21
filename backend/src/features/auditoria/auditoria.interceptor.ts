@@ -1,6 +1,7 @@
 import {
   CallHandler,
   ExecutionContext,
+  Inject,
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
@@ -31,7 +32,7 @@ const ACCION_POR_METODO: Record<string, string> = {
 @Injectable()
 export class AuditoriaInterceptor implements NestInterceptor {
   constructor(
-    private readonly reflector: Reflector,
+    @Inject(Reflector) private readonly reflector: Reflector,
     private readonly auditoria: AuditoriaService,
   ) {}
 

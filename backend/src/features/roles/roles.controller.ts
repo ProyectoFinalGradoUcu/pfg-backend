@@ -9,20 +9,16 @@ import {
   Patch,
   Post,
   Put,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesService } from './roles.service';
 import { CreateRolDto } from './dto/create-rol.dto';
 import { UpdateRolDto } from './dto/update-rol.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Roles')
 @ApiCookieAuth('auth_token')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Auditar({ contexto: 'Roles', entidad: 'Rol' })
 @Controller('roles')
 export class RolesController {

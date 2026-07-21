@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Query, Body, Param, ParseIntPipe, Res, UseGuards,
+  Controller, Get, Post, Patch, Query, Body, Param, ParseIntPipe, Res,
   UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -12,13 +12,10 @@ import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { PermissionsGuard } from '../auth/guards/permissions.guard.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 
 @ApiTags('Personas')
 @ApiCookieAuth('auth_token')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Auditar({ contexto: 'Personas', entidad: 'Persona' })
 @Controller('personas')
 export class PersonasController {

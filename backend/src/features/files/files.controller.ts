@@ -5,7 +5,6 @@ import {
   Delete,
   Param,
   UploadedFile,
-  UseGuards,
   UseInterceptors,
   BadRequestException,
   HttpCode,
@@ -18,7 +17,6 @@ import type { Readable } from 'node:stream';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiCookieAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { FilesService } from './files.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 const ALLOWED_MIMETYPES = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -35,7 +33,6 @@ function serviceResponse(httpStatus: number, httpMessage: string, data: unknown)
 
 @ApiTags('Files')
 @ApiCookieAuth('auth_token')
-@UseGuards(JwtAuthGuard)
 @Auditar({ contexto: 'Archivos', entidad: 'Archivo' })
 @Controller('files')
 export class FilesController {

@@ -4,7 +4,6 @@ import {
   Post,
   Body,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,14 +14,11 @@ import {
 import { HistorialCursosService } from './historial-cursos.service';
 import { CreateHistorialCursoDto } from './dto/create-historial-curso.dto';
 import { ListHistorialCursosQueryDto } from './dto/list-historial-cursos-query.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Historial Cursos')
 @ApiCookieAuth('auth_token')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Auditar({ contexto: 'Historial de cursos', entidad: 'Historial de curso' })
 @Controller('historial-cursos')
 export class HistorialCursosController {
