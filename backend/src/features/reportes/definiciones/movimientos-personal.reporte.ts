@@ -66,7 +66,6 @@ export const movimientosPersonalReporte: DefinicionReporte = {
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
     const rango = rangoFecha(filtros.desde, filtros.hasta);
 
-    // ── Altas por ingreso ──────────────────────────────────────────────
     const altasRaw = await prisma.movimientos_laborales.findMany({
       where: {
         tipos_movimiento: { es_alta: true },
@@ -95,7 +94,6 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       };
     });
 
-    // ── Ascensos ───────────────────────────────────────────────────────
     const ascRaw = await prisma.ascensos.findMany({
       where: rango ? { fecha_ascenso: rango } : {},
       include: {
@@ -132,7 +130,6 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       };
     });
 
-    // ── Bajas ──────────────────────────────────────────────────────────
     const bajasRaw = await prisma.relaciones_laborales.findMany({
       where: {
         motivo_baja_id: { not: null },
@@ -158,7 +155,6 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       ley: rl.regimenes?.numero_ley ?? '',
     }));
 
-    // ── Retiros ────────────────────────────────────────────────────────
     const retirosRaw = await prisma.retiros.findMany({
       where: rango ? { fecha_retiro: rango } : {},
       include: {
