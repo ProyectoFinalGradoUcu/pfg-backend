@@ -18,6 +18,7 @@ import { CatalogosModule } from '../features/catalogos/catalogos.module';
 import { HistorialCursosModule } from '../features/historial-cursos/historial-cursos.module';
 import { AuditoriaModule } from '../features/auditoria/auditoria.module';
 import { AuditoriaHttpModule } from '../features/auditoria/auditoria-http.module';
+import { ReportesModule } from '../features/reportes/reportes.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { AuditoriaHttpModule } from '../features/auditoria/auditoria-http.module
     CatalogosModule,
     HistorialCursosModule,
     AuditoriaHttpModule,
+    ReportesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
