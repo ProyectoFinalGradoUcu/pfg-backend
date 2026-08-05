@@ -16,6 +16,7 @@ services:
       - ./database/scripts/seed_auth.sql:/docker-entrypoint-initdb.d/04_seed_auth.sql:ro
       - ./database/scripts/seed_cursos.sql:/docker-entrypoint-initdb.d/05_seed_cursos.sql:ro
       - ./database/scripts/seed_auditoria.sql:/docker-entrypoint-initdb.d/06_seed_auditoria.sql:ro
+      - ./database/scripts/migration_misiones_v2.sql:/docker-entrypoint-initdb.d/07_misiones_v2.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pfg_user -d pfg_database"]
       interval: 10s

@@ -7,17 +7,24 @@ import {
   Body,
   Param,
   Query,
+  ParseIntPipe,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiCookieAuth } from '@nestjs/swagger';
 import { MisionesService } from './misiones.service';
-import { CreateMisionRequestDto } from './dto/create-mision-request.dto';
-import { UpdateMisionRequestDto } from './dto/update-mision-request.dto';
-import { AddFuncionariosRequestDto } from './dto/add-funcionarios-request.dto';
-import { UpdateFuncionarioRequestDto } from './dto/update-funcionario-request.dto';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
+import { CreateMisionDto } from './dto/create-mision.dto';
+import { UpdateMisionDto } from './dto/update-mision.dto';
+import { ListMisionesQueryDto } from './dto/list-misiones-query.dto';
+import { CreateConvocatoriaDto } from './dto/create-convocatoria.dto';
+import { UpdateConvocatoriaDto } from './dto/update-convocatoria.dto';
+import { ListConvocatoriasQueryDto } from './dto/list-convocatorias-query.dto';
+import { AddFuncionariosConvocatoriaDto } from './dto/add-funcionarios-convocatoria.dto';
+import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convocatoria.dto';
+import { ListFuncionariosConvocatoriaQueryDto } from './dto/list-funcionarios-convocatoria-query.dto';
+import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
 
 @ApiTags('Misiones')
 @ApiCookieAuth('auth_token')
@@ -26,90 +33,166 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 export class MisionesController {
   constructor(private readonly misionesService: MisionesService) {}
 
+  // ─── Personal en misión (listado global plano) ─────────────────────────────
+  // DEBE ir antes de /:misionId para que Express no lo confunda con un parámetro.
+
+  @Get('funcionarios')
+  @ApiOperation({ summary: 'Listado plano de todo el personal en misión' })
+  @RequirePermissions('misiones.ver')
+  listarPersonalEnMision(@Query() query: ListPersonalMisionQueryDto) {
+    return this.misionesService.listarPersonalEnMision(query);
+  }
+
+  // ─── Misiones (catálogo) ───────────────────────────────────────────────────
+
   @Get()
-  @ApiOperation({ summary: 'Listar misiones paginadas con stats' })
+  @ApiOperation({ summary: 'Listar misiones paginadas con stats globales' })
   @RequirePermissions('misiones.ver')
-  async findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.misionesService.findAll(
-      page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
-    );
+  listarMisiones(@Query() query: ListMisionesQueryDto) {
+    return this.misionesService.listarMisiones(query);
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Obtener el detalle de una misión por ID' })
+  @Get(':misionId')
+  @ApiOperation({ summary: 'Obtener una misión por id' })
   @RequirePermissions('misiones.ver')
-  async findOne(@Param('id') id: string) {
-    return this.misionesService.findOne(id);
-  }
-
-  @Get(':id/funcionarios')
-  @ApiOperation({ summary: 'Obtener los funcionarios de una misión paginados' })
-  @RequirePermissions('misiones.ver')
-  async getFuncionarios(
-    @Param('id') id: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.misionesService.getFuncionariosDeMision(
-      id,
-      page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
-    );
+  obtenerMision(@Param('misionId', ParseIntPipe) misionId: number) {
+    return this.misionesService.obtenerMision(misionId);
   }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Crear una nueva misión' })
+  @ApiOperation({ summary: 'Crear misión en el catálogo' })
   @RequirePermissions('misiones.gestionar')
-  async create(@Body() body: CreateMisionRequestDto) {
-    return this.misionesService.create(body.service_request);
+  crearMision(@Body('service_request') dto: CreateMisionDto) {
+    return this.misionesService.crearMision(dto);
   }
 
-  @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar campos de una misión' })
+  @Patch(':misionId')
+  @ApiOperation({ summary: 'Editar nombre o país de una misión' })
   @RequirePermissions('misiones.gestionar')
-  async update(@Param('id') id: string, @Body() body: UpdateMisionRequestDto) {
-    return this.misionesService.update(id, body.service_request);
-  }
-
-  @Delete(':id')
-  @ApiOperation({ summary: 'Eliminar una misión y todos sus funcionarios asignados' })
-  @RequirePermissions('misiones.gestionar')
-  async remove(@Param('id') id: string) {
-    return this.misionesService.remove(id);
-  }
-
-  @Post(':id/funcionarios')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Agregar uno o varios funcionarios a una misión' })
-  @RequirePermissions('misiones.gestionar')
-  async addFuncionarios(@Param('id') id: string, @Body() body: AddFuncionariosRequestDto) {
-    return this.misionesService.addFuncionarios(id, body.service_request.funcionarios_misiones);
-  }
-
-  @Patch(':id/funcionarios/:personaId')
-  @ApiOperation({ summary: 'Actualizar datos de un funcionario en la misión' })
-  @RequirePermissions('misiones.gestionar')
-  async updateFuncionario(
-    @Param('id') id: string,
-    @Param('personaId') personaId: string,
-    @Body() body: UpdateFuncionarioRequestDto,
+  editarMision(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Body('service_request') dto: UpdateMisionDto,
   ) {
-    return this.misionesService.updateFuncionario(id, personaId, body.service_request);
+    return this.misionesService.editarMision(misionId, dto);
   }
 
-  @Delete(':id/funcionarios/:personaId')
-  @ApiOperation({ summary: 'Quitar un funcionario específico de la misión' })
+  @Delete(':misionId')
+  @ApiOperation({ summary: 'Eliminar una misión y todas sus convocatorias' })
   @RequirePermissions('misiones.gestionar')
-  async deleteFuncionario(@Param('id') id: string, @Param('personaId') personaId: string) {
-    return this.misionesService.deleteFuncionario(id, personaId);
+  eliminarMision(@Param('misionId', ParseIntPipe) misionId: number) {
+    return this.misionesService.eliminarMision(misionId);
   }
 
-  @Delete(':id/funcionarios')
-  @ApiOperation({ summary: 'Quitar todos los funcionarios de una misión' })
+  // ─── Convocatorias ─────────────────────────────────────────────────────────
+
+  @Get(':misionId/convocatorias')
+  @ApiOperation({ summary: 'Listar convocatorias de una misión' })
+  @RequirePermissions('misiones.ver')
+  listarConvocatorias(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Query() query: ListConvocatoriasQueryDto,
+  ) {
+    return this.misionesService.listarConvocatorias(misionId, query);
+  }
+
+  @Get(':misionId/convocatorias/:convocatoriaId')
+  @ApiOperation({ summary: 'Obtener una convocatoria por id' })
+  @RequirePermissions('misiones.ver')
+  obtenerConvocatoria(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
+  ) {
+    return this.misionesService.obtenerConvocatoria(misionId, convocatoriaId);
+  }
+
+  @Post(':misionId/convocatorias')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Crear convocatoria (con asignación opcional de personas)' })
   @RequirePermissions('misiones.gestionar')
-  async deleteAllFuncionarios(@Param('id') id: string) {
-    return this.misionesService.deleteAllFuncionarios(id);
+  crearConvocatoria(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Body('service_request') dto: CreateConvocatoriaDto,
+  ) {
+    return this.misionesService.crearConvocatoria(misionId, dto);
+  }
+
+  @Patch(':misionId/convocatorias/:convocatoriaId')
+  @ApiOperation({ summary: 'Editar campos de una convocatoria' })
+  @RequirePermissions('misiones.gestionar')
+  editarConvocatoria(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
+    @Body('service_request') dto: UpdateConvocatoriaDto,
+  ) {
+    return this.misionesService.editarConvocatoria(misionId, convocatoriaId, dto);
+  }
+
+  @Delete(':misionId/convocatorias/:convocatoriaId')
+  @ApiOperation({ summary: 'Eliminar una convocatoria y sus asignaciones' })
+  @RequirePermissions('misiones.gestionar')
+  eliminarConvocatoria(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
+  ) {
+    return this.misionesService.eliminarConvocatoria(misionId, convocatoriaId);
+  }
+
+  // ─── Funcionarios de una convocatoria ─────────────────────────────────────
+
+  @Get(':misionId/convocatorias/:convocatoriaId/funcionarios')
+  @ApiOperation({ summary: 'Listar funcionarios asignados a una convocatoria' })
+  @RequirePermissions('misiones.ver')
+  listarFuncionariosConvocatoria(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
+    @Query() query: ListFuncionariosConvocatoriaQueryDto,
+  ) {
+    return this.misionesService.listarFuncionariosConvocatoria(misionId, convocatoriaId, query);
+  }
+
+  @Post(':misionId/convocatorias/:convocatoriaId/funcionarios')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Agregar funcionarios a una convocatoria' })
+  @RequirePermissions('misiones.gestionar')
+  agregarFuncionarios(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
+    @Body('service_request') dto: AddFuncionariosConvocatoriaDto,
+  ) {
+    return this.misionesService.agregarFuncionarios(misionId, convocatoriaId, dto);
+  }
+
+  @Patch(':misionId/convocatorias/:convocatoriaId/funcionarios/:personaId')
+  @ApiOperation({ summary: 'Actualizar orden/boletín/observaciones de un funcionario en la convocatoria' })
+  @RequirePermissions('misiones.gestionar')
+  editarFuncionarioConvocatoria(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
+    @Param('personaId', ParseIntPipe) personaId: number,
+    @Body('service_request') dto: UpdateFuncionarioConvocatoriaDto,
+  ) {
+    return this.misionesService.editarFuncionarioConvocatoria(misionId, convocatoriaId, personaId, dto);
+  }
+
+  @Delete(':misionId/convocatorias/:convocatoriaId/funcionarios/:personaId')
+  @ApiOperation({ summary: 'Quitar un funcionario de la convocatoria' })
+  @RequirePermissions('misiones.gestionar')
+  quitarFuncionario(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
+    @Param('personaId', ParseIntPipe) personaId: number,
+  ) {
+    return this.misionesService.quitarFuncionario(misionId, convocatoriaId, personaId);
+  }
+
+  @Delete(':misionId/convocatorias/:convocatoriaId/funcionarios')
+  @ApiOperation({ summary: 'Quitar todos los funcionarios de una convocatoria' })
+  @RequirePermissions('misiones.gestionar')
+  quitarTodosFuncionarios(
+    @Param('misionId', ParseIntPipe) misionId: number,
+    @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
+  ) {
+    return this.misionesService.quitarTodosFuncionarios(misionId, convocatoriaId);
   }
 }

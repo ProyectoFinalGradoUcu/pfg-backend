@@ -12,7 +12,7 @@ SEED_AUTH = database/scripts/seed_auth.sql
 SEED_DEMO = database/scripts/seed_demo_review.sql
 SEED_CURSOS = database/scripts/seed_cursos.sql
 
-.PHONY: up down reset seed seed-auth seed-demo-review migrate-invitaciones backend db build logs logs-backend logs-db ps gen-secret help
+.PHONY: up down reset seed seed-auth seed-demo-review migrate-invitaciones migrate-misiones backend db build logs logs-backend logs-db ps gen-secret help
 
 gen-secret:
 	@node -e " \
@@ -55,6 +55,10 @@ seed-demo-review:
 migrate-invitaciones:
 	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < database/scripts/migracion_invitaciones_reset.sql
 	@echo "  [ok] Tablas invitaciones y tokens_reset_password creadas"
+
+migrate-misiones:
+	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < database/scripts/migration_misiones_v2.sql
+	@echo "  [ok] Tablas convocatorias y funcionarios_convocatorias creadas"
 
 build:
 	$(COMPOSE) build

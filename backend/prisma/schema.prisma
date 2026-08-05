@@ -511,6 +511,7 @@ model lotes_compensacion {
 
 model misiones {
   id                    BigInt                  @id @default(autoincrement())
+  nombre_mision         String?                 @db.VarChar(200)
   pais                  String?                 @db.VarChar(100)
   tipo_mision           String?                 @db.VarChar(100)
   fecha_salida          DateTime?               @db.Date
@@ -520,6 +521,32 @@ model misiones {
   observaciones         String?
   comando_responsable   String?                 @db.VarChar(200)
   funcionarios_misiones funcionarios_misiones[]
+  convocatorias         convocatorias[]
+}
+
+model convocatorias {
+  id              BigInt                       @id @default(autoincrement())
+  mision_id       BigInt
+  numero_orden    String?                      @db.VarChar(50)
+  boletin         String?                      @db.VarChar(50)
+  fecha_salida    DateTime?                    @db.Date
+  fecha_llegada   DateTime?                    @db.Date
+  observaciones   String?
+  misiones        misiones                     @relation(fields: [mision_id], references: [id], onDelete: Cascade)
+  funcionarios    funcionarios_convocatorias[]
+}
+
+model funcionarios_convocatorias {
+  id              BigInt        @id @default(autoincrement())
+  convocatoria_id BigInt
+  persona_id      BigInt
+  numero_orden    String?       @db.VarChar(50)
+  boletin         String?       @db.VarChar(50)
+  observaciones   String?
+  convocatorias   convocatorias @relation(fields: [convocatoria_id], references: [id], onDelete: Cascade)
+  personas        personas      @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([convocatoria_id, persona_id])
 }
 
 model modulos_curso {
@@ -628,6 +655,7 @@ model personas {
   form3100                                                          form3100[]
   funcionarios_cursos                                               funcionarios_cursos[]
   funcionarios_misiones                                             funcionarios_misiones[]
+  funcionarios_convocatorias                                        funcionarios_convocatorias[]
   funcionarios_vuelos                                               funcionarios_vuelos[]
   incidencias_calculo                                               incidencias_calculo[]
   irpf_mensual                                                      irpf_mensual[]

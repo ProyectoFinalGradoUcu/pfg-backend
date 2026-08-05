@@ -102,14 +102,8 @@ describe('CursosService', () => {
   let service: CursosService;
   let prisma: ReturnType<typeof makePrismaMock>;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     prisma = makePrismaMock();
-
-    // Handles both: callback form (async tx => ...) and array form ([p1, p2])
-    prisma.$transaction.mockImplementation((arg: any) => {
-      if (typeof arg === 'function') return arg(prisma);
-      return Promise.all(arg);
-    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -119,6 +113,15 @@ describe('CursosService', () => {
     }).compile();
 
     service = module.get<CursosService>(CursosService);
+  });
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    // Handles both: callback form (async tx => ...) and array form ([p1, p2])
+    prisma.$transaction.mockImplementation((arg: any) => {
+      if (typeof arg === 'function') return arg(prisma);
+      return Promise.all(arg);
+    });
   });
 
   // ─── create ───────────────────────────────────────────────────────────────
