@@ -256,39 +256,36 @@ export class PersonalPerfilService {
   async findMisiones(id: number) {
     await this.assertExiste(id);
 
-    const registros = await this.prisma.funcionarios_misiones.findMany({
+    const registros = await this.prisma.funcionarios_convocatorias.findMany({
       where: { persona_id: BigInt(id) },
-      select: {
-        boletin: true,
-        observaciones: true,
-        numero_control_migratorio: true,
-        misiones: {
-          select: {
-            id: true,
-            tipo_mision: true,
-            pais: true,
-            fecha_salida: true,
-            fecha_llegada: true,
-            numero_orden: true,
-            boletin: true,
-            comando_responsable: true,
-            observaciones: true,
+      include: {
+        convocatorias: {
+          include: {
+            misiones: {
+              select: { id: true, nombre_mision: true, pais: true },
+            },
           },
         },
       },
+      orderBy: { convocatorias: { fecha_salida: 'desc' } },
     });
 
     return registros.map((r) => ({
-      mision_id: Number(r.misiones.id),
-      tipo_mision: r.misiones.tipo_mision,
-      pais: r.misiones.pais,
-      fecha_inicio: r.misiones.fecha_salida,
-      fecha_fin: r.misiones.fecha_llegada,
-      numero_orden: r.misiones.numero_orden ?? r.boletin,
-      comando_responsable: r.misiones.comando_responsable,
-      observaciones: r.observaciones ?? r.misiones.observaciones,
-      numero_control_migratorio: r.numero_control_migratorio,
-      finalizada: r.misiones.fecha_llegada != null && r.misiones.fecha_llegada <= new Date(),
+      mision_id: r.convocatorias.misiones.id.toString(),
+      convocatoria_id: r.convocatoria_id.toString(),
+      nombre_mision: r.convocatorias.misiones.nombre_mision,
+      pais: r.convocatorias.misiones.pais,
+      fecha_salida: r.convocatorias.fecha_salida
+        ? r.convocatorias.fecha_salida.toISOString().split('T')[0]
+        : null,
+      fecha_llegada: r.convocatorias.fecha_llegada
+        ? r.convocatorias.fecha_llegada.toISOString().split('T')[0]
+        : null,
+      numero_orden: r.numero_orden,
+      boletin: r.boletin,
+      finalizada:
+        r.convocatorias.fecha_llegada !== null &&
+        r.convocatorias.fecha_llegada <= new Date(),
     }));
   }
 
