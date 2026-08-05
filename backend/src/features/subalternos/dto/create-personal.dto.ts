@@ -85,6 +85,24 @@ export class CreatePersonalDto {
   @MaxLength(200)
   lugar_nacimiento?: string;
 
+  @ApiPropertyOptional({ example: 'Mestizo', maxLength: 50 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  etnia?: string;
+
+  @ApiPropertyOptional({ example: '11300', maxLength: 10 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  codigo_postal?: string;
+
+  @ApiPropertyOptional({ example: 'Seccional 14', maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  seccional?: string;
+
   @ApiProperty({ example: false, description: 'true si es personal civil' })
   @IsBoolean()
   es_civil: boolean;
@@ -136,6 +154,17 @@ export class CreatePersonalDto {
   @IsOptional()
   @IsDateString()
   fecha_inicio?: string;
+
+  @ApiPropertyOptional({ example: 'A', maxLength: 10 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  prima_tecnica?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  tiene_mando?: boolean;
 
   @ApiPropertyOptional({ description: 'ID de sub-unidad (opcional)' })
   @IsOptional()

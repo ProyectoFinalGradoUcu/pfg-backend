@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../lib/prisma.service.js';
+import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 
 interface FilaCarga {
   // Personales
@@ -310,6 +311,8 @@ export class PersonasCargaService {
     if (faltantes.length > 0) {
       throw new Error(`Campos militares faltantes: ${faltantes.join(', ')}`);
     }
+
+    assertFechaInicioPosteriorANacimiento(datos.fecha_inicio, datos.fecha_nacimiento);
 
     if (!['oficial', 'subalterno'].includes(datos.tipo_funcionario!)) {
       throw new Error(`tipo_funcionario inválido: "${datos.tipo_funcionario}". Debe ser "oficial" o "subalterno"`);

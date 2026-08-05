@@ -12,6 +12,12 @@ export interface AuditarOptions {
   accion?: string;
   /** Nombre de la entidad afectada (ej. 'Rol'). Opcional. */
   entidad?: string;
+  /**
+   * Guarda también la respuesta del handler bajo `detalle.resultado`. Sirve para
+   * altas, donde el body por sí solo deja el evento ilegible: son todos ids de
+   * catálogo y la respuesta ya trae los datos.
+   */
+  incluirRespuesta?: boolean;
 }
 
 /**

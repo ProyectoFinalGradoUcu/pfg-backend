@@ -227,6 +227,7 @@ export class AuditoriaService {
 
   private limpiar(valor: unknown): unknown {
     if (typeof valor === 'bigint') return valor.toString();
+    if (valor instanceof Date) return valor.toISOString();
     if (Array.isArray(valor)) return valor.map((v) => this.limpiar(v));
     if (valor !== null && typeof valor === 'object') {
       const salida: Record<string, unknown> = {};

@@ -9,6 +9,7 @@ import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
+import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -138,6 +139,8 @@ export class SubalternosService {
   }
 
   async create(dto: CreateSubalternoDto) {
+    assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
+
     const existe = await this.prisma.personas.findUnique({
       where: { cedula: dto.cedula },
     });
@@ -271,6 +274,9 @@ export class SubalternosService {
             genero: dto.genero,
             estado_civil: dto.estado_civil,
             lugar_nacimiento: dto.lugar_nacimiento,
+            etnia: dto.etnia,
+            codigo_postal: dto.codigo_postal,
+            seccional: dto.seccional,
             es_civil: true,
           },
         });
@@ -297,6 +303,9 @@ export class SubalternosService {
           genero: persona.genero,
           estado_civil: persona.estado_civil,
           lugar_nacimiento: persona.lugar_nacimiento,
+          etnia: persona.etnia,
+          codigo_postal: persona.codigo_postal,
+          seccional: persona.seccional,
           es_civil: true,
           observaciones: dto.observaciones ?? null,
           familiares: familiaresResueltos.map((f) => ({
@@ -327,6 +336,8 @@ export class SubalternosService {
       );
     }
 
+    assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
+
     try {
       return await this.prisma.$transaction(async (tx) => {
         const persona = await tx.personas.create({
@@ -345,6 +356,9 @@ export class SubalternosService {
             genero: dto.genero,
             estado_civil: dto.estado_civil,
             lugar_nacimiento: dto.lugar_nacimiento,
+            etnia: dto.etnia,
+            codigo_postal: dto.codigo_postal,
+            seccional: dto.seccional,
             es_civil: false,
           },
         });
@@ -362,7 +376,18 @@ export class SubalternosService {
             estado: 'activo',
             tipo_funcionario: dto.tipo_funcionario,
             sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : undefined,
+            prima_tecnica: dto.prima_tecnica,
+            tiene_mando: dto.tiene_mando,
             observaciones: dto.observaciones,
+          },
+          include: {
+            grados: { select: { denominacion: true } },
+            escalafones: { select: { denominacion: true } },
+            unidades: { select: { denominacion: true } },
+            programas: { select: { denominacion: true } },
+            situaciones: { select: { denominacion: true } },
+            regimenes: { select: { denominacion: true } },
+            sub_unidades: { select: { denominacion: true } },
           },
         });
 
@@ -380,18 +405,32 @@ export class SubalternosService {
           genero: persona.genero,
           estado_civil: persona.estado_civil,
           lugar_nacimiento: persona.lugar_nacimiento,
+          etnia: persona.etnia,
+          codigo_postal: persona.codigo_postal,
+          seccional: persona.seccional,
           es_civil: false,
           relacion_laboral: {
             id: Number(relacion.id),
             tipo_funcionario: relacion.tipo_funcionario,
             estado: relacion.estado,
             fecha_inicio: relacion.fecha_inicio,
+            prima_tecnica: relacion.prima_tecnica,
+            tiene_mando: relacion.tiene_mando,
+            observaciones: relacion.observaciones,
             escalafon_id: Number(relacion.escalafon_id),
+            escalafon: relacion.escalafones.denominacion,
             grado_id: Number(relacion.grado_id),
+            grado: relacion.grados.denominacion,
             regimen_id: Number(relacion.regimen_id),
+            regimen: relacion.regimenes.denominacion,
             unidad_id: Number(relacion.unidad_id),
+            unidad: relacion.unidades.denominacion,
             programa_id: Number(relacion.programa_id),
+            programa: relacion.programas.denominacion,
             situacion_id: Number(relacion.situacion_id),
+            situacion: relacion.situaciones.denominacion,
+            sub_unidad_id: relacion.sub_unidad_id ? Number(relacion.sub_unidad_id) : null,
+            sub_unidad: relacion.sub_unidades?.denominacion ?? null,
           },
         };
       });
