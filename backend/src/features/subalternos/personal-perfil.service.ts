@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
+import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 
 @Injectable()
 export class PersonalPerfilService {
@@ -293,9 +294,34 @@ export class PersonalPerfilService {
   async update(id: number, dto: UpdatePersonalDto) {
     const persona = await this.prisma.personas.findUnique({
       where: { id: BigInt(id) },
-      select: { id: true, relaciones_laborales: { where: { fecha_fin: null }, take: 1, select: { id: true } } },
+      select: {
+        id: true,
+        fecha_nacimiento: true,
+        relaciones_laborales: { where: { fecha_fin: null }, take: 1, select: { id: true, fecha_inicio: true } },
+      },
     });
     if (!persona) throw new NotFoundException(`No existe personal con id ${id}`);
+
+    const relacionActiva = persona.relaciones_laborales[0];
+
+    if (dto.fecha_nacimiento || dto.fecha_inicio) {
+      assertFechaInicioPosteriorANacimiento(
+        dto.fecha_inicio ?? relacionActiva?.fecha_inicio,
+        dto.fecha_nacimiento ?? persona.fecha_nacimiento,
+      );
+    }
+
+    if (dto.fecha_nacimiento) {
+      const primeraRelacion = await this.prisma.relaciones_laborales.findFirst({
+        where: { persona_id: BigInt(id) },
+        orderBy: { fecha_inicio: 'asc' },
+        select: { fecha_inicio: true },
+      });
+      assertFechaInicioPosteriorANacimiento(
+        primeraRelacion?.fecha_inicio,
+        dto.fecha_nacimiento,
+      );
+    }
 
     await Promise.all([
       this.prisma.personas.update({
@@ -317,14 +343,15 @@ export class PersonalPerfilService {
           seccional: dto.seccional,
         },
       }),
-      persona.relaciones_laborales[0] && (
-        dto.grado_id || dto.unidad_id || dto.situacion_id || dto.regimen_id ||
+      relacionActiva && (
+        dto.fecha_inicio || dto.grado_id || dto.unidad_id || dto.situacion_id || dto.regimen_id ||
         dto.programa_id || dto.escalafon_id || dto.sub_unidad_id !== undefined ||
         dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined || dto.observaciones_laborales !== undefined
       )
         ? this.prisma.relaciones_laborales.update({
-            where: { id: persona.relaciones_laborales[0].id },
+            where: { id: relacionActiva.id },
             data: {
+              ...(dto.fecha_inicio && { fecha_inicio: new Date(dto.fecha_inicio) }),
               ...(dto.grado_id && { grado_id: BigInt(dto.grado_id) }),
               ...(dto.unidad_id && { unidad_id: BigInt(dto.unidad_id) }),
               ...(dto.situacion_id && { situacion_id: BigInt(dto.situacion_id) }),

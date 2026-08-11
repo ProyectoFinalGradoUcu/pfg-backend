@@ -45,19 +45,10 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Credenciales inválidas o usuario bloqueado' })
   async signIn(
     @Body() dto: SignInDto,
-    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SignInResponse> {
     const result = await this.authService.signIn(dto);
     res.cookie(COOKIE_NAME, result.token, this.cookieOptions(result.expiresIn));
-    void this.auditoria.registrar({
-      usuarioId: result.user.id,
-      accion: 'LOGIN',
-      contexto: 'Autenticación',
-      entidad: 'Usuario',
-      entidadId: result.user.id,
-      host: this.getHost(req),
-    });
     return { user: result.user };
   }
 
@@ -65,20 +56,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiCookieAuth('auth_token')
   @ApiOperation({ summary: 'Cerrar sesión' })
-  signOut(
-    @CurrentUser() user: AuthenticatedUser,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  signOut(@Res({ passthrough: true }) res: Response) {
     res.clearCookie(COOKIE_NAME, this.cookieOptions(0));
-    void this.auditoria.registrar({
-      usuarioId: user.id,
-      accion: 'LOGOUT',
-      contexto: 'Autenticación',
-      entidad: 'Usuario',
-      entidadId: user.id,
-      host: this.getHost(req),
-    });
     return { ok: true };
   }
 

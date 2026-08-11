@@ -19,6 +19,7 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 'Seccional 14' }) @IsOptional() @IsString() @MaxLength(100) seccional?: string;
 
   // Datos laborales
+  @ApiPropertyOptional({ example: '2024-01-01', description: 'Fecha de alta de la relación laboral activa' }) @IsOptional() @IsDateString() fecha_inicio?: string;
   @ApiPropertyOptional({ example: 5, description: 'ID del nuevo grado/rango' }) @IsOptional() @IsInt() grado_id?: number;
   @ApiPropertyOptional({ example: 2, description: 'ID de la unidad/destino' }) @IsOptional() @IsInt() unidad_id?: number;
   @ApiPropertyOptional({ example: 1, description: 'ID de la situación/estado' }) @IsOptional() @IsInt() situacion_id?: number;

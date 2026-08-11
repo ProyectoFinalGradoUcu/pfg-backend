@@ -73,6 +73,7 @@ export class PersonasController {
   @ApiResponse({ status: 400 })
   @ApiResponse({ status: 409, description: 'Cédula duplicada.' })
   @RequirePermissions('personas.crear')
+  @Auditar({ contexto: 'Personas', entidad: 'Persona', incluirRespuesta: true })
   @Post()
   create(@Body() dto: CreatePersonalDto) {
     return this.subalternosService.createPersonal(dto);

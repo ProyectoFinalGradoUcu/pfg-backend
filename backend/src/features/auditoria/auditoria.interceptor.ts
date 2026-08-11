@@ -67,7 +67,7 @@ export class AuditoriaInterceptor implements NestInterceptor {
           entidad: opciones.entidad ?? null,
           entidadId: this.resolverEntidadId(req.params, responseBody),
           host: this.resolverHost(req),
-          detalle: this.construirDetalle(req),
+          detalle: this.construirDetalle(req, responseBody, opciones),
         });
       }),
     );
@@ -99,6 +99,8 @@ export class AuditoriaInterceptor implements NestInterceptor {
 
   private construirDetalle(
     req: Request & { params: Record<string, string> },
+    responseBody: unknown,
+    opciones: AuditarOptions,
   ): Record<string, unknown> | undefined {
     const detalle: Record<string, unknown> = {};
     if (req.params && Object.keys(req.params).length > 0) {
@@ -107,7 +109,20 @@ export class AuditoriaInterceptor implements NestInterceptor {
     if (req.body && typeof req.body === 'object' && Object.keys(req.body as object).length > 0) {
       detalle.body = req.body;
     }
+    if (opciones.incluirRespuesta) {
+      const resultado = this.desenvolver(responseBody);
+      if (resultado && typeof resultado === 'object') detalle.resultado = resultado;
+    }
     return Object.keys(detalle).length > 0 ? detalle : undefined;
+  }
+
+  private desenvolver(body: unknown): unknown {
+    if (!body || typeof body !== 'object') return body;
+    const sobre = (body as Record<string, unknown>).service_response;
+    if (sobre && typeof sobre === 'object') {
+      return (sobre as Record<string, unknown>).service_data ?? body;
+    }
+    return body;
   }
 
   private resolverHost(req: Request): string | null {
