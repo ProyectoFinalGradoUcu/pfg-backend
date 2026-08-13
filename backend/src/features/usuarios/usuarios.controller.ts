@@ -10,10 +10,16 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiCookieAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UsuariosService } from './usuarios.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { AsignarUnidadDto } from './dto/asignar-unidad.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ListUsuariosQueryDto } from './dto/list-usuarios-query.dto';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
@@ -66,6 +72,21 @@ export class UsuariosController {
   @ApiOperation({ summary: 'Bloquear (soft delete) un usuario' })
   remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.usuariosService.remove(id, user.id);
+  }
+
+  @Patch(':id/unidad')
+  @RequirePermissions('usuarios.gestionar')
+  @Auditar({ contexto: 'Usuarios', accion: 'ASIGNAR', entidad: 'Usuario' })
+  @ApiOperation({
+    summary: 'Asignar la unidad de un usuario del sistema',
+    description:
+      'Define qué personal ve el usuario y de qué unidad hereda roles. Cierra su sesión activa.',
+  })
+  @ApiResponse({ status: 200, description: 'Unidad asignada.' })
+  @ApiResponse({ status: 404, description: 'Usuario o unidad no encontrados.' })
+  @ApiResponse({ status: 409, description: 'La unidad no está vigente.' })
+  asignarUnidad(@Param('id') id: string, @Body() dto: AsignarUnidadDto) {
+    return this.usuariosService.asignarUnidad(id, dto.unidadId);
   }
 
   @Post(':id/roles/:rolId')

@@ -7,12 +7,25 @@ CTR_CMD = docker
 DB_CTR    = postgres
 DB_USER   = pfg_user
 DB_NAME   = pfg_database
+# Migraciones idempotentes, en orden de dependencia. Se aplican siempre que se levanta
+# la base: son todas CREATE/ALTER ... IF NOT EXISTS + INSERT ... ON CONFLICT DO NOTHING,
+# así que volver a correrlas no hace nada. Agregá acá cualquier migración nueva.
+MIGRATIONS = \
+	database/scripts/migracion_unificacion_fau.sql \
+	database/scripts/migracion_invitaciones_reset.sql \
+	database/scripts/migration_misiones_v2.sql \
+	database/scripts/migracion_permisos_por_unidad.sql
+
+# ON_ERROR_STOP=1 es importante: sin eso psql termina con código 0 aunque el script falle
+# a mitad de camino, y la migración parecería exitosa.
+PSQL = $(CTR_CMD) exec -i $(DB_CTR) psql -v ON_ERROR_STOP=1 -U $(DB_USER) -d $(DB_NAME)
+
 SEED      = database/scripts/seed.sql
 SEED_AUTH = database/scripts/seed_auth.sql
 SEED_DEMO = database/scripts/seed_demo_review.sql
 SEED_CURSOS = database/scripts/seed_cursos.sql
 
-.PHONY: up down reset seed seed-auth seed-demo-review migrate-invitaciones migrate-misiones backend db build logs logs-backend logs-db ps gen-secret help
+.PHONY: up down reset fresh migrate wait-db seed seed-auth seed-demo-review migrate-invitaciones migrate-misiones backend db build logs logs-backend logs-db ps gen-secret help
 
 gen-secret:
 	@node -e " \
@@ -27,7 +40,30 @@ gen-secret:
 		} \
 	"
 
+# `docker compose up -d` vuelve antes de que Postgres acepte conexiones, así que sin esta
+# espera el psql de las migraciones falla de forma intermitente.
+wait-db:
+	@printf "  ... esperando a PostgreSQL"
+	@for i in $$(seq 1 30); do \
+		if $(CTR_CMD) exec $(DB_CTR) pg_isready -U $(DB_USER) -d $(DB_NAME) >/dev/null 2>&1; then \
+			printf " listo\n"; exit 0; \
+		fi; \
+		printf "."; sleep 1; \
+	done; \
+	printf "\n  [error] PostgreSQL no respondió en 30s\n"; exit 1
+
+migrate: wait-db
+	@for f in $(MIGRATIONS); do \
+		printf "  -> %s\n" "$$f"; \
+		$(PSQL) < $$f >/dev/null || exit 1; \
+	done
+	@echo "  [ok] Migraciones aplicadas"
+
+# Se levanta primero la base, se migra, y recién después arranca el backend: si el backend
+# arrancara antes, quedaría corriendo contra un esquema viejo.
 up: gen-secret
+	$(COMPOSE) up -d postgres minio
+	@$(MAKE) --no-print-directory migrate
 	$(COMPOSE) up -d --build
 
 down:
@@ -35,10 +71,16 @@ down:
 
 reset: gen-secret
 	$(COMPOSE) down -v
+	$(COMPOSE) up -d postgres minio
+	@$(MAKE) --no-print-directory migrate
 	$(COMPOSE) up -d --build
+
+# Alias de reset: destruye los datos y relanza desde cero.
+fresh: reset
 
 db:
 	$(COMPOSE) up -d postgres
+	@$(MAKE) --no-print-directory migrate
 
 backend:
 	$(COMPOSE) up -d --build backend
@@ -82,7 +124,9 @@ help:
 	@echo "  make up           Levanta toda la infraestructura (build + start)"
 	@echo "  make down         Detiene y elimina contenedores (conserva datos)"
 	@echo "  make reset        Destruye todo (datos incluidos) y relanza desde cero"
-	@echo "  make db           Levanta solo PostgreSQL"
+	@echo "  make fresh        Alias de reset"
+	@echo "  make migrate      Aplica todas las migraciones (idempotente, se puede repetir)"
+	@echo "  make db           Levanta solo PostgreSQL y aplica las migraciones"
 	@echo "  make backend      Levanta (o reinicia) solo el backend"
 	@echo "  make seed         Ejecuta el seed de catálogos en la base de datos"
 	@echo "  make seed-auth    Ejecuta el seed de seguridad (permisos, roles, admin)"

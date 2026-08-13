@@ -41,7 +41,11 @@ async function bootstrap() {
     swaggerOptions: { withCredentials: true },
   });
 
-  await app.listen(process.env.PORT ?? 3000);
+  // `??` solo cubre null/undefined: con PORT="" en el .env pasaba la cadena vacía a listen()
+  // y Node tiraba ERR_SOCKET_BAD_PORT. Number('') e Number('abc') son falsy, así que cualquier
+  // valor inválido o vacío cae al default.
+  const port = Number(process.env.PORT) || 3000;
+  await app.listen(port);
 }
 
 bootstrap().catch((err) => {

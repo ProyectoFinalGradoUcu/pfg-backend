@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
+import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { CreateRolDto } from './dto/create-rol.dto';
 import { UpdateRolDto } from './dto/update-rol.dto';
@@ -18,7 +19,10 @@ const ROLES_PROTEGIDOS = [
 
 @Injectable()
 export class RolesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sesiones: SesionesService,
+  ) {}
 
   async findAll() {
     const roles = await this.prisma.roles.findMany({
@@ -98,7 +102,9 @@ export class RolesService {
   async remove(id: string) {
     const rol = await this.prisma.roles.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
-      include: { _count: { select: { usuarios_roles: true } } },
+      include: {
+        _count: { select: { usuarios_roles: true, unidades_roles: true } },
+      },
     });
     if (!rol) throw new NotFoundException('Rol no encontrado');
     if (ROLES_PROTEGIDOS.includes(rol.nombre)) {
@@ -106,6 +112,11 @@ export class RolesService {
     }
     if (rol._count.usuarios_roles > 0) {
       throw new ConflictException('No se puede eliminar un rol con usuarios asignados');
+    }
+    if (rol._count.unidades_roles > 0) {
+      throw new ConflictException(
+        'No se puede eliminar un rol asignado a una o más unidades',
+      );
     }
 
     await this.prisma.roles_permisos.deleteMany({ where: { rol_id: rol.id } });
@@ -127,6 +138,9 @@ export class RolesService {
       update: {},
     });
 
+    // Afecta a quienes tienen el rol directo Y a quienes lo heredan por su unidad.
+    await this.sesiones.invalidarPorRol(rol.id);
+
     return this.findOne(rolId);
   }
 
@@ -145,6 +159,8 @@ export class RolesService {
     await this.prisma.roles_permisos.deleteMany({
       where: { rol_id: rol.id, permiso_id: BigInt(permisoId) },
     });
+
+    await this.sesiones.invalidarPorRol(rol.id);
 
     return this.findOne(rolId);
   }

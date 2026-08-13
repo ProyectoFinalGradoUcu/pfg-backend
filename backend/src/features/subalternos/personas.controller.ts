@@ -12,7 +12,8 @@ import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
-import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
+import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
+import type { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 
 @ApiTags('Personas')
 @ApiCookieAuth('auth_token')
@@ -28,16 +29,19 @@ export class PersonasController {
   // ─── Listado ───────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Listado paginado de personal' })
-  @RequirePermissions('personas.ver')
+  @RequireAlcance('personas.ver')
   @Get()
-  findAll(@Query() query: ListPersonasQueryDto) {
-    return this.subalternosService.findAllPersonas(query);
+  findAll(
+    @Query() query: ListPersonasQueryDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.subalternosService.findAllPersonas(query, alcance);
   }
 
   // ─── Carga masiva ─────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Descargar plantilla Excel para carga masiva' })
-  @RequirePermissions('personas.crear')
+  @RequireAlcance('personas.crear')
   @Get('plantilla')
   descargarPlantilla(@Res() res: Response) {
     const buffer = this.cargaService.generarPlantilla();
@@ -49,7 +53,7 @@ export class PersonasController {
   @ApiOperation({ summary: 'Carga masiva de personal desde Excel' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { archivo: { type: 'string', format: 'binary' } } } })
-  @RequirePermissions('personas.crear')
+  @RequireAlcance('personas.crear')
   @Post('carga-masiva')
   @UseInterceptors(FileInterceptor('archivo'))
   cargaMasiva(
@@ -62,8 +66,9 @@ export class PersonasController {
       }),
     )
     archivo: { buffer: Buffer; mimetype: string; originalname: string },
+    @Alcance() alcance: AlcanceResuelto,
   ) {
-    return this.cargaService.procesarCarga(archivo.buffer);
+    return this.cargaService.procesarCarga(archivo.buffer, alcance);
   }
 
   // ─── Crear ────────────────────────────────────────────────────────────────
@@ -72,53 +77,68 @@ export class PersonasController {
   @ApiResponse({ status: 201 })
   @ApiResponse({ status: 400 })
   @ApiResponse({ status: 409, description: 'Cédula duplicada.' })
-  @RequirePermissions('personas.crear')
+  @RequireAlcance('personas.crear')
   @Auditar({ contexto: 'Personas', entidad: 'Persona', incluirRespuesta: true })
   @Post()
-  create(@Body() dto: CreatePersonalDto) {
-    return this.subalternosService.createPersonal(dto);
+  create(@Body() dto: CreatePersonalDto, @Alcance() alcance: AlcanceResuelto) {
+    return this.subalternosService.createPersonal(dto, alcance);
   }
 
   // ─── Detalle ──────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Datos personales + relación laboral activa (tab Datos Personales)' })
   @ApiParam({ name: 'id', type: Number })
-  @RequirePermissions('personas.ver')
+  @RequireAlcance('personas.ver')
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.perfilService.findOne(id);
+  findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.findOne(id, alcance);
   }
 
   @ApiOperation({ summary: 'Familiares militares vinculados (tab Información Familiar)' })
   @ApiParam({ name: 'id', type: Number })
-  @RequirePermissions('personas.ver')
+  @RequireAlcance('personas.ver')
   @Get(':id/familiares')
-  findFamiliares(@Param('id', ParseIntPipe) id: number) {
-    return this.perfilService.findFamiliares(id);
+  findFamiliares(
+    @Param('id', ParseIntPipe) id: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.findFamiliares(id, alcance);
   }
 
   @ApiOperation({ summary: 'Historial de rangos / ascensos (tab Historial Militar)' })
   @ApiParam({ name: 'id', type: Number })
-  @RequirePermissions('personas.ver')
+  @RequireAlcance('personas.ver')
   @Get(':id/historial-militar')
-  findHistorialMilitar(@Param('id', ParseIntPipe) id: number) {
-    return this.perfilService.findHistorialMilitar(id);
+  findHistorialMilitar(
+    @Param('id', ParseIntPipe) id: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.findHistorialMilitar(id, alcance);
   }
 
   @ApiOperation({ summary: 'Cursos realizados (tab Cursos)' })
   @ApiParam({ name: 'id', type: Number })
-  @RequirePermissions('personas.ver')
+  @RequireAlcance('personas.ver')
   @Get(':id/cursos')
-  findCursos(@Param('id', ParseIntPipe) id: number) {
-    return this.perfilService.findCursos(id);
+  findCursos(
+    @Param('id', ParseIntPipe) id: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.findCursos(id, alcance);
   }
 
   @ApiOperation({ summary: 'Misiones internacionales (tab Misiones)' })
   @ApiParam({ name: 'id', type: Number })
-  @RequirePermissions('personas.ver')
+  @RequireAlcance('personas.ver')
   @Get(':id/misiones')
-  findMisiones(@Param('id', ParseIntPipe) id: number) {
-    return this.perfilService.findMisiones(id);
+  findMisiones(
+    @Param('id', ParseIntPipe) id: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.findMisiones(id, alcance);
   }
 
   // ─── Editar ───────────────────────────────────────────────────────────────
@@ -126,9 +146,13 @@ export class PersonasController {
   @ApiOperation({ summary: 'Editar datos personales y/o laborales' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: 200, description: 'Devuelve el perfil actualizado completo.' })
-  @RequirePermissions('personas.editar')
+  @RequireAlcance('personas.editar')
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePersonalDto) {
-    return this.perfilService.update(id, dto);
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePersonalDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.update(id, dto, alcance);
   }
 }

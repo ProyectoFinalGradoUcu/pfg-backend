@@ -30,7 +30,19 @@ SELECT nombre, descripcion, 'personal' FROM (VALUES
   ('usuarios.gestionar',              'Crear, modificar y bloquear usuarios'),
   ('roles.ver',                       'Consultar roles y sus permisos'),
   ('roles.gestionar',                 'Crear, modificar roles y asignar permisos'),
-  ('auditoria.ver',                   'Consultar la bitácora de auditoría')
+  ('auditoria.ver',                   'Consultar la bitácora de auditoría'),
+  ('unidades.ver',                    'Consultar unidades y los roles que tienen asignados'),
+  ('unidades.gestionar',              'Asignar y quitar roles de una unidad'),
+  ('reportes.ejecutar',               'Ejecutar y exportar reportes de toda la fuerza'),
+  -- Variantes de alcance restringido (spec 002). El sufijo .unidad acota el
+  -- permiso a los registros de la unidad del propio usuario.
+  ('personas.ver.unidad',             'Consultar únicamente el personal de la propia unidad'),
+  ('personas.crear.unidad',           'Dar de alta personal únicamente en la propia unidad'),
+  ('personas.editar.unidad',          'Modificar únicamente el personal de la propia unidad'),
+  ('personas.eliminar.unidad',        'Eliminar únicamente el personal de la propia unidad'),
+  ('cursos.ver.unidad',               'Consultar los cursos de la propia unidad y los generales'),
+  ('cursos.gestionar.unidad',         'Crear y modificar únicamente los cursos de la propia unidad'),
+  ('reportes.ejecutar.unidad',        'Ejecutar reportes acotados a la propia unidad')
 ) AS t(nombre, descripcion)
 ON CONFLICT (nombre, aplicacion) DO NOTHING;
 
@@ -64,7 +76,10 @@ JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'vuelos.ver', 'vuelos.gestionar',
   'cursos.ver', 'cursos.gestionar',
   'viviendas.ver', 'viviendas.gestionar',
-  'catalogos.ver', 'catalogos.gestionar'
+  'catalogos.ver', 'catalogos.gestionar',
+  -- Spec 002: consulta de unidades y reportes de alcance general.
+  -- `reportes.ejecutar` reemplaza a `auditoria.ver` en los endpoints de /reportes.
+  'unidades.ver', 'reportes.ejecutar'
 )
 WHERE r.nombre = 'Oficina de Personal'
   AND r.aplicacion = 'personal'

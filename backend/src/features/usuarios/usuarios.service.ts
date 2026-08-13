@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
+import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
@@ -18,6 +19,7 @@ const ROL_ADMIN = 'Administrador del sistema';
 
 const USUARIO_INCLUDE = {
   usuarios_roles: { include: { roles: true } },
+  unidades: { select: { id: true, codigo: true, denominacion: true } },
   personas: {
     select: {
       id: true,
@@ -25,8 +27,11 @@ const USUARIO_INCLUDE = {
       primer_nombre: true,
       primer_apellido: true,
       email: true,
+      // Misma definición de "relación laboral activa" que usa auth.service y subalternos:
+      // `fecha_fin: null`. Antes esto filtraba además por `estado: 'activo'`, lo que hacía que la
+      // unidad mostrada pudiera diferir de la que determina los permisos (spec 002 §3).
       relaciones_laborales: {
-        where: { estado: 'activo', fecha_fin: null },
+        where: { fecha_fin: null },
         orderBy: { fecha_inicio: 'desc' as const },
         take: 1,
         select: {
@@ -45,7 +50,10 @@ const USUARIO_INCLUDE = {
 
 @Injectable()
 export class UsuariosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sesiones: SesionesService,
+  ) {}
 
   async findAll(query: ListUsuariosQueryDto = {}) {
     const page = query.page ?? 1;
@@ -186,6 +194,8 @@ export class UsuariosService {
       update: {},
     });
 
+    await this.sesiones.invalidarUsuario(usuario.id);
+
     return this.findOne(usuarioId);
   }
 
@@ -207,7 +217,43 @@ export class UsuariosService {
       where: { usuario_id: usuario.id, rol_id: rol.id },
     });
 
+    await this.sesiones.invalidarUsuario(usuario.id);
+
     return this.findOne(usuarioId);
+  }
+
+  /**
+   * Asigna (o quita, con `null`) la unidad del usuario del sistema.
+   *
+   * Es la unidad de la CUENTA, no la del funcionario: define qué personal ve este usuario y
+   * de qué unidad hereda roles. Cambiarla modifica sus permisos efectivos, así que hay que
+   * cerrarle la sesión activa.
+   */
+  async asignarUnidad(id: string, unidadId: string | null) {
+    const usuario = await this.prisma.usuarios.findFirst({
+      where: { id: BigInt(id), aplicacion: APLICACION },
+    });
+    if (!usuario) throw new NotFoundException('Usuario no encontrado');
+
+    if (unidadId !== null) {
+      const unidad = await this.prisma.unidades.findUnique({
+        where: { id: BigInt(unidadId) },
+        select: { id: true, vigente: true },
+      });
+      if (!unidad) throw new NotFoundException('Unidad no encontrada');
+      if (!unidad.vigente) {
+        throw new ConflictException('La unidad no está vigente');
+      }
+    }
+
+    await this.prisma.usuarios.update({
+      where: { id: usuario.id },
+      data: { unidad_id: unidadId === null ? null : BigInt(unidadId) },
+    });
+
+    await this.sesiones.invalidarUsuario(usuario.id);
+
+    return this.findOne(id);
   }
 
   async resetPassword(id: string, dto: ResetPasswordDto) {
@@ -237,6 +283,7 @@ export class UsuariosService {
     estado: string;
     persona_id: bigint | null;
     bloqueado_hasta: Date | null;
+    unidades: { id: bigint; codigo: string; denominacion: string } | null;
     usuarios_roles: { roles: { id: bigint; nombre: string } }[];
     personas:
       | {
@@ -263,6 +310,15 @@ export class UsuariosService {
       username: usuario.username,
       estado: usuario.estado,
       bloqueadoHasta: usuario.bloqueado_hasta,
+      // Unidad de la CUENTA: determina de qué unidad hereda roles y qué personal ve.
+      // Es independiente del destino del funcionario asociado (que va en persona.relacionLaboral).
+      unidad: usuario.unidades
+        ? {
+            id: usuario.unidades.id.toString(),
+            codigo: usuario.unidades.codigo,
+            denominacion: usuario.unidades.denominacion,
+          }
+        : null,
       persona: usuario.personas
         ? {
             id: usuario.personas.id.toString(),

@@ -17,6 +17,11 @@ services:
       - ./database/scripts/seed_cursos.sql:/docker-entrypoint-initdb.d/05_seed_cursos.sql:ro
       - ./database/scripts/seed_auditoria.sql:/docker-entrypoint-initdb.d/06_seed_auditoria.sql:ro
       - ./database/scripts/migration_misiones_v2.sql:/docker-entrypoint-initdb.d/07_misiones_v2.sql:ro
+      # Estas dos faltaban acá: sobre un volumen nuevo nunca se aplicaban y había que
+      # correrlas a mano. El orden importa: las de permisos por unidad otorgan permisos a
+      # roles que crea 04_seed_auth.
+      - ./database/scripts/migracion_invitaciones_reset.sql:/docker-entrypoint-initdb.d/08_migracion_invitaciones_reset.sql:ro
+      - ./database/scripts/migracion_permisos_por_unidad.sql:/docker-entrypoint-initdb.d/09_migracion_permisos_por_unidad.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pfg_user -d pfg_database"]
       interval: 10s

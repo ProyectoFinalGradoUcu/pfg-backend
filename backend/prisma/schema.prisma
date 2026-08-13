@@ -222,8 +222,12 @@ model cursos {
   nombre_curso        String?               @db.VarChar(200)
   institucion         String?               @db.VarChar(200)
   es_obligatorio      Boolean               @default(true)
+  unidad_id           BigInt?
+  unidades            unidades?             @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   funcionarios_cursos funcionarios_cursos[]
   modulos_curso       modulos_curso[]
+
+  @@index([unidad_id], map: "idx_cursos_unidad")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -824,6 +828,7 @@ model roles {
   descripcion    String?          @db.VarChar(200)
   aplicacion     String           @default("liquidacion") @db.VarChar(20)
   roles_permisos roles_permisos[]
+  unidades_roles unidades_roles[]
   usuarios_roles usuarios_roles[]
 
   @@unique([nombre, aplicacion])
@@ -936,9 +941,22 @@ model unidades {
   codigo                  String                    @unique @db.VarChar(30)
   denominacion            String                    @db.VarChar(150)
   vigente                 Boolean                   @default(true)
+  cursos                  cursos[]
   items_lote_compensacion items_lote_compensacion[]
   relaciones_laborales    relaciones_laborales[]
   sub_unidades            sub_unidades[]
+  unidades_roles          unidades_roles[]
+  usuarios                usuarios[]
+}
+
+model unidades_roles {
+  unidad_id BigInt
+  rol_id    BigInt
+  roles     roles    @relation(fields: [rol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidades  unidades @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([unidad_id, rol_id])
+  @@index([rol_id], map: "idx_unidades_roles_rol")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -952,6 +970,11 @@ model usuarios {
   persona_id                                                                 BigInt?
   fecha_actualizacion                                                        DateTime                         @default(now()) @db.Timestamp(6)
   aplicacion                                                                 String                           @default("liquidacion") @db.VarChar(20)
+  sesiones_invalidas_desde                                                   DateTime?                        @db.Timestamp(6)
+  /// Unidad del usuario del sistema. Se asigna directamente y NO se deriva de la relación
+  /// laboral: un usuario de la aplicación no necesariamente es un funcionario del padrón.
+  /// Se compara contra relaciones_laborales.unidad_id para resolver el alcance de datos.
+  unidad_id                                                                  BigInt?
   beneficio_social_beneficiarios                                             beneficio_social_beneficiarios[]
   beneficios_sociales                                                        beneficios_sociales[]
   bitacora_auditoria                                                         bitacora_auditoria[]
@@ -978,9 +1001,11 @@ model usuarios {
   invitaciones                                                               invitaciones[]
   tokens_reset_password                                                      tokens_reset_password[]
   personas                                                                   personas?                        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidades                                                                   unidades?                        @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_roles                                                             usuarios_roles[]
 
   @@unique([username, aplicacion])
+  @@index([unidad_id], map: "idx_usuarios_unidad")
 }
 
 model invitaciones {
