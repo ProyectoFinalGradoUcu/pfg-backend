@@ -54,16 +54,20 @@ model ascensos {
   personas      personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
-model asignaciones_funcionario {
+model destinos {
   id               BigInt    @id @default(autoincrement())
   persona_id       BigInt?
-  destino_id       BigInt?
+  unidad_id        BigInt?
   fecha_inicio     DateTime? @db.Date
   fecha_fin        DateTime? @db.Date
   posicion_destino String?   @db.VarChar(200)
+  numero_orden     String?   @db.VarChar(50)
+  boletin          String?   @db.VarChar(50)
   observaciones    String?
-  destinos         destinos? @relation(fields: [destino_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidades         unidades? @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   personas         personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([unidad_id], map: "idx_destinos_unidad")
 }
 
 model bancos {
@@ -267,14 +271,6 @@ model descuentos_personales {
   @@index([acreedor_id, periodo_anio, periodo_mes], map: "idx_descuentos_acreedor")
   @@index([estado], map: "idx_descuentos_estado")
   @@index([persona_id, periodo_anio, periodo_mes], map: "idx_descuentos_persona")
-}
-
-model destinos {
-  id                       BigInt                     @id @default(autoincrement())
-  ubicacion                String?                    @db.VarChar(200)
-  numero_orden             String?                    @db.VarChar(50)
-  tipo_destino             String?                    @db.VarChar(100)
-  asignaciones_funcionario asignaciones_funcionario[]
 }
 
 model escalafones {
@@ -645,7 +641,7 @@ model personas {
   es_civil                                                          Boolean?                            @default(false)
   aguinaldos                                                        aguinaldos[]
   ascensos                                                          ascensos[]
-  asignaciones_funcionario                                          asignaciones_funcionario[]
+  destinos                                                          destinos[]
   beneficios_sociales                                               beneficios_sociales[]
   compensaciones_diferencia_ascenso                                 compensaciones_diferencia_ascenso[]
   cuentas_bancarias                                                 cuentas_bancarias[]
@@ -932,13 +928,15 @@ model tipos_movimiento {
 }
 
 model unidades {
-  id                      BigInt                    @id @default(autoincrement())
-  codigo                  String                    @unique @db.VarChar(30)
-  denominacion            String                    @db.VarChar(150)
-  vigente                 Boolean                   @default(true)
-  items_lote_compensacion items_lote_compensacion[]
-  relaciones_laborales    relaciones_laborales[]
-  sub_unidades            sub_unidades[]
+  id                       BigInt                     @id @default(autoincrement())
+  codigo                   String                     @unique @db.VarChar(30)
+  denominacion             String                     @db.VarChar(150)
+  vigente                  Boolean                    @default(true)
+  tipo                     String?                    @db.VarChar(100)
+  destinos                 destinos[]
+  items_lote_compensacion  items_lote_compensacion[]
+  relaciones_laborales     relaciones_laborales[]
+  sub_unidades             sub_unidades[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

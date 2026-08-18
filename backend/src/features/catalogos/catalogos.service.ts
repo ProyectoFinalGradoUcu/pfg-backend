@@ -1,9 +1,127 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
+import { CreateUnidadDto } from './dto/create-unidad.dto.js';
+import { UpdateUnidadDto } from './dto/update-unidad.dto.js';
 
 @Injectable()
 export class CatalogosService {
   constructor(private readonly prisma: PrismaService) {}
+
+  // ─── Unidades: alta, edición y baja ────────────────────────────────────────
+  // El catálogo lo comparten destinos y las relaciones laborales de
+  // liquidación, así que la baja es lógica: nunca se borra una fila.
+
+  private mapUnidad(u: {
+    id: bigint;
+    codigo: string;
+    denominacion: string;
+    tipo: string | null;
+    vigente: boolean;
+  }) {
+    return {
+      id: u.id.toString(),
+      codigo: u.codigo,
+      denominacion: u.denominacion,
+      tipo: u.tipo,
+      vigente: u.vigente,
+    };
+  }
+
+  /**
+   * Una unidad no se puede dar de baja mientras haya funcionarios revistando en
+   * ella: quedaría un destino vigente apuntando a una unidad que el resto del
+   * sistema ya considera inexistente. Primero hay que reasignarlos.
+   */
+  private async assertSinDestinosVigentes(unidadId: bigint, denominacion: string) {
+    const destinados = await this.prisma.destinos.count({
+      where: { unidad_id: unidadId, fecha_fin: null },
+    });
+
+    if (destinados > 0) {
+      throw new ConflictException(
+        `No se puede dar de baja la unidad "${denominacion}": tiene ${destinados} ` +
+          `${destinados === 1 ? 'funcionario' : 'funcionarios'} con destino vigente. ` +
+          'Reasignalos antes de darla de baja.',
+      );
+    }
+  }
+
+  async crearUnidad(dto: CreateUnidadDto) {
+    const codigoEnUso = await this.prisma.unidades.findFirst({
+      where: { codigo: { equals: dto.codigo, mode: 'insensitive' } },
+    });
+    if (codigoEnUso) {
+      throw new ConflictException(`Ya existe una unidad con código "${dto.codigo}"`);
+    }
+
+    const denominacionEnUso = await this.prisma.unidades.findFirst({
+      where: { denominacion: { equals: dto.denominacion, mode: 'insensitive' } },
+    });
+    if (denominacionEnUso) {
+      throw new ConflictException(`Ya existe una unidad llamada "${dto.denominacion}"`);
+    }
+
+    const unidad = await this.prisma.unidades.create({
+      data: {
+        codigo: dto.codigo,
+        denominacion: dto.denominacion,
+        tipo: dto.tipo ?? null,
+        vigente: true,
+      },
+    });
+
+    return this.mapUnidad(unidad);
+  }
+
+  async editarUnidad(unidadId: number, dto: UpdateUnidadDto) {
+    const unidad = await this.prisma.unidades.findUnique({ where: { id: BigInt(unidadId) } });
+    if (!unidad) throw new NotFoundException(`No existe unidad con id ${unidadId}`);
+
+    if (dto.denominacion && dto.denominacion !== unidad.denominacion) {
+      const dup = await this.prisma.unidades.findFirst({
+        where: {
+          denominacion: { equals: dto.denominacion, mode: 'insensitive' },
+          id: { not: BigInt(unidadId) },
+        },
+      });
+      if (dup) {
+        throw new ConflictException(`Ya existe una unidad llamada "${dto.denominacion}"`);
+      }
+    }
+
+    if (dto.vigente === false) {
+      await this.assertSinDestinosVigentes(BigInt(unidadId), unidad.denominacion);
+    }
+
+    const actualizada = await this.prisma.unidades.update({
+      where: { id: BigInt(unidadId) },
+      data: {
+        ...(dto.denominacion !== undefined && { denominacion: dto.denominacion }),
+        ...(dto.tipo !== undefined && { tipo: dto.tipo }),
+        ...(dto.vigente !== undefined && { vigente: dto.vigente }),
+      },
+    });
+
+    return this.mapUnidad(actualizada);
+  }
+
+  /**
+   * Baja lógica. Los destinos históricos y las relaciones laborales que la
+   * referencian quedan intactos, pero no puede haber nadie revistando en ella.
+   */
+  async darDeBajaUnidad(unidadId: number) {
+    const unidad = await this.prisma.unidades.findUnique({ where: { id: BigInt(unidadId) } });
+    if (!unidad) throw new NotFoundException(`No existe unidad con id ${unidadId}`);
+
+    await this.assertSinDestinosVigentes(BigInt(unidadId), unidad.denominacion);
+
+    const actualizada = await this.prisma.unidades.update({
+      where: { id: BigInt(unidadId) },
+      data: { vigente: false },
+    });
+
+    return this.mapUnidad(actualizada);
+  }
 
   async findUnidades() {
     const items = await this.prisma.unidades.findMany({

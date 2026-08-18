@@ -48,11 +48,16 @@ export class SubalternosService {
       fecha_fin: null as null,
       ...(query.estado && { situacion_id: BigInt(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
-      ...(query.destino && { unidad_id: BigInt(query.destino) }),
     };
 
     const where = {
       relaciones_laborales: { some: relacionWhere },
+      // El destino sale del módulo de destinos, no de la unidad de la relación
+      // laboral: esa la escriben liquidación y los seeds, y no refleja dónde
+      // revista el funcionario.
+      ...(query.destino && {
+        destinos: { some: { unidad_id: BigInt(query.destino), fecha_fin: null } },
+      }),
       ...(query.search && {
         OR: [
           { cedula: { contains: query.search, mode: 'insensitive' as const } },
@@ -104,9 +109,14 @@ export class SubalternosService {
             take: 1,
             select: {
               grados: { select: { denominacion: true } },
-              unidades: { select: { denominacion: true } },
               situaciones: { select: { denominacion: true } },
             },
+          },
+          destinos: {
+            where: { fecha_fin: null },
+            orderBy: { fecha_inicio: 'desc' },
+            take: 1,
+            select: { unidades: { select: { denominacion: true } } },
           },
         },
       }),
@@ -128,7 +138,7 @@ export class SubalternosService {
           nombre,
           cedula: p.cedula,
           rango: rel?.grados?.denominacion ?? null,
-          destino: rel?.unidades?.denominacion ?? null,
+          destino: p.destinos[0]?.unidades?.denominacion ?? null,
           estado: rel?.situaciones?.denominacion ?? null,
         };
       }),

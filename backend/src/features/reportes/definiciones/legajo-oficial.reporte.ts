@@ -46,9 +46,9 @@ export const legajoOficialReporte: DefinicionReporte = {
           orderBy: { fecha_inicio: 'asc' },
           include: { grados: true, escalafones: true, unidades: true },
         },
-        asignaciones_funcionario: {
+        destinos: {
           orderBy: { fecha_inicio: 'desc' },
-          include: { destinos: true },
+          include: { unidades: true },
         },
         ascensos: { orderBy: { fecha_ascenso: 'asc' }, include: { grados: true } },
         funcionarios_cursos: { orderBy: { fecha_inicio: 'asc' }, include: { cursos: true } },
@@ -60,7 +60,7 @@ export const legajoOficialReporte: DefinicionReporte = {
     const activa = rels.find((r) => r.estado === 'activo') ?? rels[rels.length - 1];
     const ingreso = rels[0]?.fecha_inicio ?? null;
     const egreso = activa?.fecha_fin ?? rels[rels.length - 1]?.fecha_fin ?? null;
-    const asignacion = p.asignaciones_funcionario[0];
+    const asignacion = p.destinos[0];
 
     const datos: SeccionReporte = {
       titulo: 'Datos del funcionario',
@@ -76,7 +76,7 @@ export const legajoOficialReporte: DefinicionReporte = {
         campo('Correo electrónico', p.email),
         campo('Escalafón', activa?.escalafones?.denominacion),
         campo('Grado actual', activa?.grados?.denominacion),
-        campo('Destino actual', asignacion?.destinos?.ubicacion ?? activa?.unidades?.denominacion),
+        campo('Destino actual', asignacion?.unidades?.denominacion ?? activa?.unidades?.denominacion),
         campo('Cargo actual', asignacion?.posicion_destino),
         campo('Año de ingreso', fmtFecha(ingreso)),
         campo('Fecha de egreso', fmtFecha(egreso)),
