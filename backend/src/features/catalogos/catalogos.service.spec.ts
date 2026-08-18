@@ -31,6 +31,9 @@ const makePrismaMock = () => ({
   destinos: {
     count: jest.fn(),
   },
+  relaciones_laborales: {
+    count: jest.fn(),
+  },
 });
 
 describe('CatalogosService · unidades', () => {
@@ -126,6 +129,7 @@ describe('CatalogosService · unidades', () => {
       prisma.unidades.findFirst.mockResolvedValue(null);
       prisma.unidades.update.mockResolvedValue(makeUnidad({ denominacion: 'C.O.A.' }));
       prisma.destinos.count.mockResolvedValue(0);
+      prisma.relaciones_laborales.count.mockResolvedValue(0);
     });
 
     it('actualiza la denominación', async () => {
@@ -192,6 +196,7 @@ describe('CatalogosService · unidades', () => {
       prisma.unidades.findFirst.mockResolvedValue(null);
       prisma.unidades.update.mockResolvedValue(makeUnidad({ vigente: false }));
       prisma.destinos.count.mockResolvedValue(0);
+      prisma.relaciones_laborales.count.mockResolvedValue(0);
     });
 
     it('rechaza el PATCH con vigente:false si hay destinos vigentes', async () => {
@@ -254,6 +259,78 @@ describe('CatalogosService · unidades', () => {
       await service.editarUnidad(5, { denominacion: 'C.O.A.' });
 
       expect(prisma.destinos.count).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── No dar de baja una unidad que liquidación está usando ──────────────────
+  // `unidades` y `relaciones_laborales` son tablas del sistema de liquidación de
+  // sueldos, que comparte esta base. Liquidación calcula por relación laboral, y
+  // `relaciones_laborales.unidad_id` es NOT NULL: si se marca la unidad como no
+  // vigente, sigue referenciada por relaciones que ellos usan para calcular.
+
+  describe('baja de una unidad con relaciones laborales vigentes', () => {
+    beforeEach(() => {
+      prisma.unidades.findUnique.mockResolvedValue(makeUnidad());
+      prisma.unidades.findFirst.mockResolvedValue(null);
+      prisma.unidades.update.mockResolvedValue(makeUnidad({ vigente: false }));
+      prisma.destinos.count.mockResolvedValue(0);
+      prisma.relaciones_laborales.count.mockResolvedValue(0);
+    });
+
+    it('rechaza el PATCH con vigente:false si hay relaciones laborales vigentes', async () => {
+      prisma.relaciones_laborales.count.mockResolvedValue(4);
+
+      await expect(service.editarUnidad(5, { vigente: false })).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prisma.unidades.update).not.toHaveBeenCalled();
+    });
+
+    it('rechaza el DELETE si hay relaciones laborales vigentes', async () => {
+      prisma.relaciones_laborales.count.mockResolvedValue(4);
+
+      await expect(service.darDeBajaUnidad(5)).rejects.toThrow(ConflictException);
+      expect(prisma.unidades.update).not.toHaveBeenCalled();
+    });
+
+    it('cuenta solo las relaciones vigentes de esa unidad, no las cerradas', async () => {
+      prisma.relaciones_laborales.count.mockResolvedValue(1);
+
+      await expect(service.darDeBajaUnidad(5)).rejects.toThrow(ConflictException);
+      expect(prisma.relaciones_laborales.count).toHaveBeenCalledWith({
+        where: { unidad_id: 5n, fecha_fin: null },
+      });
+    });
+
+    it('el mensaje explica que el dato lo usa liquidación', async () => {
+      prisma.relaciones_laborales.count.mockResolvedValue(4);
+
+      await expect(service.darDeBajaUnidad(5)).rejects.toThrow(/liquidaci/i);
+    });
+
+    it('el mensaje trae la cantidad de relaciones', async () => {
+      prisma.relaciones_laborales.count.mockResolvedValue(4);
+
+      await expect(service.darDeBajaUnidad(5)).rejects.toThrow(/4 /);
+    });
+
+    it('el destino manda en el mensaje si hay de los dos', async () => {
+      prisma.destinos.count.mockResolvedValue(2);
+      prisma.relaciones_laborales.count.mockResolvedValue(4);
+
+      await expect(service.darDeBajaUnidad(5)).rejects.toThrow(/destino vigente/);
+    });
+
+    it('permite la baja si no hay destinos ni relaciones vigentes', async () => {
+      const result = await service.darDeBajaUnidad(5);
+
+      expect(result.vigente).toBe(false);
+    });
+
+    it('reactivar no consulta relaciones laborales', async () => {
+      await service.editarUnidad(5, { vigente: true });
+
+      expect(prisma.relaciones_laborales.count).not.toHaveBeenCalled();
     });
   });
 

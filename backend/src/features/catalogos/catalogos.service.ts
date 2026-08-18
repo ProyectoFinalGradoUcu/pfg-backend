@@ -28,20 +28,39 @@ export class CatalogosService {
   }
 
   /**
-   * Una unidad no se puede dar de baja mientras haya funcionarios revistando en
-   * ella: quedaría un destino vigente apuntando a una unidad que el resto del
-   * sistema ya considera inexistente. Primero hay que reasignarlos.
+   * Una unidad no se puede dar de baja mientras siga en uso. Dos motivos:
+   *
+   * 1. Destinos vigentes: quedaría un funcionario revistando en una unidad que
+   *    el resto del sistema considera inexistente.
+   * 2. Relaciones laborales vigentes: `unidades` y `relaciones_laborales` son
+   *    tablas del sistema de liquidación de sueldos, que comparte esta base y
+   *    calcula por relación laboral. Darla de baja le dejaría relaciones activas
+   *    apuntando a una unidad no vigente.
    */
-  private async assertSinDestinosVigentes(unidadId: bigint, denominacion: string) {
-    const destinados = await this.prisma.destinos.count({
-      where: { unidad_id: unidadId, fecha_fin: null },
-    });
+  private async assertUnidadSinUso(unidadId: bigint, denominacion: string) {
+    const [destinados, relaciones] = await Promise.all([
+      this.prisma.destinos.count({
+        where: { unidad_id: unidadId, fecha_fin: null },
+      }),
+      this.prisma.relaciones_laborales.count({
+        where: { unidad_id: unidadId, fecha_fin: null },
+      }),
+    ]);
 
     if (destinados > 0) {
       throw new ConflictException(
         `No se puede dar de baja la unidad "${denominacion}": tiene ${destinados} ` +
           `${destinados === 1 ? 'funcionario' : 'funcionarios'} con destino vigente. ` +
           'Reasignalos antes de darla de baja.',
+      );
+    }
+
+    if (relaciones > 0) {
+      throw new ConflictException(
+        `No se puede dar de baja la unidad "${denominacion}": hay ${relaciones} ` +
+          `${relaciones === 1 ? 'relación laboral vigente' : 'relaciones laborales vigentes'} ` +
+          'que la referencian, y liquidación las usa para calcular sueldos. ' +
+          'Cambiá la unidad de esos funcionarios antes de darla de baja.',
       );
     }
   }
@@ -90,7 +109,7 @@ export class CatalogosService {
     }
 
     if (dto.vigente === false) {
-      await this.assertSinDestinosVigentes(BigInt(unidadId), unidad.denominacion);
+      await this.assertUnidadSinUso(BigInt(unidadId), unidad.denominacion);
     }
 
     const actualizada = await this.prisma.unidades.update({
@@ -113,7 +132,7 @@ export class CatalogosService {
     const unidad = await this.prisma.unidades.findUnique({ where: { id: BigInt(unidadId) } });
     if (!unidad) throw new NotFoundException(`No existe unidad con id ${unidadId}`);
 
-    await this.assertSinDestinosVigentes(BigInt(unidadId), unidad.denominacion);
+    await this.assertUnidadSinUso(BigInt(unidadId), unidad.denominacion);
 
     const actualizada = await this.prisma.unidades.update({
       where: { id: BigInt(unidadId) },
