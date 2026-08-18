@@ -100,13 +100,13 @@ describe('SubalternosService', () => {
         ...dtoMilitar,
         fecha_nacimiento: '1990-05-15',
       });
-      expect(r.relacion_laboral.tipo_funcionario).toBe('subalterno');
+      expect((r as any).relacion_laboral.tipo_funcionario).toBe('subalterno');
     });
 
     it('Devuelve los catálogos resueltos por nombre, no solo los ids', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       const r = await service.createPersonal(dtoMilitar);
-      expect(r.relacion_laboral).toMatchObject({
+      expect((r as any).relacion_laboral).toMatchObject({
         grado: 'Sargento',
         unidad: 'Brigada Aérea I',
         escalafon: 'Comando y Aire',
@@ -153,7 +153,7 @@ describe('SubalternosService', () => {
   // ─── Alcance por unidad (spec 002) ─────────────────────────────────────────
 
   describe('alcance por unidad', () => {
-    const UNIDAD: any = { tipo: 'unidad', unidadId: '7' };
+    const UNIDAD: any = { tipo: 'unidad', unidadIds: ['7'] };
     const GLOBAL: any = { tipo: 'global' };
 
     beforeEach(() => {
@@ -167,7 +167,7 @@ describe('SubalternosService', () => {
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            relaciones_laborales: { some: { fecha_fin: null, unidad_id: 7n } },
+            relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [7n] } } },
           }),
         }),
       );

@@ -8,6 +8,7 @@ import { PrismaService } from '../../lib/prisma.service.js';
 import {
   AlcanceResuelto,
   unidadIdDeAlcance,
+  unidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types.js';
 import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
 import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
@@ -46,29 +47,39 @@ export class SubalternosService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Con alcance de unidad, la persona se crea SIEMPRE en la unidad del usuario.
-   * Si el body trae otra unidad se rechaza con 400 en vez de pisarla en silencio: el usuario
-   * pidió algo que el sistema no le va a conceder, y enterarse después es peor.
+   * Con alcance de unidad, la persona se crea en alguna de las unidades del usuario.
+   * Si el body trae una unidad que no está en su alcance, se rechaza con 400.
+   * Si no se declara unidad y el usuario tiene exactamente una, se fuerza esa.
    */
   private aplicarUnidadDeAlcance<T extends { unidad_id?: number | string }>(
     dto: T,
     alcance?: AlcanceResuelto,
   ): T {
     if (!alcance) return dto;
-    const unidadForzada = unidadIdDeAlcance(alcance);
-    if (unidadForzada === null) return dto;
+    const unidadesForzadas = unidadIdsDeAlcance(alcance);
+    if (unidadesForzadas === null) return dto;
 
     if (
       dto.unidad_id !== undefined &&
       dto.unidad_id !== null &&
-      String(dto.unidad_id) !== unidadForzada.toString()
+      !unidadesForzadas.map(String).includes(String(dto.unidad_id))
     ) {
       throw new BadRequestException(
-        'Solo podés dar de alta personal en tu propia unidad',
+        'Solo podés dar de alta personal en tus propias unidades',
       );
     }
 
-    return { ...dto, unidad_id: Number(unidadForzada) };
+    // Si no declara unidad y tiene exactamente una, la forzamos.
+    if (dto.unidad_id === undefined || dto.unidad_id === null) {
+      if (unidadesForzadas.length === 1) {
+        return { ...dto, unidad_id: Number(unidadesForzadas[0]) };
+      }
+      throw new BadRequestException(
+        'Debés indicar la unidad de destino (tenés acceso a más de una)',
+      );
+    }
+
+    return dto;
   }
 
   async findAllPersonas(query: ListPersonasQueryDto, alcance?: AlcanceResuelto) {
@@ -77,14 +88,14 @@ export class SubalternosService {
 
     // Con alcance de unidad la unidad se fuerza y se IGNORA `query.destino`: el filtro no es
     // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
-    const unidadForzada = alcance ? unidadIdDeAlcance(alcance) : null;
+    const unidadesForzadas = alcance ? unidadIdsDeAlcance(alcance) : null;
 
     const relacionWhere = {
       fecha_fin: null,
       ...(query.estado && { situacion_id: BigInt(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
-      ...(unidadForzada !== null
-        ? { unidad_id: unidadForzada }
+      ...(unidadesForzadas !== null
+        ? { unidad_id: { in: unidadesForzadas } }
         : query.destino && { unidad_id: BigInt(query.destino) }),
     };
 

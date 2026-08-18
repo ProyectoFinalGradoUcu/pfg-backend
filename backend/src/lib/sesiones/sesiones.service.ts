@@ -27,13 +27,13 @@ export class SesionesService {
   /** Todos los usuarios del sistema asignados a esa unidad. */
   async invalidarPorUnidad(unidadId: bigint): Promise<void> {
     await this.prisma.usuarios.updateMany({
-      where: { unidad_id: unidadId },
+      where: { usuarios_unidades: { some: { unidad_id: unidadId } } },
       data: { sesiones_invalidas_desde: new Date() },
     });
   }
 
   /**
-   * Todos los usuarios que tienen el rol, por asignación directa O por unidad.
+   * Todos los usuarios que tienen el rol, por asignación directa O por alguna de sus unidades.
    * Omitir la segunda rama deja sesiones con permisos viejos sin ninguna señal visible.
    */
   async invalidarPorRol(rolId: bigint): Promise<void> {
@@ -41,7 +41,13 @@ export class SesionesService {
       where: {
         OR: [
           { usuarios_roles: { some: { rol_id: rolId } } },
-          { unidades: { unidades_roles: { some: { rol_id: rolId } } } },
+          {
+            usuarios_unidades: {
+              some: {
+                unidades: { unidades_roles: { some: { rol_id: rolId } } },
+              },
+            },
+          },
         ],
       },
       data: { sesiones_invalidas_desde: new Date() },
@@ -50,6 +56,8 @@ export class SesionesService {
 
   /** Cuántos usuarios quedarían deslogueados al tocar los roles de una unidad. */
   async contarUsuariosDeUnidad(unidadId: bigint): Promise<number> {
-    return this.prisma.usuarios.count({ where: { unidad_id: unidadId } });
+    return this.prisma.usuarios.count({
+      where: { usuarios_unidades: { some: { unidad_id: unidadId } } },
+    });
   }
 }

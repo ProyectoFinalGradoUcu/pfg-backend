@@ -2,7 +2,7 @@ import { ExecutionContext, ForbiddenException, NotFoundException } from '@nestjs
 import { Reflector } from '@nestjs/core';
 import { AlcanceGuard } from './alcance.guard';
 import { ALCANCE_KEY } from './alcance.decorator';
-import { AlcanceResuelto, unidadIdDeAlcance } from './alcance.types';
+import { AlcanceResuelto, unidadIdsDeAlcance, unidadIdDeAlcance } from './alcance.types';
 import {
   assertCursoGestionableEnAlcance,
   assertCursoVisibleEnAlcance,
@@ -19,13 +19,13 @@ const makeUser = (overrides: Partial<any> = {}) => ({
   username: 'jperez',
   roles: [],
   permisos: [],
-  unidadId: null,
-  unidadDenominacion: null,
+  unidades: [],
   ...overrides,
 });
 
 const GLOBAL: AlcanceResuelto = { tipo: 'global' };
-const UNIDAD: AlcanceResuelto = { tipo: 'unidad', unidadId: '7' };
+const UNIDAD: AlcanceResuelto = { tipo: 'unidad', unidadIds: ['7'] };
+const MULTI_UNIDAD: AlcanceResuelto = { tipo: 'unidad', unidadIds: ['7', '8'] };
 
 const makeContext = (user: any) => {
   const request: Record<string, unknown> = { user };
@@ -73,11 +73,11 @@ describe('AlcanceGuard', () => {
   it('resuelve alcance de unidad si el usuario solo tiene la variante .unidad', () => {
     const guard = new AlcanceGuard(makeReflector('personas.ver'));
     const { ctx, request } = makeContext(
-      makeUser({ permisos: ['personas.ver.unidad'], unidadId: '7' }),
+      makeUser({ permisos: ['personas.ver.unidad'], unidades: [{ id: '7', denominacion: 'EF' }] }),
     );
 
     expect(guard.canActivate(ctx)).toBe(true);
-    expect(request.alcance).toEqual({ tipo: 'unidad', unidadId: '7' });
+    expect(request.alcance).toEqual({ tipo: 'unidad', unidadIds: ['7'] });
   });
 
   it('el permiso global gana si el usuario tiene los dos', () => {
@@ -85,7 +85,7 @@ describe('AlcanceGuard', () => {
     const { ctx, request } = makeContext(
       makeUser({
         permisos: ['personas.ver', 'personas.ver.unidad'],
-        unidadId: '7',
+        unidades: [{ id: '7', denominacion: 'EF' }],
       }),
     );
 
@@ -93,10 +93,10 @@ describe('AlcanceGuard', () => {
     expect(request.alcance).toEqual({ tipo: 'global' });
   });
 
-  it('lanza ForbiddenException si tiene alcance de unidad pero no tiene unidad asignada', () => {
+  it('lanza ForbiddenException si tiene alcance de unidad pero no tiene unidades asignadas', () => {
     const guard = new AlcanceGuard(makeReflector('personas.ver'));
     const { ctx } = makeContext(
-      makeUser({ permisos: ['personas.ver.unidad'], unidadId: null }),
+      makeUser({ permisos: ['personas.ver.unidad'], unidades: [] }),
     );
 
     // No se degrada a global bajo ninguna circunstancia.
@@ -131,12 +131,26 @@ describe('AlcanceGuard', () => {
   });
 });
 
-describe('unidadIdDeAlcance', () => {
+describe('unidadIdsDeAlcance', () => {
+  it('devuelve null con alcance global', () => {
+    expect(unidadIdsDeAlcance(GLOBAL)).toBeNull();
+  });
+
+  it('devuelve un array de bigints con alcance de unidad', () => {
+    expect(unidadIdsDeAlcance(UNIDAD)).toEqual([7n]);
+  });
+
+  it('devuelve múltiples bigints con alcance multi-unidad', () => {
+    expect(unidadIdsDeAlcance(MULTI_UNIDAD)).toEqual([7n, 8n]);
+  });
+});
+
+describe('unidadIdDeAlcance (compat)', () => {
   it('devuelve null con alcance global', () => {
     expect(unidadIdDeAlcance(GLOBAL)).toBeNull();
   });
 
-  it('devuelve el id como bigint con alcance de unidad', () => {
+  it('devuelve el primer id como bigint con alcance de unidad', () => {
     expect(unidadIdDeAlcance(UNIDAD)).toBe(7n);
   });
 });
@@ -148,7 +162,13 @@ describe('wherePersonasPorAlcance', () => {
 
   it('filtra por relación laboral activa en la unidad con alcance de unidad', () => {
     expect(wherePersonasPorAlcance(UNIDAD)).toEqual({
-      relaciones_laborales: { some: { fecha_fin: null, unidad_id: 7n } },
+      relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [7n] } } },
+    });
+  });
+
+  it('filtra por múltiples unidades con alcance multi-unidad', () => {
+    expect(wherePersonasPorAlcance(MULTI_UNIDAD)).toEqual({
+      relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [7n, 8n] } } },
     });
   });
 });
@@ -160,7 +180,7 @@ describe('whereCursosVisiblesPorAlcance', () => {
 
   it('incluye los cursos de la unidad y los generales con alcance de unidad', () => {
     expect(whereCursosVisiblesPorAlcance(UNIDAD)).toEqual({
-      OR: [{ unidad_id: 7n }, { unidad_id: null }],
+      OR: [{ unidad_id: { in: [7n] } }, { unidad_id: null }],
     });
   });
 });
@@ -217,7 +237,7 @@ describe('assertCursoVisibleEnAlcance', () => {
 
     expect(prisma.cursos.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 1n, OR: [{ unidad_id: 7n }, { unidad_id: null }] },
+        where: { id: 1n, OR: [{ unidad_id: { in: [7n] } }, { unidad_id: null }] },
       }),
     );
   });
@@ -248,7 +268,7 @@ describe('assertCursoGestionableEnAlcance', () => {
     );
 
     expect(prisma.cursos.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 1n, unidad_id: 7n } }),
+      expect.objectContaining({ where: { id: 1n, unidad_id: { in: [7n] } } }),
     );
   });
 

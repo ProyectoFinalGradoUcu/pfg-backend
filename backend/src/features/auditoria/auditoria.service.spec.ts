@@ -18,7 +18,7 @@ describe('AuditoriaService', () => {
 
   const registrar = (detalle: unknown) =>
     service.registrar({
-      usuarioId: 1,
+      usuarioId: '1',
       accion: 'CREAR',
       contexto: 'Personas',
       detalle,

@@ -54,6 +54,12 @@ const makePrismaMock = () => ({
     findFirst: jest.fn(),
     update: jest.fn().mockResolvedValue({}),
   },
+  usuarios_unidades: {
+    findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn(),
+    create: jest.fn().mockResolvedValue({}),
+    delete: jest.fn().mockResolvedValue({}),
+  },
   roles: {
     findFirst: jest.fn(),
   },
@@ -260,74 +266,24 @@ describe('UnidadesService', () => {
     });
   });
 
-  // ─── create ─────────────────────────────────────────────────────────────────
-
-  describe('create', () => {
-    it('normaliza el código a mayúsculas y recorta espacios', async () => {
-      prisma.unidades.findUnique
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(makeUnidadConRoles());
-      prisma.unidades.create.mockResolvedValue({ id: 1n });
-
-      await service.create({ codigo: ' ef ', denominacion: '  Escuela  ' });
-
-      expect(prisma.unidades.create).toHaveBeenCalledWith({
-        data: { codigo: 'EF', denominacion: 'Escuela', vigente: true },
-      });
-    });
-
-    it('lanza ConflictException si el código ya existe', async () => {
-      prisma.unidades.findUnique.mockResolvedValue({ id: 9n });
-
-      await expect(
-        service.create({ codigo: 'EF', denominacion: 'Escuela' }),
-      ).rejects.toThrow(ConflictException);
-      expect(prisma.unidades.create).not.toHaveBeenCalled();
-    });
-  });
-
-  // ─── update ─────────────────────────────────────────────────────────────────
-
-  describe('update', () => {
-    it('no permite cambiar el código, solo denominación y vigencia', async () => {
-      prisma.unidades.findUnique
-        .mockResolvedValueOnce({ id: 1n })
-        .mockResolvedValueOnce(makeUnidadConRoles());
-      prisma.unidades.update.mockResolvedValue({});
-
-      await service.update('1', { denominacion: 'Nueva', vigente: false });
-
-      expect(prisma.unidades.update).toHaveBeenCalledWith({
-        where: { id: 1n },
-        data: { denominacion: 'Nueva', vigente: false },
-      });
-    });
-
-    it('lanza NotFoundException si la unidad no existe', async () => {
-      prisma.unidades.findUnique.mockResolvedValue(null);
-
-      await expect(service.update('99', { vigente: true })).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
   // ─── asignarUsuarios ────────────────────────────────────────────────────────
 
   describe('asignarUsuarios', () => {
     it('mueve solo a los usuarios que están en otra unidad y les cierra la sesión', async () => {
       prisma.unidades.findUnique.mockResolvedValue({ id: 1n, vigente: true });
       prisma.usuarios.findMany.mockResolvedValue([
-        { id: 10n, unidad_id: 2n },
-        { id: 11n, unidad_id: 1n },
+        { id: 10n },
+        { id: 11n },
+      ]);
+      prisma.usuarios_unidades.findMany.mockResolvedValue([
+        { usuario_id: 11n },
       ]);
 
       const result = await service.asignarUsuarios('1', ['10', '11']);
 
-      expect(prisma.usuarios.update).toHaveBeenCalledTimes(1);
-      expect(prisma.usuarios.update).toHaveBeenCalledWith({
-        where: { id: 10n },
-        data: { unidad_id: 1n },
+      expect(prisma.usuarios_unidades.create).toHaveBeenCalledTimes(1);
+      expect(prisma.usuarios_unidades.create).toHaveBeenCalledWith({
+        data: { usuario_id: 10n, unidad_id: 1n },
       });
       // Cambian sus permisos efectivos: hay que forzarles el re-login.
       expect(sesiones.invalidarUsuario).toHaveBeenCalledWith(10n);
@@ -336,7 +292,8 @@ describe('UnidadesService', () => {
 
     it('no toca ninguna relación laboral', async () => {
       prisma.unidades.findUnique.mockResolvedValue({ id: 1n, vigente: true });
-      prisma.usuarios.findMany.mockResolvedValue([{ id: 10n, unidad_id: null }]);
+      prisma.usuarios.findMany.mockResolvedValue([{ id: 10n }]);
+      prisma.usuarios_unidades.findMany.mockResolvedValue([]);
 
       await service.asignarUsuarios('1', ['10']);
 
@@ -346,7 +303,8 @@ describe('UnidadesService', () => {
 
     it('informa los usuarios que no existen', async () => {
       prisma.unidades.findUnique.mockResolvedValue({ id: 1n, vigente: true });
-      prisma.usuarios.findMany.mockResolvedValue([{ id: 10n, unidad_id: null }]);
+      prisma.usuarios.findMany.mockResolvedValue([{ id: 10n }]);
+      prisma.usuarios_unidades.findMany.mockResolvedValue([]);
 
       const result = await service.asignarUsuarios('1', ['10', '99']);
 
@@ -373,25 +331,24 @@ describe('UnidadesService', () => {
   // ─── quitarUsuario ──────────────────────────────────────────────────────────
 
   describe('quitarUsuario', () => {
-    it('deja al usuario sin unidad y le cierra la sesión', async () => {
-      prisma.usuarios.findFirst.mockResolvedValue({ id: 10n });
+    it('elimina la relación y le cierra la sesión', async () => {
+      prisma.usuarios_unidades.findFirst.mockResolvedValue({ usuario_id: 10n, unidad_id: 1n });
 
       await service.quitarUsuario('1', '10');
 
-      expect(prisma.usuarios.update).toHaveBeenCalledWith({
-        where: { id: 10n },
-        data: { unidad_id: null },
+      expect(prisma.usuarios_unidades.delete).toHaveBeenCalledWith({
+        where: { usuario_id_unidad_id: { usuario_id: 10n, unidad_id: 1n } },
       });
       expect(sesiones.invalidarUsuario).toHaveBeenCalledWith(10n);
     });
 
     it('lanza NotFoundException si el usuario no pertenece a esa unidad', async () => {
-      prisma.usuarios.findFirst.mockResolvedValue(null);
+      prisma.usuarios_unidades.findFirst.mockResolvedValue(null);
 
       await expect(service.quitarUsuario('1', '10')).rejects.toThrow(
         NotFoundException,
       );
-      expect(prisma.usuarios.update).not.toHaveBeenCalled();
+      expect(prisma.usuarios_unidades.delete).not.toHaveBeenCalled();
     });
   });
 });

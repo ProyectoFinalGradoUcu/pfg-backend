@@ -19,7 +19,9 @@ const ROL_ADMIN = 'Administrador del sistema';
 
 const USUARIO_INCLUDE = {
   usuarios_roles: { include: { roles: true } },
-  unidades: { select: { id: true, codigo: true, denominacion: true } },
+  usuarios_unidades: {
+    include: { unidades: { select: { id: true, codigo: true, denominacion: true } } },
+  },
   personas: {
     select: {
       id: true,
@@ -27,9 +29,57 @@ const USUARIO_INCLUDE = {
       primer_nombre: true,
       primer_apellido: true,
       email: true,
-      // Misma definición de "relación laboral activa" que usa auth.service y subalternos:
-      // `fecha_fin: null`. Antes esto filtraba además por `estado: 'activo'`, lo que hacía que la
-      // unidad mostrada pudiera diferir de la que determina los permisos (spec 002 §3).
+      relaciones_laborales: {
+        where: { fecha_fin: null },
+        orderBy: { fecha_inicio: 'desc' as const },
+        take: 1,
+        select: {
+          id: true,
+          fecha_inicio: true,
+          tipo_funcionario: true,
+          unidades: { select: { id: true, codigo: true, denominacion: true } },
+          grados: { select: { id: true, codigo: true, denominacion: true } },
+          escalafones: { select: { id: true, codigo: true, denominacion: true } },
+          situaciones: { select: { id: true, codigo: true, denominacion: true } },
+        },
+      },
+    },
+  },
+} as const;
+
+/**
+ * Include ampliado para `findOne`: trae además los roles de la unidad con sus permisos,
+ * necesario para computar `permisosEfectivos` (desglose de origen).
+ */
+const USUARIO_INCLUDE_DETAIL = {
+  usuarios_roles: {
+    include: {
+      roles: { include: { roles_permisos: { include: { permisos: true } } } },
+    },
+  },
+  usuarios_unidades: {
+    include: {
+      unidades: {
+        select: {
+          id: true,
+          codigo: true,
+          denominacion: true,
+          unidades_roles: {
+            include: {
+              roles: { include: { roles_permisos: { include: { permisos: true } } } },
+            },
+          },
+        },
+      },
+    },
+  },
+  personas: {
+    select: {
+      id: true,
+      cedula: true,
+      primer_nombre: true,
+      primer_apellido: true,
+      email: true,
       relaciones_laborales: {
         where: { fecha_fin: null },
         orderBy: { fecha_inicio: 'desc' as const },
@@ -81,10 +131,10 @@ export class UsuariosService {
   async findOne(id: string) {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
-      include: USUARIO_INCLUDE,
+      include: USUARIO_INCLUDE_DETAIL,
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
-    return this.toResponse(usuario);
+    return this.toDetailResponse(usuario);
   }
 
   async create(dto: CreateUsuarioDto) {
@@ -228,32 +278,54 @@ export class UsuariosService {
    * Es la unidad de la CUENTA, no la del funcionario: define qué personal ve este usuario y
    * de qué unidad hereda roles. Cambiarla modifica sus permisos efectivos, así que hay que
    * cerrarle la sesión activa.
+   *
+   * Acepta un array de unidadIds. Si es vacío, quita todas las unidades.
    */
-  async asignarUnidad(id: string, unidadId: string | null) {
+  async asignarUnidades(id: string, unidadIds: string[]) {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
 
-    if (unidadId !== null) {
-      const unidad = await this.prisma.unidades.findUnique({
-        where: { id: BigInt(unidadId) },
+    // Validar que las unidades existan y estén vigentes
+    if (unidadIds.length > 0) {
+      const unidades = await this.prisma.unidades.findMany({
+        where: { id: { in: unidadIds.map((u) => BigInt(u)) } },
         select: { id: true, vigente: true },
       });
-      if (!unidad) throw new NotFoundException('Unidad no encontrada');
-      if (!unidad.vigente) {
-        throw new ConflictException('La unidad no está vigente');
+      if (unidades.length !== unidadIds.length) {
+        throw new NotFoundException('Una o más unidades no encontradas');
+      }
+      const noVigentes = unidades.filter((u) => !u.vigente);
+      if (noVigentes.length > 0) {
+        throw new ConflictException('Una o más unidades no están vigentes');
       }
     }
 
-    await this.prisma.usuarios.update({
-      where: { id: usuario.id },
-      data: { unidad_id: unidadId === null ? null : BigInt(unidadId) },
+    // Reemplazar todas las asignaciones: borrar las existentes e insertar las nuevas
+    await this.prisma.usuarios_unidades.deleteMany({
+      where: { usuario_id: usuario.id },
     });
+
+    if (unidadIds.length > 0) {
+      await this.prisma.usuarios_unidades.createMany({
+        data: unidadIds.map((uid) => ({
+          usuario_id: usuario.id,
+          unidad_id: BigInt(uid),
+        })),
+      });
+    }
 
     await this.sesiones.invalidarUsuario(usuario.id);
 
     return this.findOne(id);
+  }
+
+  /**
+   * @deprecated Usa `asignarUnidades` en su lugar. Mantenido para compatibilidad de API.
+   */
+  async asignarUnidad(id: string, unidadId: string | null) {
+    return this.asignarUnidades(id, unidadId ? [unidadId] : []);
   }
 
   async resetPassword(id: string, dto: ResetPasswordDto) {
@@ -283,7 +355,7 @@ export class UsuariosService {
     estado: string;
     persona_id: bigint | null;
     bloqueado_hasta: Date | null;
-    unidades: { id: bigint; codigo: string; denominacion: string } | null;
+    usuarios_unidades: { unidades: { id: bigint; codigo: string; denominacion: string } }[];
     usuarios_roles: { roles: { id: bigint; nombre: string } }[];
     personas:
       | {
@@ -310,15 +382,11 @@ export class UsuariosService {
       username: usuario.username,
       estado: usuario.estado,
       bloqueadoHasta: usuario.bloqueado_hasta,
-      // Unidad de la CUENTA: determina de qué unidad hereda roles y qué personal ve.
-      // Es independiente del destino del funcionario asociado (que va en persona.relacionLaboral).
-      unidad: usuario.unidades
-        ? {
-            id: usuario.unidades.id.toString(),
-            codigo: usuario.unidades.codigo,
-            denominacion: usuario.unidades.denominacion,
-          }
-        : null,
+      unidades: usuario.usuarios_unidades.map((uu) => ({
+        id: uu.unidades.id.toString(),
+        codigo: uu.unidades.codigo,
+        denominacion: uu.unidades.denominacion,
+      })),
       persona: usuario.personas
         ? {
             id: usuario.personas.id.toString(),
@@ -366,6 +434,160 @@ export class UsuariosService {
         id: ur.roles.id.toString(),
         nombre: ur.roles.nombre,
       })),
+    };
+  }
+
+  /**
+   * Respuesta ampliada para `findOne`: incluye `permisosEfectivos` con desglose de origen.
+   */
+  private toDetailResponse(usuario: {
+    id: bigint;
+    username: string;
+    estado: string;
+    persona_id: bigint | null;
+    bloqueado_hasta: Date | null;
+    usuarios_unidades: {
+      unidades: {
+        id: bigint;
+        codigo: string;
+        denominacion: string;
+        unidades_roles: {
+          roles: {
+            id: bigint;
+            nombre: string;
+            roles_permisos: { permisos: { id: bigint; nombre: string } }[];
+          };
+        }[];
+      };
+    }[];
+    usuarios_roles: {
+      roles: {
+        id: bigint;
+        nombre: string;
+        roles_permisos: { permisos: { id: bigint; nombre: string } }[];
+      };
+    }[];
+    personas: {
+      id: bigint;
+      cedula: string;
+      primer_nombre: string;
+      primer_apellido: string;
+      email: string | null;
+      relaciones_laborales: {
+        id: bigint;
+        fecha_inicio: Date;
+        tipo_funcionario: string | null;
+        unidades: { id: bigint; codigo: string; denominacion: string } | null;
+        grados: { id: bigint; codigo: string; denominacion: string } | null;
+        escalafones: { id: bigint; codigo: string; denominacion: string } | null;
+        situaciones: { id: bigint; codigo: string; denominacion: string } | null;
+      }[];
+    } | null;
+  }) {
+    const relacion = usuario.personas?.relaciones_laborales[0] ?? null;
+
+    // — Computar permisos efectivos con desglose de origen —
+    const permisosMap = new Map<string, {
+      nombre: string;
+      alcance: 'global' | 'unidad';
+      origen: 'directo' | 'unidad';
+      rol: string;
+      unidad?: string;
+    }>();
+
+    // Permisos de roles directos
+    for (const ur of usuario.usuarios_roles) {
+      for (const rp of ur.roles.roles_permisos) {
+        const nombre = rp.permisos.nombre;
+        permisosMap.set(nombre, {
+          nombre,
+          alcance: nombre.endsWith('.unidad') ? 'unidad' : 'global',
+          origen: 'directo',
+          rol: ur.roles.nombre,
+        });
+      }
+    }
+
+    // Permisos de roles heredados de las unidades
+    for (const uu of usuario.usuarios_unidades) {
+      for (const ur of uu.unidades.unidades_roles) {
+        for (const rp of ur.roles.roles_permisos) {
+          const nombre = rp.permisos.nombre;
+          if (!permisosMap.has(nombre)) {
+            permisosMap.set(nombre, {
+              nombre,
+              alcance: nombre.endsWith('.unidad') ? 'unidad' : 'global',
+              origen: 'unidad',
+              rol: ur.roles.nombre,
+              unidad: uu.unidades.denominacion,
+            });
+          }
+        }
+      }
+    }
+
+    const permisosEfectivos = Array.from(permisosMap.values()).sort((a, b) =>
+      a.nombre.localeCompare(b.nombre),
+    );
+
+    return {
+      id: usuario.id.toString(),
+      username: usuario.username,
+      estado: usuario.estado,
+      bloqueadoHasta: usuario.bloqueado_hasta,
+      unidades: usuario.usuarios_unidades.map((uu) => ({
+        id: uu.unidades.id.toString(),
+        codigo: uu.unidades.codigo,
+        denominacion: uu.unidades.denominacion,
+      })),
+      persona: usuario.personas
+        ? {
+            id: usuario.personas.id.toString(),
+            cedula: usuario.personas.cedula,
+            nombre: `${usuario.personas.primer_nombre} ${usuario.personas.primer_apellido}`.trim(),
+            email: usuario.personas.email,
+            relacionLaboral: relacion
+              ? {
+                  id: relacion.id.toString(),
+                  fechaInicio: relacion.fecha_inicio,
+                  tipoFuncionario: relacion.tipo_funcionario,
+                  unidad: relacion.unidades
+                    ? {
+                        id: relacion.unidades.id.toString(),
+                        codigo: relacion.unidades.codigo,
+                        denominacion: relacion.unidades.denominacion,
+                      }
+                    : null,
+                  grado: relacion.grados
+                    ? {
+                        id: relacion.grados.id.toString(),
+                        codigo: relacion.grados.codigo,
+                        denominacion: relacion.grados.denominacion,
+                      }
+                    : null,
+                  escalafon: relacion.escalafones
+                    ? {
+                        id: relacion.escalafones.id.toString(),
+                        codigo: relacion.escalafones.codigo,
+                        denominacion: relacion.escalafones.denominacion,
+                      }
+                    : null,
+                  situacion: relacion.situaciones
+                    ? {
+                        id: relacion.situaciones.id.toString(),
+                        codigo: relacion.situaciones.codigo,
+                        denominacion: relacion.situaciones.denominacion,
+                      }
+                    : null,
+                }
+              : null,
+          }
+        : null,
+      roles: usuario.usuarios_roles.map((ur) => ({
+        id: ur.roles.id.toString(),
+        nombre: ur.roles.nombre,
+      })),
+      permisosEfectivos,
     };
   }
 }

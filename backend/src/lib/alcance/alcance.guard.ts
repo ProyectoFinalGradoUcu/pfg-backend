@@ -47,13 +47,16 @@ export class AlcanceGuard implements CanActivate {
     }
 
     if (user.permisos.includes(permisoDeUnidad(permisoBase))) {
-      if (!user.unidadId) {
+      if (!user.unidades || user.unidades.length === 0) {
         throw new ForbiddenException(
-          'El usuario tiene alcance de unidad pero no tiene una unidad asignada. ' +
-            'Verificá que su relación laboral esté activa.',
+          'El usuario tiene alcance de unidad pero no tiene unidades asignadas. ' +
+            'Verificá que tenga al menos una unidad asociada.',
         );
       }
-      request.alcance = { tipo: 'unidad', unidadId: user.unidadId };
+      request.alcance = {
+        tipo: 'unidad',
+        unidadIds: user.unidades.map((u) => u.id),
+      };
       return true;
     }
 

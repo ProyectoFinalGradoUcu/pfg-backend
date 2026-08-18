@@ -49,13 +49,17 @@ export class AuthService {
             },
           },
         },
-        unidades: {
+        usuarios_unidades: {
           include: {
-            unidades_roles: {
+            unidades: {
               include: {
-                roles: {
+                unidades_roles: {
                   include: {
-                    roles_permisos: { include: { permisos: true } },
+                    roles: {
+                      include: {
+                        roles_permisos: { include: { permisos: true } },
+                      },
+                    },
                   },
                 },
               },
@@ -102,16 +106,15 @@ export class AuthService {
       });
     }
 
-    // Unidad del usuario del sistema, asignada directamente en `usuarios.unidad_id`.
-    // NO se deriva de la relación laboral: un usuario de la aplicación no es necesariamente
-    // un funcionario del padrón. Esta unidad se compara después contra
-    // `relaciones_laborales.unidad_id` para resolver qué personal ve (spec 002 §3).
-    const unidad = usuario.unidades ?? null;
+    // Unidades del usuario (relación N:M via usuarios_unidades).
+    const unidadesUsuario = usuario.usuarios_unidades.map((uu) => uu.unidades);
 
-    // Roles efectivos = roles directos ∪ roles de la unidad.
+    // Roles efectivos = roles directos ∪ roles de todas las unidades.
     const rolesDirectos = usuario.usuarios_roles.map((ur) => ur.roles);
-    const rolesDeUnidad = unidad?.unidades_roles.map((ur) => ur.roles) ?? [];
-    const rolesEfectivos = [...rolesDirectos, ...rolesDeUnidad];
+    const rolesDeUnidades = unidadesUsuario.flatMap(
+      (u) => u.unidades_roles.map((ur) => ur.roles),
+    );
+    const rolesEfectivos = [...rolesDirectos, ...rolesDeUnidades];
 
     const roles = Array.from(new Set(rolesEfectivos.map((r) => r.nombre)));
     const permisos = Array.from(
@@ -122,13 +125,17 @@ export class AuthService {
       ),
     );
 
+    const unidades = unidadesUsuario.map((u) => ({
+      id: u.id.toString(),
+      denominacion: u.denominacion,
+    }));
+
     const payload: AuthPayload = {
       sub: usuario.id.toString(),
       username: usuario.username,
       roles,
       permisos,
-      unidadId: unidad ? unidad.id.toString() : null,
-      unidadDenominacion: unidad ? unidad.denominacion : null,
+      unidades,
     };
 
     const expiresIn = process.env.JWT_EXPIRES_IN ?? DEFAULT_EXPIRES_IN;
@@ -143,8 +150,7 @@ export class AuthService {
       username: payload.username,
       roles,
       permisos,
-      unidadId: payload.unidadId,
-      unidadDenominacion: payload.unidadDenominacion,
+      unidades,
     };
 
     return { token, expiresIn: ttl, user };

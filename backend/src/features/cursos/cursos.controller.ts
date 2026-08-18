@@ -65,8 +65,8 @@ export class CursosController {
   @RequireAlcance('cursos.ver')
   @ApiOperation({ summary: 'Cursos por funcionario', description: 'Retorna los cursos realizados por cada funcionario. Filtrá por cédula para ver los de una persona específica.' })
   @ApiResponse({ status: 200, description: 'Lista obtenida exitosamente.' })
-  async getCursosPorFuncionario(@Query() query: CursosPorFuncionarioQueryDto) {
-    return this.cursosService.getCursosPorFuncionario(query);
+  async getCursosPorFuncionario(@Query() query: CursosPorFuncionarioQueryDto, @Alcance() alcance: AlcanceResuelto) {
+    return this.cursosService.getCursosPorFuncionario(query, alcance);
   }
 
   @Get(':id')

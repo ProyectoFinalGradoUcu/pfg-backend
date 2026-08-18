@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -17,8 +16,6 @@ import {
 import { UnidadesService } from './unidades.service';
 import { ListUnidadesQueryDto } from './dto/list-unidades-query.dto';
 import { AsignarRolUnidadDto } from './dto/asignar-rol-unidad.dto';
-import { CreateUnidadDto } from './dto/create-unidad.dto';
-import { UpdateUnidadDto } from './dto/update-unidad.dto';
 import { AsignarUsuariosDto } from './dto/asignar-usuarios.dto';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
@@ -41,18 +38,6 @@ export class UnidadesController {
     return this.unidadesService.findAll(query);
   }
 
-  @Post()
-  @RequirePermissions('unidades.gestionar')
-  @ApiOperation({
-    summary: 'Crear unidad',
-    description: 'El código se normaliza a mayúsculas y debe ser único.',
-  })
-  @ApiResponse({ status: 201, description: 'Unidad creada.' })
-  @ApiResponse({ status: 409, description: 'Ya existe una unidad con ese código.' })
-  create(@Body() dto: CreateUnidadDto) {
-    return this.unidadesService.create(dto);
-  }
-
   @Get(':id')
   @RequirePermissions('unidades.ver')
   @ApiOperation({
@@ -63,19 +48,6 @@ export class UnidadesController {
   @ApiResponse({ status: 404, description: 'Unidad no encontrada.' })
   findOne(@Param('id') id: string) {
     return this.unidadesService.findOne(id);
-  }
-
-  @Patch(':id')
-  @RequirePermissions('unidades.gestionar')
-  @ApiOperation({
-    summary: 'Editar unidad',
-    description:
-      'Permite cambiar denominación y vigencia. El código no se edita: es la referencia estable de la unidad.',
-  })
-  @ApiResponse({ status: 200, description: 'Unidad actualizada.' })
-  @ApiResponse({ status: 404, description: 'Unidad no encontrada.' })
-  update(@Param('id') id: string, @Body() dto: UpdateUnidadDto) {
-    return this.unidadesService.update(id, dto);
   }
 
   @Get(':id/usuarios')

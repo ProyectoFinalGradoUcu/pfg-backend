@@ -192,12 +192,14 @@ export class CursosService {
     return { id: id.toString(), eliminado: true };
   }
 
-  async getCursosPorFuncionario(query: CursosPorFuncionarioQueryDto) {
+  async getCursosPorFuncionario(query: CursosPorFuncionarioQueryDto, alcance: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
+    const cursosFilter = whereCursosVisiblesPorAlcance(alcance);
     const where = {
       ...(query.cedula ? { personas: { cedula: query.cedula } } : {}),
       ...(query.incluir_bajas ? {} : { dado_de_baja: false }),
+      ...(Object.keys(cursosFilter).length > 0 ? { cursos: cursosFilter } : {}),
     };
 
     const [total, registros] = await this.prisma.$transaction([

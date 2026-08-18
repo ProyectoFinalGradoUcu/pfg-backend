@@ -4,10 +4,13 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CursosService } from './cursos.service';
 import { PrismaService } from '../../lib/prisma.service';
+import { AlcanceResuelto } from '../../lib/alcance/alcance.types';
 import { CursoDto } from './dto/curso.dto';
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
+
+const GLOBAL: AlcanceResuelto = { tipo: 'global' };
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -566,7 +569,7 @@ describe('CursosService', () => {
       prisma.funcionarios_cursos.count.mockResolvedValue(1);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([makeInscripcion()]);
 
-      const result = await service.getCursosPorFuncionario({ page: 1, pageSize: 10 });
+      const result = await service.getCursosPorFuncionario({ page: 1, pageSize: 10 }, GLOBAL);
 
       expect(result.total).toBe(1);
       expect(result.page).toBe(1);
@@ -579,7 +582,7 @@ describe('CursosService', () => {
       prisma.funcionarios_cursos.count.mockResolvedValue(1);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([makeInscripcion()]);
 
-      await service.getCursosPorFuncionario({ cedula: '12345678' });
+      await service.getCursosPorFuncionario({ cedula: '12345678' }, GLOBAL);
 
       expect(prisma.funcionarios_cursos.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -592,7 +595,7 @@ describe('CursosService', () => {
       prisma.funcionarios_cursos.count.mockResolvedValue(1);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([makeInscripcion({ calificacion: '8' })]);
 
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
 
       expect(result.items[0].calificacion).toBe(8);
     });
@@ -601,13 +604,13 @@ describe('CursosService', () => {
       prisma.funcionarios_cursos.count.mockResolvedValue(1);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([makeInscripcion({ calificacion: null })]);
 
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
 
       expect(result.items[0].calificacion).toBeNull();
     });
 
     it('devuelve array vacío cuando no hay inscripciones', async () => {
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
 
       expect(result.items).toHaveLength(0);
       expect(result.total).toBe(0);
@@ -621,7 +624,7 @@ describe('CursosService', () => {
         makeInscripcion({ id: 3n, calificacion: null }),
       ]);
 
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const completados = result.items.filter((i) => i.calificacion !== null).length;
 
       expect(completados).toBe(2);
@@ -634,7 +637,7 @@ describe('CursosService', () => {
         makeInscripcion({ id: 2n, calificacion: '9' }),
       ]);
 
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const enCurso = result.items.filter((i) => i.calificacion === null).length;
 
       expect(enCurso).toBe(1);
@@ -648,7 +651,7 @@ describe('CursosService', () => {
         makeInscripcion({ id: 3n, cursos: { id: 3n, nombre_curso: 'C', institucion: 'EMA', es_obligatorio: true } }),
       ]);
 
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const obligatorios = result.items.filter((i) => i.curso.es_obligatorio).length;
 
       expect(obligatorios).toBe(2);
@@ -666,7 +669,7 @@ describe('CursosService', () => {
       ]);
 
       const ahora = new Date();
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const pendientes = result.items.filter(
         (i) => i.fecha_fin && i.fecha_fin < ahora && i.calificacion === null,
       );
@@ -681,7 +684,7 @@ describe('CursosService', () => {
       ]);
 
       const ahora = new Date();
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const pendientes = result.items.filter(
         (i) => i.fecha_fin && i.fecha_fin < ahora && i.calificacion === null,
       );
@@ -697,7 +700,7 @@ describe('CursosService', () => {
       ]);
 
       const ahora = new Date();
-      const result = await service.getCursosPorFuncionario({});
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const pendientes = result.items.filter(
         (i) => i.fecha_fin && i.fecha_fin < ahora && i.calificacion === null,
       );
