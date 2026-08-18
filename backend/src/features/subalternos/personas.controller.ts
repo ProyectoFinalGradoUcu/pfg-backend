@@ -121,6 +121,14 @@ export class PersonasController {
     return this.perfilService.findMisiones(id);
   }
 
+  @ApiOperation({ summary: 'Historial de destinos (tab Destinos)' })
+  @ApiParam({ name: 'id', type: Number })
+  @RequirePermissions('personas.ver')
+  @Get(':id/destinos')
+  findDestinos(@Param('id', ParseIntPipe) id: number) {
+    return this.perfilService.findDestinos(id);
+  }
+
   // ─── Editar ───────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Editar datos personales y/o laborales' })

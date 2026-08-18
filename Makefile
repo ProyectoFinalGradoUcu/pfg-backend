@@ -12,7 +12,7 @@ SEED_AUTH = database/scripts/seed_auth.sql
 SEED_DEMO = database/scripts/seed_demo_review.sql
 SEED_CURSOS = database/scripts/seed_cursos.sql
 
-.PHONY: up down reset seed seed-auth seed-demo-review migrate-invitaciones migrate-misiones backend db build logs logs-backend logs-db ps gen-secret help
+.PHONY: up down reset seed seed-auth seed-demo-review seed-destinos migrate-invitaciones migrate-misiones migrate-destinos backend db build logs logs-backend logs-db ps gen-secret help
 
 gen-secret:
 	@node -e " \
@@ -60,6 +60,14 @@ migrate-misiones:
 	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < database/scripts/migration_misiones_v2.sql
 	@echo "  [ok] Tablas convocatorias y funcionarios_convocatorias creadas"
 
+migrate-destinos:
+	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < database/scripts/migration_destinos_v2.sql
+	@echo "  [ok] Destinos migrados a unidades; tabla destinos eliminada"
+
+seed-destinos:
+	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < database/scripts/seed_destinos.sql
+	@echo "  [ok] Unidades y asignaciones de destino de demo cargadas"
+
 build:
 	$(COMPOSE) build
 
@@ -88,6 +96,8 @@ help:
 	@echo "  make seed-auth    Ejecuta el seed de seguridad (permisos, roles, admin)"
 	@echo "  make seed-demo-review  Carga datos de demo (misiones, cursos, personas) para pruebas"
 	@echo "  make seed-cursos  Carga los cursos del Plan de Estudios de la ETA (año 2026)"
+	@echo "  make migrate-destinos  Migra destinos a unidades (destino = asignación)"
+	@echo "  make seed-destinos     Carga unidades y asignaciones de destino de demo"
 	@echo "  make build        Construye imágenes sin levantar servicios"
 	@echo "  make logs         Logs de todos los servicios"
 	@echo "  make logs-backend Logs solo del backend"

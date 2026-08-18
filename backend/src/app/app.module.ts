@@ -11,6 +11,7 @@ import { RolesModule } from '../features/roles/roles.module';
 import { UsuariosModule } from '../features/usuarios/usuarios.module';
 import { SubalternosModule } from '../features/subalternos/subalternos.module';
 import { MisionesModule } from '../features/misiones/misiones.module';
+import { DestinosModule } from '../features/destinos/destinos.module';
 import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
 import { CursosModule } from '../features/cursos/cursos.module';
@@ -34,6 +35,7 @@ import { ReportesModule } from '../features/reportes/reportes.module';
     UsuariosModule,
     SubalternosModule,
     MisionesModule,
+    DestinosModule,
     FilesModule,
     CursosModule,
     CatalogosModule,

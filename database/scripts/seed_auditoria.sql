@@ -25,6 +25,7 @@ SELECT nombre, descripcion FROM (VALUES
   ('Personas',            'Gestión de personas'),
   ('Subalternos',         'Gestión de subalternos'),
   ('Misiones',            'Gestión de misiones'),
+  ('Destinos',            'Asignación de funcionarios a unidades'),
   ('Cursos',              'Gestión de cursos, módulos y designaciones'),
   ('Historial de cursos', 'Registro histórico de cursos por funcionario'),
   ('Catálogos',           'Catálogos del sistema'),
