@@ -1,6 +1,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../lib/prisma.service.js';
+import {
+  AlcanceResuelto,
+  unidadIdDeAlcance,
+} from '../../lib/alcance/alcance.types.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 
 interface FilaCarga {
@@ -147,12 +151,19 @@ export class PersonasCargaService {
     return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
   }
 
-  async procesarCarga(buffer: Buffer): Promise<{
+  /**
+   * Con alcance de unidad, TODAS las filas se cargan en la unidad del usuario y se ignora la
+   * columna `unidad_id` del archivo. El resumen devuelve `unidadForzada` para que la interfaz
+   * pueda avisarlo: si no, parece que el dato del archivo se respetó (spec 002 §3).
+   */
+  async procesarCarga(buffer: Buffer, alcance?: AlcanceResuelto): Promise<{
     total: number;
     exitosos: number;
     errores: number;
+    unidadForzada: string | null;
     resultados: ResultadoFila[];
   }> {
+    const unidadForzada = alcance ? unidadIdDeAlcance(alcance) : null;
     const wb = XLSX.read(buffer, { type: 'buffer' });
     const ws = wb.Sheets['Personal'];
     if (!ws) {
@@ -173,6 +184,9 @@ export class PersonasCargaService {
         const numeroFila = i + 2;
         const cedula = String(fila[0] ?? '').trim();
         const parsed = this.parsearFila(fila, numeroFila);
+        if (unidadForzada !== null) {
+          parsed.unidad_id = Number(unidadForzada);
+        }
         const id = parsed.es_civil ? await this.crearCivil(parsed) : await this.crearMilitar(parsed);
         return { fila: numeroFila, cedula, id };
       }),
@@ -193,6 +207,7 @@ export class PersonasCargaService {
       total: resultados.length,
       exitosos,
       errores: resultados.length - exitosos,
+      unidadForzada: unidadForzada === null ? null : unidadForzada.toString(),
       resultados,
     };
   }

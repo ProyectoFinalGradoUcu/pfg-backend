@@ -14,6 +14,8 @@ import { MisionesModule } from '../features/misiones/misiones.module';
 import { DestinosModule } from '../features/destinos/destinos.module';
 import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
+import { SesionesModule } from '../lib/sesiones/sesiones.module';
+import { UnidadesModule } from '../features/unidades/unidades.module';
 import { CursosModule } from '../features/cursos/cursos.module';
 import { CatalogosModule } from '../features/catalogos/catalogos.module';
 import { HistorialCursosModule } from '../features/historial-cursos/historial-cursos.module';
@@ -26,12 +28,14 @@ import { ReportesModule } from '../features/reportes/reportes.module';
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     PrismaModule,
+    SesionesModule,
     MailerModule,
     AuditoriaModule,
     AuthModule,
     InvitacionesModule,
     PermisosModule,
     RolesModule,
+    UnidadesModule,
     UsuariosModule,
     SubalternosModule,
     MisionesModule,

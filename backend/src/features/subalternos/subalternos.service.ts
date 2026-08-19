@@ -5,6 +5,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
+import {
+  AlcanceResuelto,
+  unidadIdDeAlcance,
+  unidadIdsDeAlcance,
+} from '../../lib/alcance/alcance.types.js';
+import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
 import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
@@ -40,24 +46,65 @@ function mensajeFK(err: unknown): string {
 export class SubalternosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllPersonas(query: ListPersonasQueryDto) {
+  /**
+   * Con alcance de unidad, la persona se crea en alguna de las unidades del usuario.
+   * Si el body trae una unidad que no está en su alcance, se rechaza con 400.
+   * Si no se declara unidad y el usuario tiene exactamente una, se fuerza esa.
+   */
+  private aplicarUnidadDeAlcance<T extends { unidad_id?: number | string }>(
+    dto: T,
+    alcance?: AlcanceResuelto,
+  ): T {
+    if (!alcance) return dto;
+    const unidadesForzadas = unidadIdsDeAlcance(alcance);
+    if (unidadesForzadas === null) return dto;
+
+    if (
+      dto.unidad_id !== undefined &&
+      dto.unidad_id !== null &&
+      !unidadesForzadas.map(String).includes(String(dto.unidad_id))
+    ) {
+      throw new BadRequestException(
+        'Solo podés dar de alta personal en tus propias unidades',
+      );
+    }
+
+    // Si no declara unidad y tiene exactamente una, la forzamos.
+    if (dto.unidad_id === undefined || dto.unidad_id === null) {
+      if (unidadesForzadas.length === 1) {
+        return { ...dto, unidad_id: Number(unidadesForzadas[0]) };
+      }
+      throw new BadRequestException(
+        'Debés indicar la unidad de destino (tenés acceso a más de una)',
+      );
+    }
+
+    return dto;
+  }
+
+  async findAllPersonas(query: ListPersonasQueryDto, alcance?: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
+    // Con alcance de unidad la unidad se fuerza y se IGNORA `query.destino`: el filtro no es
+    // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
+    const unidadesForzadas = alcance ? unidadIdsDeAlcance(alcance) : null;
+
     const relacionWhere = {
-      fecha_fin: null as null,
+      fecha_fin: null,
       ...(query.estado && { situacion_id: BigInt(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
     };
 
     const where = {
       relaciones_laborales: { some: relacionWhere },
-      // El destino sale del módulo de destinos, no de la unidad de la relación
-      // laboral: esa la escriben liquidación y los seeds, y no refleja dónde
-      // revista el funcionario.
-      ...(query.destino && {
-        destinos: { some: { unidad_id: BigInt(query.destino), fecha_fin: null } },
-      }),
+      // Con alcance de unidad se fuerza el filtro por destino a las unidades del usuario.
+      // Sin alcance, se puede filtrar por query.destino opcionalmente.
+      ...(unidadesForzadas !== null
+        ? { destinos: { some: { unidad_id: { in: unidadesForzadas }, fecha_fin: null } } }
+        : query.destino && {
+            destinos: { some: { unidad_id: BigInt(query.destino), fecha_fin: null } },
+          }),
       ...(query.search && {
         OR: [
           { cedula: { contains: query.search, mode: 'insensitive' as const } },
@@ -148,8 +195,10 @@ export class SubalternosService {
     };
   }
 
-  async create(dto: CreateSubalternoDto) {
+  async create(dto: CreateSubalternoDto, alcance?: AlcanceResuelto) {
     assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
+
+    dto = this.aplicarUnidadDeAlcance(dto, alcance);
 
     const existe = await this.prisma.personas.findUnique({
       where: { cedula: dto.cedula },
@@ -229,7 +278,9 @@ export class SubalternosService {
     });
   }
 
-  async createPersonal(dto: CreatePersonalDto) {
+  async createPersonal(dto: CreatePersonalDto, alcance?: AlcanceResuelto) {
+    dto = this.aplicarUnidadDeAlcance(dto, alcance);
+
     const existe = await this.prisma.personas.findUnique({
       where: { cedula: dto.cedula },
     });
@@ -455,7 +506,11 @@ export class SubalternosService {
     }
   }
 
-  async update(id: number, dto: UpdateSubalternoDto) {
+  async update(id: number, dto: UpdateSubalternoDto, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertPersonaEnAlcance(this.prisma, BigInt(id), alcance);
+    }
+
     const persona = await this.prisma.personas.findUnique({
       where: { id: BigInt(id) },
     });
@@ -479,7 +534,11 @@ export class SubalternosService {
     };
   }
 
-  async remove(id: number) {
+  async remove(id: number, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertPersonaEnAlcance(this.prisma, BigInt(id), alcance);
+    }
+
     const persona = await this.prisma.personas.findUnique({
       where: { id: BigInt(id) },
     });

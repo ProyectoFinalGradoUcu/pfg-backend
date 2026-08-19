@@ -1,5 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
+import {
+  AlcanceResuelto,
+  unidadIdDeAlcance,
+} from '../../lib/alcance/alcance.types.js';
+import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 
@@ -8,7 +17,9 @@ export class PersonalPerfilService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ─── GET /personas/:id ────────────────────────────────────────────────────
-  async findOne(id: number) {
+  async findOne(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+
     const persona = await this.prisma.personas.findUnique({
       where: { id: BigInt(id) },
       select: {
@@ -99,7 +110,9 @@ export class PersonalPerfilService {
   }
 
   // ─── GET /personas/:id/familiares ─────────────────────────────────────────
-  async findFamiliares(id: number) {
+  async findFamiliares(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+
     await this.assertExiste(id);
 
     const relaciones = await this.prisma.relaciones_familiares.findMany({
@@ -143,7 +156,9 @@ export class PersonalPerfilService {
   }
 
   // ─── GET /personas/:id/historial-militar ─────────────────────────────────
-  async findHistorialMilitar(id: number) {
+  async findHistorialMilitar(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+
     await this.assertExiste(id);
 
     const [ascensos, primeraRelacion, retiro] = await Promise.all([
@@ -215,7 +230,9 @@ export class PersonalPerfilService {
   }
 
   // ─── GET /personas/:id/cursos ─────────────────────────────────────────────
-  async findCursos(id: number) {
+  async findCursos(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+
     await this.assertExiste(id);
 
     const registros = await this.prisma.funcionarios_cursos.findMany({
@@ -254,7 +271,9 @@ export class PersonalPerfilService {
   }
 
   // ─── GET /personas/:id/misiones ───────────────────────────────────────────
-  async findMisiones(id: number) {
+  async findMisiones(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+
     await this.assertExiste(id);
 
     const registros = await this.prisma.funcionarios_convocatorias.findMany({
@@ -319,7 +338,9 @@ export class PersonalPerfilService {
   }
 
   // ─── PATCH /personas/:id ──────────────────────────────────────────────────
-  async update(id: number, dto: UpdatePersonalDto) {
+  async update(id: number, dto: UpdatePersonalDto, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+
     const persona = await this.prisma.personas.findUnique({
       where: { id: BigInt(id) },
       select: {
@@ -331,6 +352,17 @@ export class PersonalPerfilService {
     if (!persona) throw new NotFoundException(`No existe personal con id ${id}`);
 
     const relacionActiva = persona.relaciones_laborales[0];
+
+    // Con alcance de unidad no se puede mover personal fuera de la propia unidad: seria una via
+    // para sacarse gente de encima o para apropiarse de personal ajeno.
+    if (alcance && dto.unidad_id) {
+      const unidadPropia = unidadIdDeAlcance(alcance);
+      if (unidadPropia !== null && dto.unidad_id.toString() !== unidadPropia.toString()) {
+        throw new BadRequestException(
+          'No podes cambiar el destino de un funcionario a otra unidad',
+        );
+      }
+    }
 
     if (dto.fecha_nacimiento || dto.fecha_inicio) {
       assertFechaInicioPosteriorANacimiento(
@@ -395,7 +427,19 @@ export class PersonalPerfilService {
         : Promise.resolve(null),
     ]);
 
+    // No hace falta invalidar ninguna sesion: la unidad del usuario del sistema es
+    // independiente del destino del funcionario, y el filtrado de datos se resuelve por
+    // consulta en cada request.
     return this.findOne(id);
+  }
+
+  /**
+   * 404 y no 403 a proposito: devolver 403 confirmaria que la persona existe y permitiria
+   * enumerar el padron por IDs. Ver spec 002 seccion 7.
+   */
+  private async assertAlcance(id: number, alcance?: AlcanceResuelto) {
+    if (!alcance) return;
+    await assertPersonaEnAlcance(this.prisma, BigInt(id), alcance);
   }
 
   private async assertExiste(id: number) {

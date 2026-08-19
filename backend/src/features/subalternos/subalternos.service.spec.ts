@@ -230,13 +230,13 @@ describe('SubalternosService', () => {
         ...dtoMilitar,
         fecha_nacimiento: '1990-05-15',
       });
-      expect(r.relacion_laboral.tipo_funcionario).toBe('subalterno');
+      expect((r as any).relacion_laboral.tipo_funcionario).toBe('subalterno');
     });
 
     it('Devuelve los catálogos resueltos por nombre, no solo los ids', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       const r = await service.createPersonal(dtoMilitar);
-      expect(r.relacion_laboral).toMatchObject({
+      expect((r as any).relacion_laboral).toMatchObject({
         grado: 'Sargento',
         unidad: 'Brigada Aérea I',
         escalafon: 'Comando y Aire',
@@ -277,6 +277,89 @@ describe('SubalternosService', () => {
     it('Error porque no existe', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await expect(service.remove(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── Alcance por unidad (spec 002) ─────────────────────────────────────────
+
+  describe('alcance por unidad', () => {
+    const UNIDAD: any = { tipo: 'unidad', unidadIds: ['7'] };
+    const GLOBAL: any = { tipo: 'global' };
+
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(0);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([]);
+    });
+
+    it('fuerza la unidad propia en el listado e ignora el filtro destino del query', async () => {
+      await service.findAllPersonas({ destino: '99' } as any, UNIDAD);
+
+      expect(prisma.personas.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            destinos: { some: { fecha_fin: null, unidad_id: { in: [7n] } } },
+          }),
+        }),
+      );
+    });
+
+    it('respeta el filtro destino del query con alcance global', async () => {
+      await service.findAllPersonas({ destino: '99' } as any, GLOBAL);
+
+      expect(prisma.personas.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            destinos: { some: { unidad_id: 99n, fecha_fin: null } },
+          }),
+        }),
+      );
+    });
+
+    it('no filtra por unidad si no se pasa alcance (regresion del comportamiento previo)', async () => {
+      await service.findAllPersonas({} as any);
+
+      expect(prisma.personas.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            relaciones_laborales: { some: { fecha_fin: null } },
+          }),
+        }),
+      );
+    });
+
+    it('rechaza dar de alta personal en una unidad ajena', async () => {
+      await expect(
+        service.create({ ...dto, unidad_id: 99 } as any, UNIDAD),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('fuerza la unidad propia al dar de alta sin declararla', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      await service.create({ ...dto, unidad_id: undefined } as any, UNIDAD);
+
+      expect(prisma.relaciones_laborales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ unidad_id: 7n }),
+        }),
+      );
+    });
+
+    it('devuelve NotFoundException al editar una persona de otra unidad', async () => {
+      prisma.personas.findFirst = jest.fn().mockResolvedValue(null);
+
+      await expect(service.update(1, {}, UNIDAD)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('permite eliminar una persona de la propia unidad', async () => {
+      prisma.personas.findFirst = jest.fn().mockResolvedValue({ id: 1n });
+      prisma.personas.findUnique.mockResolvedValue({ id: 1n });
+
+      // No se invalida ninguna sesion: la unidad del usuario del sistema es
+      // independiente del destino del funcionario (spec 002 §3).
+      await expect(service.remove(1, UNIDAD)).resolves.toBeDefined();
     });
   });
 });

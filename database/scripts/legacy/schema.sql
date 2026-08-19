@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict JtbBt88e9kc0eeacEo0jKnRuai7kibvxqafEAcmu3489gkhHe33KwOmFyWyFXcj
+\restrict jN8bT5u4jTFqDf8kcX6NF0eObAohQSNTdM1iepvjvcC8MukAvURdCFs4LoNtfVh
 
 -- Dumped from database version 16.13
 -- Dumped by pg_dump version 16.13
@@ -148,8 +148,8 @@ CREATE TABLE public.acreedores (
     activo boolean DEFAULT true NOT NULL,
     categoria_deficit character varying(60) DEFAULT 'otras_retenciones'::character varying NOT NULL,
     orden_legal_deficit smallint DEFAULT 100 NOT NULL,
-    CONSTRAINT acreedores_formato_archivo_check CHECK (((formato_archivo)::text = ANY ((ARRAY['txt'::character varying, 'csv'::character varying, 'xlsx'::character varying])::text[]))),
-    CONSTRAINT ck_acreedores_categoria_deficit CHECK (((categoria_deficit)::text = ANY ((ARRAY['retencion_judicial_alimenticia'::character varying, 'garantia_alquiler'::character varying, 'cuota_sindical_partido'::character varying, 'credito_social_brou'::character varying, 'vivienda'::character varying, 'seguro_vida'::character varying, 'salud_prepaga'::character varying, 'credito_nomina_cooperativa'::character varying, 'facilidad_pago_tributaria'::character varying, 'otras_retenciones'::character varying])::text[])))
+    CONSTRAINT acreedores_formato_archivo_check CHECK (((formato_archivo)::text = ANY (ARRAY[('txt'::character varying)::text, ('csv'::character varying)::text, ('xlsx'::character varying)::text]))),
+    CONSTRAINT ck_acreedores_categoria_deficit CHECK (((categoria_deficit)::text = ANY (ARRAY[('retencion_judicial_alimenticia'::character varying)::text, ('garantia_alquiler'::character varying)::text, ('cuota_sindical_partido'::character varying)::text, ('credito_social_brou'::character varying)::text, ('vivienda'::character varying)::text, ('seguro_vida'::character varying)::text, ('salud_prepaga'::character varying)::text, ('credito_nomina_cooperativa'::character varying)::text, ('facilidad_pago_tributaria'::character varying)::text, ('otras_retenciones'::character varying)::text])))
 );
 
 
@@ -180,6 +180,54 @@ ALTER SEQUENCE public.acreedores_id_seq OWNED BY public.acreedores.id;
 
 
 --
+-- Name: aguinaldo_baja; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.aguinaldo_baja (
+    id bigint NOT NULL,
+    persona_id bigint NOT NULL,
+    cedula character varying(20) NOT NULL,
+    nombre_completo character varying(150) NOT NULL,
+    fecha_baja date NOT NULL,
+    motivo_baja_codigo character varying(20),
+    anio smallint NOT NULL,
+    mes smallint NOT NULL,
+    semestre smallint NOT NULL,
+    total_haberes_gravados numeric(14,2) NOT NULL,
+    meses_computados smallint NOT NULL,
+    mes_inicio_periodo smallint,
+    mes_fin_periodo smallint,
+    mes_liquidacion smallint,
+    nominal numeric(14,2) NOT NULL,
+    montepio numeric(14,2) NOT NULL,
+    sanidad numeric(14,2) NOT NULL,
+    total_descuentos numeric(14,2) NOT NULL,
+    liquido numeric(14,2) NOT NULL,
+    redondeo numeric(14,2) DEFAULT 0 NOT NULL,
+    estado character varying(20) NOT NULL
+);
+
+
+--
+-- Name: aguinaldo_baja_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.aguinaldo_baja_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: aguinaldo_baja_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.aguinaldo_baja_id_seq OWNED BY public.aguinaldo_baja.id;
+
+
+--
 -- Name: aguinaldos; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -190,8 +238,12 @@ CREATE TABLE public.aguinaldos (
     semestre smallint NOT NULL,
     total_haberes_gravados_semestre numeric(14,2) NOT NULL,
     meses_trabajados smallint NOT NULL,
-    irpf_aguinaldo numeric(14,2) DEFAULT 0 NOT NULL,
-    liquidacion_id bigint,
+    nominal numeric(14,2),
+    montepio numeric(14,2),
+    sanidad numeric(14,2),
+    total_descuentos numeric(14,2),
+    liquido numeric(14,2),
+    redondeo numeric(14,2) DEFAULT 0 NOT NULL,
     CONSTRAINT aguinaldos_meses_trabajados_check CHECK (((meses_trabajados >= 0) AND (meses_trabajados <= 6))),
     CONSTRAINT aguinaldos_semestre_check CHECK ((semestre = ANY (ARRAY[1, 2])))
 );
@@ -201,7 +253,7 @@ CREATE TABLE public.aguinaldos (
 -- Name: TABLE aguinaldos; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.aguinaldos IS 'SAC semestral por persona. Monto = total_haberes_gravados_semestre / 12 (equiv. AGUINALD.DBF)';
+COMMENT ON TABLE public.aguinaldos IS 'SAC semestral por persona. nominal = total_haberes_gravados_semestre / 12';
 
 
 --
@@ -321,7 +373,7 @@ CREATE TABLE public.beneficios_sociales (
     clave_evento character varying(80),
     retroactividad_pendiente boolean DEFAULT false NOT NULL,
     subtipo character varying(20),
-    CONSTRAINT beneficios_sociales_estado_check CHECK (((estado)::text = ANY ((ARRAY['activo'::character varying, 'inactivo'::character varying, 'pendiente_doc'::character varying])::text[])))
+    CONSTRAINT beneficios_sociales_estado_check CHECK (((estado)::text = ANY (ARRAY[('activo'::character varying)::text, ('inactivo'::character varying)::text, ('pendiente_doc'::character varying)::text])))
 );
 
 
@@ -371,7 +423,9 @@ CREATE TABLE public.bitacora_auditoria (
     fecha timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     entidad character varying(60),
     entidad_id bigint,
-    detalle jsonb
+    detalle jsonb,
+    aplicacion character varying(20) DEFAULT 'liquidacion'::character varying NOT NULL,
+    CONSTRAINT bitacora_auditoria_aplicacion_check CHECK (((aplicacion)::text = ANY (ARRAY[('personal'::character varying)::text, ('liquidacion'::character varying)::text])))
 );
 
 
@@ -433,11 +487,11 @@ CREATE TABLE public.catalogo_items (
     formula_calculo character varying(50),
     orden_calculo smallint DEFAULT 0 NOT NULL,
     item_par_ficto_id bigint,
-    vigente boolean DEFAULT true NOT NULL,
     norma_legal character varying(100),
     acumula_aguinaldo boolean DEFAULT false NOT NULL,
     lleva_aumento boolean DEFAULT false NOT NULL,
-    CONSTRAINT catalogo_items_tipo_check CHECK (((tipo)::text = ANY ((ARRAY['haber_normal'::character varying, 'haber_anual'::character varying, 'haber_no_gravado'::character varying, 'beneficio_social_grav'::character varying, 'beneficio_social_no_grav'::character varying, 'descuento_legal'::character varying, 'descuento_personal'::character varying, 'ficto_haber'::character varying, 'ficto_descuento'::character varying])::text[])))
+    vigente boolean DEFAULT true NOT NULL,
+    CONSTRAINT catalogo_items_tipo_check CHECK (((tipo)::text = ANY (ARRAY[('haber_normal'::character varying)::text, ('haber_anual'::character varying)::text, ('haber_no_gravado'::character varying)::text, ('beneficio_social_grav'::character varying)::text, ('beneficio_social_no_grav'::character varying)::text, ('descuento_legal'::character varying)::text, ('descuento_personal'::character varying)::text, ('ficto_haber'::character varying)::text, ('ficto_descuento'::character varying)::text, ('ajuste'::character varying)::text])))
 );
 
 
@@ -487,8 +541,8 @@ CREATE TABLE public.cierres (
     cerrado_por bigint NOT NULL,
     hash_datos character varying(128),
     observaciones text,
-    CONSTRAINT cierres_estado_check CHECK (((estado)::text = ANY ((ARRAY['en_proceso'::character varying, 'completado'::character varying, 'fallido'::character varying])::text[]))),
-    CONSTRAINT cierres_tipo_check CHECK (((tipo)::text = ANY ((ARRAY['mensual'::character varying, 'semestral'::character varying, 'anual'::character varying])::text[])))
+    CONSTRAINT cierres_estado_check CHECK (((estado)::text = ANY (ARRAY[('en_proceso'::character varying)::text, ('completado'::character varying)::text, ('fallido'::character varying)::text]))),
+    CONSTRAINT cierres_tipo_check CHECK (((tipo)::text = ANY (ARRAY[('mensual'::character varying)::text, ('semestral'::character varying)::text, ('anual'::character varying)::text])))
 );
 
 
@@ -519,6 +573,43 @@ ALTER SEQUENCE public.cierres_id_seq OWNED BY public.cierres.id;
 
 
 --
+-- Name: comp_personal_048018; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.comp_personal_048018 (
+    id bigint NOT NULL,
+    persona_id bigint NOT NULL,
+    importe numeric(14,2) NOT NULL,
+    estado character varying(20) DEFAULT 'activo'::character varying NOT NULL,
+    vigente_desde date NOT NULL,
+    vigente_hasta date,
+    creado_por bigint,
+    creado_en timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT ck_comp_personal_048018_estado CHECK (((estado)::text = ANY ((ARRAY['activo'::character varying, 'anulado'::character varying])::text[]))),
+    CONSTRAINT ck_comp_personal_048018_importe_positivo CHECK ((importe > (0)::numeric))
+);
+
+
+--
+-- Name: comp_personal_048018_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.comp_personal_048018_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: comp_personal_048018_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.comp_personal_048018_id_seq OWNED BY public.comp_personal_048018.id;
+
+
+--
 -- Name: compensaciones_diferencia_ascenso; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -536,7 +627,7 @@ CREATE TABLE public.compensaciones_diferencia_ascenso (
     estado character varying(20) DEFAULT 'pendiente'::character varying NOT NULL,
     incidencias text,
     creado_en timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT compensaciones_diferencia_ascenso_estado_check CHECK (((estado)::text = ANY ((ARRAY['pendiente'::character varying, 'aplicado'::character varying, 'anulado'::character varying])::text[])))
+    CONSTRAINT compensaciones_diferencia_ascenso_estado_check CHECK (((estado)::text = ANY (ARRAY[('pendiente'::character varying)::text, ('aplicado'::character varying)::text, ('anulado'::character varying)::text])))
 );
 
 
@@ -590,8 +681,8 @@ CREATE TABLE public.config_compensaciones (
     vigente_desde date NOT NULL,
     vigente_hasta date,
     activo boolean DEFAULT true NOT NULL,
-    CONSTRAINT config_compensaciones_formula_check CHECK (((formula)::text = ANY ((ARRAY['fijo'::character varying, 'tabla'::character varying, 'prorrateo'::character varying, 'presupuesto'::character varying, 'rango'::character varying])::text[]))),
-    CONSTRAINT config_compensaciones_unidad_medida_check CHECK (((unidad_medida)::text = ANY ((ARRAY['dia'::character varying, 'hora'::character varying, 'monto'::character varying])::text[])))
+    CONSTRAINT config_compensaciones_formula_check CHECK (((formula)::text = ANY (ARRAY[('fijo'::character varying)::text, ('tabla'::character varying)::text, ('prorrateo'::character varying)::text, ('presupuesto'::character varying)::text, ('rango'::character varying)::text]))),
+    CONSTRAINT config_compensaciones_unidad_medida_check CHECK (((unidad_medida)::text = ANY (ARRAY[('dia'::character varying)::text, ('hora'::character varying)::text, ('monto'::character varying)::text])))
 );
 
 
@@ -654,7 +745,7 @@ CREATE TABLE public.cuentas_bancarias (
     banco_id bigint NOT NULL,
     numero_cuenta character varying(50),
     estado character varying(20) NOT NULL,
-    CONSTRAINT cuentas_bancarias_estado_check CHECK (((estado)::text = ANY ((ARRAY['activa'::character varying, 'inactiva'::character varying])::text[])))
+    CONSTRAINT cuentas_bancarias_estado_check CHECK (((estado)::text = ANY (ARRAY[('activa'::character varying)::text, ('inactiva'::character varying)::text])))
 );
 
 
@@ -694,7 +785,7 @@ CREATE TABLE public.dependientes (
     vigente_hasta date,
     activo boolean DEFAULT true NOT NULL,
     CONSTRAINT dependientes_porcentaje_deduccion_check CHECK ((porcentaje_deduccion = ANY (ARRAY[50, 100]))),
-    CONSTRAINT dependientes_tipo_check CHECK (((tipo)::text = ANY ((ARRAY['hijo'::character varying, 'conyuge_sin_ingresos'::character varying])::text[])))
+    CONSTRAINT dependientes_tipo_check CHECK (((tipo)::text = ANY (ARRAY[('hijo'::character varying)::text, ('conyuge_sin_ingresos'::character varying)::text])))
 );
 
 
@@ -737,7 +828,7 @@ CREATE TABLE public.descuentos_personal_periodo (
     acreedor_id bigint,
     fecha_comunicacion timestamp with time zone,
     fecha_hasta date,
-    CONSTRAINT descuentos_personal_periodo_estado_check CHECK (((estado)::text = ANY ((ARRAY['borrador'::character varying, 'confirmado'::character varying])::text[]))),
+    CONSTRAINT descuentos_personal_periodo_estado_check CHECK (((estado)::text = ANY (ARRAY[('borrador'::character varying)::text, ('confirmado'::character varying)::text, ('aplicado'::character varying)::text, ('parcial'::character varying)::text, ('deficit'::character varying)::text, ('no_revista'::character varying)::text, ('anulado'::character varying)::text]))),
     CONSTRAINT descuentos_personal_periodo_importe_check CHECK ((importe > (0)::numeric))
 );
 
@@ -787,10 +878,10 @@ CREATE TABLE public.descuentos_personales (
     archivo_origen character varying(200),
     enviada_acreedor_en timestamp without time zone,
     observaciones text,
-    CONSTRAINT descuentos_personales_estado_check CHECK (((estado)::text = ANY ((ARRAY['pendiente'::character varying, 'aplicado'::character varying, 'parcial'::character varying, 'rechazado'::character varying, 'no_revista'::character varying, 'deficit'::character varying, 'anulado'::character varying])::text[]))),
+    CONSTRAINT descuentos_personales_estado_check CHECK (((estado)::text = ANY (ARRAY[('pendiente'::character varying)::text, ('aplicado'::character varying)::text, ('parcial'::character varying)::text, ('rechazado'::character varying)::text, ('no_revista'::character varying)::text, ('deficit'::character varying)::text, ('anulado'::character varying)::text]))),
     CONSTRAINT descuentos_personales_monto_solicitado_check CHECK ((monto_solicitado > (0)::numeric)),
     CONSTRAINT descuentos_personales_periodo_mes_check CHECK (((periodo_mes >= 1) AND (periodo_mes <= 12))),
-    CONSTRAINT descuentos_personales_tipo_check CHECK (((tipo)::text = ANY ((ARRAY['eventual'::character varying, 'permanente'::character varying])::text[])))
+    CONSTRAINT descuentos_personales_tipo_check CHECK (((tipo)::text = ANY (ARRAY[('eventual'::character varying)::text, ('permanente'::character varying)::text])))
 );
 
 
@@ -888,6 +979,47 @@ ALTER SEQUENCE public.escalafones_id_seq OWNED BY public.escalafones.id;
 
 
 --
+-- Name: fictos_persona; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fictos_persona (
+    id bigint NOT NULL,
+    persona_id bigint NOT NULL,
+    acreedor_id bigint NOT NULL,
+    catalogo_item_id bigint NOT NULL,
+    importe numeric(14,2) NOT NULL,
+    activo boolean DEFAULT true NOT NULL,
+    observaciones text,
+    fecha_creacion timestamp with time zone DEFAULT now() NOT NULL,
+    fecha_modificacion timestamp with time zone,
+    fecha_baja timestamp with time zone,
+    usuario_creacion_id bigint,
+    usuario_modificacion_id bigint,
+    usuario_baja_id bigint,
+    CONSTRAINT ck_fictos_persona_importe_positivo CHECK ((importe > (0)::numeric))
+);
+
+
+--
+-- Name: fictos_persona_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.fictos_persona_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: fictos_persona_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.fictos_persona_id_seq OWNED BY public.fictos_persona.id;
+
+
+--
 -- Name: form3100; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -909,12 +1041,30 @@ CREATE TABLE public.form3100 (
     documento_id bigint,
     fecha_creacion timestamp without time zone DEFAULT now() NOT NULL,
     usuario_creacion_id bigint,
+    cappu_importe numeric(14,2) DEFAULT 0 NOT NULL,
+    reintegro_aporte numeric(14,2) DEFAULT 0 NOT NULL,
+    CONSTRAINT ck_form3100_cappu_importe_no_negativo CHECK ((cappu_importe >= (0)::numeric)),
+    CONSTRAINT ck_form3100_reintegro_aporte_no_negativo CHECK ((reintegro_aporte >= (0)::numeric)),
     CONSTRAINT form3100_cappu_categoria_check CHECK (((cappu_categoria >= 1) AND (cappu_categoria <= 10))),
-    CONSTRAINT form3100_conyuge_sexo_check CHECK (((conyuge_sexo)::text = ANY ((ARRAY['M'::character varying, 'F'::character varying])::text[]))),
-    CONSTRAINT form3100_fondo_solidaridad_check CHECK (((fondo_solidaridad)::text = ANY ((ARRAY['0.5_BPC'::character varying, '1_BPC'::character varying, '2_BPC'::character varying])::text[]))),
+    CONSTRAINT form3100_conyuge_sexo_check CHECK (((conyuge_sexo)::text = ANY (ARRAY[('M'::character varying)::text, ('F'::character varying)::text]))),
+    CONSTRAINT form3100_fondo_solidaridad_check CHECK (((fondo_solidaridad)::text = ANY (ARRAY[('0.5_BPC'::character varying)::text, ('1_BPC'::character varying)::text, ('2_BPC'::character varying)::text]))),
     CONSTRAINT form3100_vigente_desde_anio_check CHECK ((vigente_desde_anio > 2000)),
     CONSTRAINT form3100_vigente_desde_mes_check CHECK (((vigente_desde_mes >= 1) AND (vigente_desde_mes <= 12)))
 );
+
+
+--
+-- Name: COLUMN form3100.cappu_importe; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.form3100.cappu_importe IS 'Importe mensual de la categoria Caja Profesional usada en la deduccion profesional IRPF.';
+
+
+--
+-- Name: COLUMN form3100.reintegro_aporte; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.form3100.reintegro_aporte IS 'Reintegro mensual de aporte profesional declarado en Form 3100.';
 
 
 --
@@ -952,7 +1102,7 @@ CREATE TABLE public.form3100_personas_cargo (
     relacion character varying(100) NOT NULL,
     discapacidad boolean DEFAULT false NOT NULL,
     CONSTRAINT form3100_personas_cargo_porcentaje_atribucion_check CHECK ((porcentaje_atribucion = ANY (ARRAY[0, 50, 100]))),
-    CONSTRAINT form3100_personas_cargo_sexo_check CHECK (((sexo)::text = ANY ((ARRAY['M'::character varying, 'F'::character varying])::text[])))
+    CONSTRAINT form3100_personas_cargo_sexo_check CHECK (((sexo)::text = ANY (ARRAY[('M'::character varying)::text, ('F'::character varying)::text])))
 );
 
 
@@ -1068,6 +1218,43 @@ ALTER SEQUENCE public.grados_id_seq OWNED BY public.grados.id;
 
 
 --
+-- Name: historico_liquidaciones; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.historico_liquidaciones (
+    id bigint NOT NULL,
+    persona_id bigint NOT NULL,
+    anio smallint NOT NULL,
+    mes smallint NOT NULL,
+    haberes_gravados numeric(14,2) NOT NULL,
+    origen character varying(20) DEFAULT 'SISTEMA'::character varying NOT NULL,
+    fecha_creacion timestamp without time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_historico_anio CHECK ((anio > 2000)),
+    CONSTRAINT ck_historico_haberes CHECK ((haberes_gravados >= (0)::numeric)),
+    CONSTRAINT ck_historico_mes CHECK (((mes >= 1) AND (mes <= 12)))
+);
+
+
+--
+-- Name: historico_liquidaciones_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.historico_liquidaciones_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: historico_liquidaciones_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.historico_liquidaciones_id_seq OWNED BY public.historico_liquidaciones.id;
+
+
+--
 -- Name: incidencias_calculo; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1079,7 +1266,7 @@ CREATE TABLE public.incidencias_calculo (
     tipo character varying(50) NOT NULL,
     descripcion text NOT NULL,
     creado_en timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT ck_incidencias_calculo_tipo CHECK (((tipo)::text = ANY ((ARRAY['BeneficioYaPagado'::character varying, 'BeneficioRetroactivoPendiente'::character varying, 'TipoBeneficioDesconocido'::character varying, 'SubtipoPsfDesconocido'::character varying, 'ErrorCalculo'::character varying, 'InstructivoNoConfigurado'::character varying, 'CalculoSimplificado'::character varying, 'CatalogoItemNoConfigurado'::character varying])::text[])))
+    CONSTRAINT ck_incidencias_calculo_tipo CHECK (((tipo)::text = ANY (ARRAY[('BeneficioYaPagado'::character varying)::text, ('BeneficioRetroactivoPendiente'::character varying)::text, ('TipoBeneficioDesconocido'::character varying)::text, ('SubtipoPsfDesconocido'::character varying)::text, ('ErrorCalculo'::character varying)::text, ('InstructivoNoConfigurado'::character varying)::text, ('CalculoSimplificado'::character varying)::text, ('CatalogoItemNoConfigurado'::character varying)::text])))
 );
 
 
@@ -1120,7 +1307,7 @@ CREATE TABLE public.instructivo_asig_familiar (
     vigente_desde date NOT NULL,
     descripcion_porcentaje character varying(10),
     CONSTRAINT ck_instructivo_asig_familiar_importe CHECK ((importe > (0)::numeric)),
-    CONSTRAINT ck_instructivo_asig_familiar_tipo CHECK (((tipo_franja)::text = ANY ((ARRAY['franja_8'::character varying, 'franja_16'::character varying, 'discapacidad'::character varying])::text[])))
+    CONSTRAINT ck_instructivo_asig_familiar_tipo CHECK (((tipo_franja)::text = ANY (ARRAY[('franja_8'::character varying)::text, ('franja_16'::character varying)::text, ('discapacidad'::character varying)::text])))
 );
 
 
@@ -1278,6 +1465,39 @@ ALTER SEQUENCE public.irpf_mensual_id_seq OWNED BY public.irpf_mensual.id;
 
 
 --
+-- Name: items_aguinaldo_baja; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.items_aguinaldo_baja (
+    id bigint NOT NULL,
+    aguinaldo_baja_id bigint NOT NULL,
+    codigo_concepto character varying(20) NOT NULL,
+    nombre_concepto character varying(150) NOT NULL,
+    importe numeric(14,2) NOT NULL,
+    tipo character varying(20) NOT NULL
+);
+
+
+--
+-- Name: items_aguinaldo_baja_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.items_aguinaldo_baja_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: items_aguinaldo_baja_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.items_aguinaldo_baja_id_seq OWNED BY public.items_aguinaldo_baja.id;
+
+
+--
 -- Name: items_liquidacion; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1294,7 +1514,7 @@ CREATE TABLE public.items_liquidacion (
     regla_aplicada character varying(100),
     es_retroactividad boolean DEFAULT false NOT NULL,
     estado character varying(20) DEFAULT 'calculado'::character varying NOT NULL,
-    CONSTRAINT items_liquidacion_estado_check CHECK (((estado)::text = ANY ((ARRAY['calculado'::character varying, 'revisar'::character varying, 'error'::character varying, 'ajustado'::character varying, 'no_cobro'::character varying])::text[])))
+    CONSTRAINT items_liquidacion_estado_check CHECK (((estado)::text = ANY (ARRAY[('calculado'::character varying)::text, ('revisar'::character varying)::text, ('error'::character varying)::text, ('ajustado'::character varying)::text, ('no_cobro'::character varying)::text])))
 );
 
 
@@ -1345,8 +1565,8 @@ CREATE TABLE public.items_lote_compensacion (
     ala character varying(1),
     categoria_compensacion character varying(50),
     snapshot_programa_id bigint,
-    CONSTRAINT items_lote_compensacion_ala_check CHECK (((ala IS NULL) OR ((ala)::text = ANY ((ARRAY['A'::character varying, 'N'::character varying, 'S'::character varying])::text[])))),
-    CONSTRAINT items_lote_compensacion_estado_check CHECK (((estado)::text = ANY ((ARRAY['ok'::character varying, 'verificar'::character varying, 'error'::character varying])::text[])))
+    CONSTRAINT items_lote_compensacion_ala_check CHECK (((ala IS NULL) OR ((ala)::text = ANY (ARRAY[('A'::character varying)::text, ('N'::character varying)::text, ('S'::character varying)::text])))),
+    CONSTRAINT items_lote_compensacion_estado_check CHECK (((estado)::text = ANY (ARRAY[('ok'::character varying)::text, ('verificar'::character varying)::text, ('error'::character varying)::text])))
 );
 
 
@@ -1517,7 +1737,7 @@ CREATE TABLE public.liquidaciones (
     cerrada_por bigint,
     cerrada_en timestamp without time zone,
     observaciones text,
-    CONSTRAINT liquidaciones_estado_check CHECK (((estado)::text = ANY ((ARRAY['abierta'::character varying, 'en_calculo'::character varying, 'calculada'::character varying, 'en_revision'::character varying, 'cerrada'::character varying])::text[]))),
+    CONSTRAINT liquidaciones_estado_check CHECK (((estado)::text = ANY (ARRAY[('abierta'::character varying)::text, ('en_calculo'::character varying)::text, ('calculada'::character varying)::text, ('en_revision'::character varying)::text, ('cerrada'::character varying)::text]))),
     CONSTRAINT liquidaciones_mes_check CHECK (((mes >= 1) AND (mes <= 12)))
 );
 
@@ -1555,7 +1775,6 @@ ALTER SEQUENCE public.liquidaciones_id_seq OWNED BY public.liquidaciones.id;
 CREATE TABLE public.lotes_compensacion (
     id bigint NOT NULL,
     tipo_compensacion_id bigint NOT NULL,
-    periodo date NOT NULL,
     estado character varying(20) DEFAULT 'borrador'::character varying NOT NULL,
     fuente character varying(150),
     nombre_archivo character varying(200),
@@ -1564,7 +1783,8 @@ CREATE TABLE public.lotes_compensacion (
     creado_en timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     aprobado_por bigint,
     aprobado_en timestamp without time zone,
-    CONSTRAINT lotes_compensacion_estado_check CHECK (((estado)::text = ANY ((ARRAY['borrador'::character varying, 'validado'::character varying, 'aprobado'::character varying, 'exportado'::character varying, 'rechazado'::character varying])::text[])))
+    periodo_id bigint NOT NULL,
+    CONSTRAINT lotes_compensacion_estado_check CHECK (((estado)::text = ANY (ARRAY[('borrador'::character varying)::text, ('validado'::character varying)::text, ('aprobado'::character varying)::text, ('exportado'::character varying)::text, ('rechazado'::character varying)::text])))
 );
 
 
@@ -1683,8 +1903,8 @@ CREATE TABLE public.novedades_periodo (
     confirmado_por bigint,
     confirmado_en timestamp without time zone,
     CONSTRAINT novedades_periodo_dias_afectados_check CHECK (((dias_afectados >= 1) AND (dias_afectados <= 30))),
-    CONSTRAINT novedades_periodo_estado_check CHECK (((estado)::text = ANY ((ARRAY['borrador'::character varying, 'confirmada'::character varying, 'anulada'::character varying])::text[]))),
-    CONSTRAINT novedades_periodo_tipo_check CHECK (((tipo)::text = ANY ((ARRAY['dias_eximidos'::character varying, 'retiro_parcial'::character varying, 'subsidio_enfermedad'::character varying])::text[])))
+    CONSTRAINT novedades_periodo_estado_check CHECK (((estado)::text = ANY (ARRAY[('borrador'::character varying)::text, ('confirmada'::character varying)::text, ('anulada'::character varying)::text]))),
+    CONSTRAINT novedades_periodo_tipo_check CHECK (((tipo)::text = ANY (ARRAY[('dias_eximidos'::character varying)::text, ('retiro_parcial'::character varying)::text, ('subsidio_enfermedad'::character varying)::text])))
 );
 
 
@@ -1727,6 +1947,7 @@ CREATE TABLE public.parametros_periodo (
     tasa_aporte_civil numeric(5,4) DEFAULT 0.1950 NOT NULL,
     creado_por bigint,
     creado_en timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    tasa_tutela_social numeric(5,4) DEFAULT 0.01 NOT NULL,
     CONSTRAINT parametros_periodo_mes_check CHECK (((mes >= 1) AND (mes <= 12)))
 );
 
@@ -1765,7 +1986,7 @@ CREATE TABLE public.periodos_liquidacion (
     id bigint NOT NULL,
     anio smallint NOT NULL,
     mes smallint NOT NULL,
-    estado character varying(20) DEFAULT 'ABIERTA'::character varying NOT NULL,
+    estado character varying(30) DEFAULT 'ABIERTA'::character varying NOT NULL,
     snapshot_id bigint NOT NULL,
     fecha_apertura timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     usuario_apertura bigint NOT NULL,
@@ -1777,7 +1998,11 @@ CREATE TABLE public.periodos_liquidacion (
     usuario_calculo bigint,
     fecha_cierre timestamp without time zone,
     usuario_cierre bigint,
-    CONSTRAINT periodos_liquidacion_estado_check CHECK (((estado)::text = ANY ((ARRAY['ABIERTA'::character varying, 'LISTA_CALCULO'::character varying, 'EN_CALCULO'::character varying, 'CALCULADA'::character varying, 'CERRADA'::character varying])::text[]))),
+    fecha_envio_mdn timestamp without time zone,
+    usuario_envio_mdn bigint,
+    fecha_descuentos_personales timestamp without time zone,
+    usuario_descuentos_personales bigint,
+    CONSTRAINT periodos_liquidacion_estado_check CHECK (((estado)::text = ANY ((ARRAY['ABIERTA'::character varying, 'LISTO_P_CALCULO'::character varying, 'EN_CALCULO'::character varying, 'CALCULADO'::character varying, 'PARA_MDN'::character varying, 'DESCUENTOS_PERSONALES'::character varying, 'CERRADA'::character varying])::text[]))),
     CONSTRAINT periodos_liquidacion_mes_check CHECK (((mes >= 1) AND (mes <= 12)))
 );
 
@@ -1787,6 +2012,34 @@ CREATE TABLE public.periodos_liquidacion (
 --
 
 COMMENT ON TABLE public.periodos_liquidacion IS 'Registro de períodos de liquidación abiertos con snapshot de insumos';
+
+
+--
+-- Name: COLUMN periodos_liquidacion.fecha_envio_mdn; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.periodos_liquidacion.fecha_envio_mdn IS 'Fecha en que se envió la liquidación al MDN';
+
+
+--
+-- Name: COLUMN periodos_liquidacion.usuario_envio_mdn; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.periodos_liquidacion.usuario_envio_mdn IS 'Usuario que ejecutó el envío al MDN';
+
+
+--
+-- Name: COLUMN periodos_liquidacion.fecha_descuentos_personales; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.periodos_liquidacion.fecha_descuentos_personales IS 'Fecha en que se aplicaron los descuentos personales post-MDN';
+
+
+--
+-- Name: COLUMN periodos_liquidacion.usuario_descuentos_personales; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.periodos_liquidacion.usuario_descuentos_personales IS 'Usuario que aplicó los descuentos personales';
 
 
 --
@@ -1806,36 +2059,6 @@ CREATE SEQUENCE public.periodos_liquidacion_id_seq
 --
 
 ALTER SEQUENCE public.periodos_liquidacion_id_seq OWNED BY public.periodos_liquidacion.id;
-
-
---
--- Name: permisos; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.permisos (
-    id bigint NOT NULL,
-    nombre character varying(60) NOT NULL,
-    descripcion character varying(200)
-);
-
-
---
--- Name: permisos_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.permisos_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: permisos_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.permisos_id_seq OWNED BY public.permisos.id;
 
 
 --
@@ -2011,9 +2234,12 @@ CREATE TABLE public.relaciones_laborales (
     haber_retiro numeric(14,2),
     porcentaje_progresivo numeric(5,4),
     fecha_actualizacion timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    categoria_viatico smallint DEFAULT 0 NOT NULL,
+    usa_fonasa boolean DEFAULT false NOT NULL,
+    anios_servicio_anterior smallint DEFAULT 0 NOT NULL,
     fecha_ascenso_oficial date,
     superprima boolean DEFAULT false NOT NULL,
-    CONSTRAINT relaciones_laborales_estado_check CHECK (((estado)::text = ANY ((ARRAY['activo'::character varying, 'inactivo'::character varying])::text[])))
+    CONSTRAINT relaciones_laborales_estado_check CHECK (((estado)::text = ANY (ARRAY[('activo'::character varying)::text, ('inactivo'::character varying)::text])))
 );
 
 
@@ -2064,6 +2290,7 @@ CREATE TABLE public.remuneraciones_grado (
     vigente_hasta date,
     creado_por bigint,
     creado_en timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    grupo_remuneracion character varying(20),
     CONSTRAINT remuneraciones_grado_monto_check CHECK ((monto >= (0)::numeric))
 );
 
@@ -2153,9 +2380,9 @@ CREATE TABLE public.retroactividades (
     confirmado_por bigint,
     confirmado_en timestamp without time zone,
     calculado_en timestamp without time zone,
-    CONSTRAINT retroactividades_estado_check CHECK (((estado)::text = ANY ((ARRAY['pendiente'::character varying, 'confirmada'::character varying, 'calculada'::character varying, 'aplicada'::character varying, 'anulada'::character varying])::text[]))),
+    CONSTRAINT retroactividades_estado_check CHECK (((estado)::text = ANY (ARRAY[('pendiente'::character varying)::text, ('confirmada'::character varying)::text, ('calculada'::character varying)::text, ('aplicada'::character varying)::text, ('anulada'::character varying)::text]))),
     CONSTRAINT retroactividades_meses_retro_check CHECK ((meses_retro > 0)),
-    CONSTRAINT retroactividades_tipo_check CHECK (((tipo)::text = ANY ((ARRAY['haberes'::character varying, 'beneficios'::character varying, 'prima_tecnica'::character varying, 'super_prima'::character varying])::text[])))
+    CONSTRAINT retroactividades_tipo_check CHECK (((tipo)::text = ANY (ARRAY[('haberes'::character varying)::text, ('beneficios'::character varying)::text, ('prima_tecnica'::character varying)::text, ('super_prima'::character varying)::text])))
 );
 
 
@@ -2209,16 +2436,6 @@ ALTER SEQUENCE public.roles_id_seq OWNED BY public.roles.id;
 
 
 --
--- Name: roles_permisos; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.roles_permisos (
-    permiso_id bigint NOT NULL,
-    rol_id bigint NOT NULL
-);
-
-
---
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2232,7 +2449,7 @@ CREATE TABLE public.schema_migrations (
     tiempo_ejecucion_ms integer,
     estado character varying(20) DEFAULT 'SUCCESS'::character varying NOT NULL,
     error_mensaje text,
-    CONSTRAINT schema_migrations_estado_check CHECK (((estado)::text = ANY ((ARRAY['SUCCESS'::character varying, 'FAILED'::character varying, 'RUNNING'::character varying])::text[])))
+    CONSTRAINT schema_migrations_estado_check CHECK (((estado)::text = ANY (ARRAY[('SUCCESS'::character varying)::text, ('FAILED'::character varying)::text, ('RUNNING'::character varying)::text])))
 );
 
 
@@ -2269,7 +2486,7 @@ CREATE TABLE public.situaciones (
     calculador character varying(50),
     afecta_cobro boolean DEFAULT true NOT NULL,
     sistema_salud character varying(10) DEFAULT 'ssffaa'::character varying NOT NULL,
-    CONSTRAINT situaciones_sistema_salud_check CHECK (((sistema_salud)::text = ANY ((ARRAY['ssffaa'::character varying, 'fonasa'::character varying])::text[])))
+    CONSTRAINT situaciones_sistema_salud_check CHECK (((sistema_salud)::text = ANY (ARRAY[('ssffaa'::character varying)::text, ('fonasa'::character varying)::text])))
 );
 
 
@@ -2430,30 +2647,18 @@ ALTER SEQUENCE public.tabla_hogar_constituido_id_seq OWNED BY public.tabla_hogar
 CREATE TABLE public.tabla_permanencia (
     id bigint NOT NULL,
     escalafon_id bigint NOT NULL,
-    anios_desde smallint NOT NULL,
-    anios_hasta smallint NOT NULL,
-    porcentaje numeric(5,4),
+    grado_id bigint NOT NULL,
+    meses_desde smallint DEFAULT 0 NOT NULL,
+    meses_hasta smallint NOT NULL,
     monto_fijo numeric(14,2),
+    porcentaje numeric(5,4),
+    aplica_riesgo_vuelo boolean DEFAULT false NOT NULL,
     vigente_desde date NOT NULL,
     vigente_hasta date,
     activo boolean DEFAULT true NOT NULL,
-    CONSTRAINT tabla_permanencia_check CHECK ((anios_hasta >= anios_desde)),
-    CONSTRAINT tabla_permanencia_check1 CHECK (((porcentaje IS NOT NULL) OR (monto_fijo IS NOT NULL)))
+    CONSTRAINT ck_tabla_permanencia_meses CHECK ((meses_hasta >= meses_desde)),
+    CONSTRAINT ck_tabla_permanencia_valor CHECK (((porcentaje IS NOT NULL) OR (monto_fijo IS NOT NULL)))
 );
-
-
---
--- Name: TABLE tabla_permanencia; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.tabla_permanencia IS 'Porcentaje o monto de antigüedad por rango de años y escalafón (equiv. PERMANEN.DBF)';
-
-
---
--- Name: COLUMN tabla_permanencia.activo; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.tabla_permanencia.activo IS 'Indica si el rango de permanencia está activo (soft delete)';
 
 
 --
@@ -2488,7 +2693,7 @@ CREATE TABLE public.tarifas_por_categoria (
     vigente_desde date NOT NULL,
     vigente_hasta date,
     CONSTRAINT tarifas_por_categoria_monto_positivo CHECK ((monto > (0)::numeric)),
-    CONSTRAINT tarifas_por_categoria_tipo_monto_check CHECK (((tipo_monto)::text = ANY ((ARRAY['mensual'::character varying, 'diario'::character varying, 'hora'::character varying, 'por_unidad'::character varying])::text[])))
+    CONSTRAINT tarifas_por_categoria_tipo_monto_check CHECK (((tipo_monto)::text = ANY (ARRAY[('mensual'::character varying)::text, ('diario'::character varying)::text, ('hora'::character varying)::text, ('por_unidad'::character varying)::text])))
 );
 
 
@@ -2576,7 +2781,7 @@ CREATE TABLE public.tipos_compensacion (
     unidad_medida character varying(10) NOT NULL,
     requiere_fuente boolean DEFAULT true NOT NULL,
     vigente boolean DEFAULT true NOT NULL,
-    CONSTRAINT tipos_compensacion_unidad_medida_check CHECK (((unidad_medida)::text = ANY ((ARRAY['dia'::character varying, 'hora'::character varying, 'monto'::character varying])::text[])))
+    CONSTRAINT tipos_compensacion_unidad_medida_check CHECK (((unidad_medida)::text = ANY (ARRAY[('dia'::character varying)::text, ('hora'::character varying)::text, ('monto'::character varying)::text])))
 );
 
 
@@ -2715,7 +2920,7 @@ CREATE TABLE public.usuarios (
     bloqueado_hasta timestamp without time zone,
     persona_id bigint,
     fecha_actualizacion timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT usuarios_estado_check CHECK (((estado)::text = ANY ((ARRAY['activo'::character varying, 'bloqueado'::character varying])::text[])))
+    CONSTRAINT usuarios_estado_check CHECK (((estado)::text = ANY (ARRAY[('activo'::character varying)::text, ('bloqueado'::character varying)::text])))
 );
 
 
@@ -2761,7 +2966,7 @@ CREATE VIEW public.v_deficit AS
     (sum(monto_solicitado) - sum(COALESCE(monto_aplicado, (0)::numeric))) AS total_no_aplicado,
     count(*) AS cantidad_descuentos
    FROM public.descuentos_personales dp
-  WHERE ((estado)::text = ANY ((ARRAY['deficit'::character varying, 'parcial'::character varying])::text[]))
+  WHERE ((estado)::text = ANY (ARRAY[('deficit'::character varying)::text, ('parcial'::character varying)::text]))
   GROUP BY persona_id, periodo_anio, periodo_mes;
 
 
@@ -2780,12 +2985,12 @@ CREATE VIEW public.v_liquidacion_totales AS
  SELECT il.liquidacion_id,
     sum(
         CASE
-            WHEN ((ci.tipo)::text = ANY ((ARRAY['haber_normal'::character varying, 'haber_anual'::character varying, 'haber_no_grabado'::character varying, 'ficto_haber'::character varying])::text[])) THEN il.monto
+            WHEN ((ci.tipo)::text = ANY (ARRAY[('haber_normal'::character varying)::text, ('haber_anual'::character varying)::text, ('haber_no_gravado'::character varying)::text, ('ficto_haber'::character varying)::text])) THEN il.monto
             ELSE (0)::numeric
         END) AS total_haberes,
     sum(
         CASE
-            WHEN ((ci.tipo)::text = ANY ((ARRAY['beneficio_social_grab'::character varying, 'beneficio_social_no_grab'::character varying])::text[])) THEN il.monto
+            WHEN ((ci.tipo)::text = ANY (ARRAY[('beneficio_social_grav'::character varying)::text, ('beneficio_social_no_grav'::character varying)::text])) THEN il.monto
             ELSE (0)::numeric
         END) AS total_beneficios,
     sum(
@@ -2891,6 +3096,13 @@ ALTER TABLE ONLY public.acreedores ALTER COLUMN id SET DEFAULT nextval('public.a
 
 
 --
+-- Name: aguinaldo_baja id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aguinaldo_baja ALTER COLUMN id SET DEFAULT nextval('public.aguinaldo_baja_id_seq'::regclass);
+
+
+--
 -- Name: aguinaldos id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2937,6 +3149,13 @@ ALTER TABLE ONLY public.catalogo_items ALTER COLUMN id SET DEFAULT nextval('publ
 --
 
 ALTER TABLE ONLY public.cierres ALTER COLUMN id SET DEFAULT nextval('public.cierres_id_seq'::regclass);
+
+
+--
+-- Name: comp_personal_048018 id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.comp_personal_048018 ALTER COLUMN id SET DEFAULT nextval('public.comp_personal_048018_id_seq'::regclass);
 
 
 --
@@ -3003,6 +3222,13 @@ ALTER TABLE ONLY public.escalafones ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
+-- Name: fictos_persona id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona ALTER COLUMN id SET DEFAULT nextval('public.fictos_persona_id_seq'::regclass);
+
+
+--
 -- Name: form3100 id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3028,6 +3254,13 @@ ALTER TABLE ONLY public.franjas_irpf ALTER COLUMN id SET DEFAULT nextval('public
 --
 
 ALTER TABLE ONLY public.grados ALTER COLUMN id SET DEFAULT nextval('public.grados_id_seq'::regclass);
+
+
+--
+-- Name: historico_liquidaciones id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.historico_liquidaciones ALTER COLUMN id SET DEFAULT nextval('public.historico_liquidaciones_id_seq'::regclass);
 
 
 --
@@ -3063,6 +3296,13 @@ ALTER TABLE ONLY public.irpf_detalle_franjas ALTER COLUMN id SET DEFAULT nextval
 --
 
 ALTER TABLE ONLY public.irpf_mensual ALTER COLUMN id SET DEFAULT nextval('public.irpf_mensual_id_seq'::regclass);
+
+
+--
+-- Name: items_aguinaldo_baja id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.items_aguinaldo_baja ALTER COLUMN id SET DEFAULT nextval('public.items_aguinaldo_baja_id_seq'::regclass);
 
 
 --
@@ -3147,13 +3387,6 @@ ALTER TABLE ONLY public.parametros_periodo ALTER COLUMN id SET DEFAULT nextval('
 --
 
 ALTER TABLE ONLY public.periodos_liquidacion ALTER COLUMN id SET DEFAULT nextval('public.periodos_liquidacion_id_seq'::regclass);
-
-
---
--- Name: permisos id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.permisos ALTER COLUMN id SET DEFAULT nextval('public.permisos_id_seq'::regclass);
 
 
 --
@@ -3343,6 +3576,14 @@ ALTER TABLE ONLY public.acreedores
 
 
 --
+-- Name: aguinaldo_baja aguinaldo_baja_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aguinaldo_baja
+    ADD CONSTRAINT aguinaldo_baja_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: aguinaldos aguinaldos_persona_id_anio_semestre_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3428,6 +3669,14 @@ ALTER TABLE ONLY public.cierres
 
 ALTER TABLE ONLY public.cierres
     ADD CONSTRAINT cierres_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: comp_personal_048018 comp_personal_048018_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.comp_personal_048018
+    ADD CONSTRAINT comp_personal_048018_pkey PRIMARY KEY (id);
 
 
 --
@@ -3519,6 +3768,14 @@ ALTER TABLE ONLY public.escalafones
 
 
 --
+-- Name: fictos_persona fictos_persona_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona
+    ADD CONSTRAINT fictos_persona_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: form3100 form3100_persona_id_vigente_desde_anio_vigente_desde_mes_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3575,6 +3832,14 @@ ALTER TABLE ONLY public.grados
 
 
 --
+-- Name: historico_liquidaciones historico_liquidaciones_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.historico_liquidaciones
+    ADD CONSTRAINT historico_liquidaciones_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: incidencias_calculo incidencias_calculo_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3620,6 +3885,14 @@ ALTER TABLE ONLY public.irpf_mensual
 
 ALTER TABLE ONLY public.irpf_mensual
     ADD CONSTRAINT irpf_mensual_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: items_aguinaldo_baja items_aguinaldo_baja_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.items_aguinaldo_baja
+    ADD CONSTRAINT items_aguinaldo_baja_pkey PRIMARY KEY (id);
 
 
 --
@@ -3751,22 +4024,6 @@ ALTER TABLE ONLY public.periodos_liquidacion
 
 
 --
--- Name: permisos permisos_nombre_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.permisos
-    ADD CONSTRAINT permisos_nombre_key UNIQUE (nombre);
-
-
---
--- Name: permisos permisos_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.permisos
-    ADD CONSTRAINT permisos_pkey PRIMARY KEY (id);
-
-
---
 -- Name: personas personas_cedula_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3876,14 +4133,6 @@ ALTER TABLE ONLY public.retroactividades
 
 ALTER TABLE ONLY public.roles
     ADD CONSTRAINT roles_nombre_key UNIQUE (nombre);
-
-
---
--- Name: roles_permisos roles_permisos_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.roles_permisos
-    ADD CONSTRAINT roles_permisos_pkey PRIMARY KEY (permiso_id, rol_id);
 
 
 --
@@ -4039,6 +4288,22 @@ ALTER TABLE ONLY public.unidades
 
 
 --
+-- Name: fictos_persona uq_fictos_persona_persona_catalogo; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona
+    ADD CONSTRAINT uq_fictos_persona_persona_catalogo UNIQUE (persona_id, catalogo_item_id);
+
+
+--
+-- Name: historico_liquidaciones uq_historico_persona_anio_mes; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.historico_liquidaciones
+    ADD CONSTRAINT uq_historico_persona_anio_mes UNIQUE (persona_id, anio, mes);
+
+
+--
 -- Name: tipos_movimiento uq_tipos_movimiento_nombre; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4068,6 +4333,27 @@ ALTER TABLE ONLY public.usuarios_roles
 
 ALTER TABLE ONLY public.usuarios
     ADD CONSTRAINT usuarios_username_key UNIQUE (username);
+
+
+--
+-- Name: idx_aguinaldo_baja_anio_mes; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_aguinaldo_baja_anio_mes ON public.aguinaldo_baja USING btree (anio, mes);
+
+
+--
+-- Name: idx_aguinaldo_baja_estado; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_aguinaldo_baja_estado ON public.aguinaldo_baja USING btree (estado);
+
+
+--
+-- Name: idx_aguinaldo_baja_persona_fecha_baja; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_aguinaldo_baja_persona_fecha_baja ON public.aguinaldo_baja USING btree (persona_id, fecha_baja);
 
 
 --
@@ -4173,6 +4459,20 @@ CREATE INDEX idx_instructivo_asig_familiar_vigencia ON public.instructivo_asig_f
 --
 
 CREATE INDEX idx_instructivo_psf_vigencia ON public.instructivo_psf USING btree (vigente_desde, numero_categoria);
+
+
+--
+-- Name: idx_items_aguinaldo_baja_aguinaldo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_items_aguinaldo_baja_aguinaldo ON public.items_aguinaldo_baja USING btree (aguinaldo_baja_id);
+
+
+--
+-- Name: idx_items_aguinaldo_baja_tipo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_items_aguinaldo_baja_tipo ON public.items_aguinaldo_baja USING btree (tipo);
 
 
 --
@@ -4330,10 +4630,31 @@ CREATE INDEX idx_tabla_hogar_vigencia ON public.tabla_hogar_constituido USING bt
 
 
 --
+-- Name: idx_tabla_permanencia_busqueda; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_tabla_permanencia_busqueda ON public.tabla_permanencia USING btree (escalafon_id, grado_id, aplica_riesgo_vuelo, meses_hasta, vigente_desde);
+
+
+--
 -- Name: idx_tarifas_categoria_lookup; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_tarifas_categoria_lookup ON public.tarifas_por_categoria USING btree (item_id, categoria, vigente_desde);
+
+
+--
+-- Name: ix_acreedores_orden_legal_deficit; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_acreedores_orden_legal_deficit ON public.acreedores USING btree (orden_legal_deficit);
+
+
+--
+-- Name: ix_comp_personal_048018_vigencia; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_comp_personal_048018_vigencia ON public.comp_personal_048018 USING btree (persona_id, estado, vigente_desde);
 
 
 --
@@ -4372,6 +4693,20 @@ CREATE INDEX ix_documentos_tipo_entidad ON public.documentos USING btree (tipo, 
 
 
 --
+-- Name: ix_fictos_persona_activo_persona; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_fictos_persona_activo_persona ON public.fictos_persona USING btree (activo, persona_id);
+
+
+--
+-- Name: ix_fictos_persona_catalogo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_fictos_persona_catalogo ON public.fictos_persona USING btree (catalogo_item_id);
+
+
+--
 -- Name: ix_form3100_persona; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4379,10 +4714,24 @@ CREATE INDEX ix_form3100_persona ON public.form3100 USING btree (persona_id);
 
 
 --
--- Name: uix_lotes_tipo_periodo; Type: INDEX; Schema: public; Owner: -
+-- Name: ix_historico_anio_mes; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uix_lotes_tipo_periodo ON public.lotes_compensacion USING btree (tipo_compensacion_id, periodo) WHERE ((estado)::text <> 'rechazado'::text);
+CREATE INDEX ix_historico_anio_mes ON public.historico_liquidaciones USING btree (anio, mes);
+
+
+--
+-- Name: ix_historico_persona_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_historico_persona_id ON public.historico_liquidaciones USING btree (persona_id);
+
+
+--
+-- Name: ix_lotes_compensacion_periodo_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_lotes_compensacion_periodo_id ON public.lotes_compensacion USING btree (periodo_id);
 
 
 --
@@ -4411,14 +4760,6 @@ CREATE TRIGGER update_relaciones_laborales_fecha_actualizacion BEFORE UPDATE ON 
 --
 
 CREATE TRIGGER update_usuarios_fecha_actualizacion BEFORE UPDATE ON public.usuarios FOR EACH ROW EXECUTE FUNCTION public.update_fecha_actualizacion_column();
-
-
---
--- Name: aguinaldos aguinaldos_liquidacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.aguinaldos
-    ADD CONSTRAINT aguinaldos_liquidacion_id_fkey FOREIGN KEY (liquidacion_id) REFERENCES public.liquidaciones(id);
 
 
 --
@@ -4515,6 +4856,22 @@ ALTER TABLE ONLY public.cierres
 
 ALTER TABLE ONLY public.cierres
     ADD CONSTRAINT cierres_liquidacion_id_fkey FOREIGN KEY (liquidacion_id) REFERENCES public.liquidaciones(id);
+
+
+--
+-- Name: comp_personal_048018 comp_personal_048018_creado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.comp_personal_048018
+    ADD CONSTRAINT comp_personal_048018_creado_por_fkey FOREIGN KEY (creado_por) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: comp_personal_048018 comp_personal_048018_persona_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.comp_personal_048018
+    ADD CONSTRAINT comp_personal_048018_persona_id_fkey FOREIGN KEY (persona_id) REFERENCES public.personas(id);
 
 
 --
@@ -4678,11 +5035,67 @@ ALTER TABLE ONLY public.documentos
 
 
 --
+-- Name: fictos_persona fictos_persona_acreedor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona
+    ADD CONSTRAINT fictos_persona_acreedor_id_fkey FOREIGN KEY (acreedor_id) REFERENCES public.acreedores(id);
+
+
+--
+-- Name: fictos_persona fictos_persona_catalogo_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona
+    ADD CONSTRAINT fictos_persona_catalogo_item_id_fkey FOREIGN KEY (catalogo_item_id) REFERENCES public.catalogo_items(id);
+
+
+--
+-- Name: fictos_persona fictos_persona_persona_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona
+    ADD CONSTRAINT fictos_persona_persona_id_fkey FOREIGN KEY (persona_id) REFERENCES public.personas(id);
+
+
+--
+-- Name: fictos_persona fictos_persona_usuario_baja_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona
+    ADD CONSTRAINT fictos_persona_usuario_baja_id_fkey FOREIGN KEY (usuario_baja_id) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: fictos_persona fictos_persona_usuario_creacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona
+    ADD CONSTRAINT fictos_persona_usuario_creacion_id_fkey FOREIGN KEY (usuario_creacion_id) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: fictos_persona fictos_persona_usuario_modificacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fictos_persona
+    ADD CONSTRAINT fictos_persona_usuario_modificacion_id_fkey FOREIGN KEY (usuario_modificacion_id) REFERENCES public.usuarios(id);
+
+
+--
 -- Name: descuentos_personal_periodo fk_descuentos_personal_periodo_acreedor; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.descuentos_personal_periodo
     ADD CONSTRAINT fk_descuentos_personal_periodo_acreedor FOREIGN KEY (acreedor_id) REFERENCES public.acreedores(id);
+
+
+--
+-- Name: lotes_compensacion fk_lotes_compensacion_periodo; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lotes_compensacion
+    ADD CONSTRAINT fk_lotes_compensacion_periodo FOREIGN KEY (periodo_id) REFERENCES public.periodos_liquidacion(id);
 
 
 --
@@ -4723,6 +5136,14 @@ ALTER TABLE ONLY public.form3100
 
 ALTER TABLE ONLY public.grados
     ADD CONSTRAINT grados_escalafon_id_fkey FOREIGN KEY (escalafon_id) REFERENCES public.escalafones(id) ON DELETE SET NULL;
+
+
+--
+-- Name: historico_liquidaciones historico_liquidaciones_persona_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.historico_liquidaciones
+    ADD CONSTRAINT historico_liquidaciones_persona_id_fkey FOREIGN KEY (persona_id) REFERENCES public.personas(id);
 
 
 --
@@ -4771,6 +5192,14 @@ ALTER TABLE ONLY public.irpf_mensual
 
 ALTER TABLE ONLY public.irpf_mensual
     ADD CONSTRAINT irpf_mensual_persona_id_fkey FOREIGN KEY (persona_id) REFERENCES public.personas(id);
+
+
+--
+-- Name: items_aguinaldo_baja items_aguinaldo_baja_aguinaldo_baja_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.items_aguinaldo_baja
+    ADD CONSTRAINT items_aguinaldo_baja_aguinaldo_baja_id_fkey FOREIGN KEY (aguinaldo_baja_id) REFERENCES public.aguinaldo_baja(id) ON DELETE CASCADE;
 
 
 --
@@ -5030,6 +5459,22 @@ ALTER TABLE ONLY public.periodos_liquidacion
 
 
 --
+-- Name: periodos_liquidacion periodos_liquidacion_usuario_descuentos_personales_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.periodos_liquidacion
+    ADD CONSTRAINT periodos_liquidacion_usuario_descuentos_personales_fkey FOREIGN KEY (usuario_descuentos_personales) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: periodos_liquidacion periodos_liquidacion_usuario_envio_mdn_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.periodos_liquidacion
+    ADD CONSTRAINT periodos_liquidacion_usuario_envio_mdn_fkey FOREIGN KEY (usuario_envio_mdn) REFERENCES public.usuarios(id);
+
+
+--
 -- Name: reglas_ascenso reglas_ascenso_grado_destino_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5198,22 +5643,6 @@ ALTER TABLE ONLY public.retroactividades
 
 
 --
--- Name: roles_permisos roles_permisos_permiso_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.roles_permisos
-    ADD CONSTRAINT roles_permisos_permiso_id_fkey FOREIGN KEY (permiso_id) REFERENCES public.permisos(id);
-
-
---
--- Name: roles_permisos roles_permisos_rol_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.roles_permisos
-    ADD CONSTRAINT roles_permisos_rol_id_fkey FOREIGN KEY (rol_id) REFERENCES public.roles(id);
-
-
---
 -- Name: sub_unidades sub_unidades_unidad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5227,6 +5656,14 @@ ALTER TABLE ONLY public.sub_unidades
 
 ALTER TABLE ONLY public.tabla_permanencia
     ADD CONSTRAINT tabla_permanencia_escalafon_id_fkey FOREIGN KEY (escalafon_id) REFERENCES public.escalafones(id);
+
+
+--
+-- Name: tabla_permanencia tabla_permanencia_grado_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tabla_permanencia
+    ADD CONSTRAINT tabla_permanencia_grado_id_fkey FOREIGN KEY (grado_id) REFERENCES public.grados(id);
 
 
 --
@@ -5273,4 +5710,5 @@ ALTER TABLE ONLY public.usuarios_roles
 -- PostgreSQL database dump complete
 --
 
-\unrestrict JtbBt88e9kc0eeacEo0jKnRuai7kibvxqafEAcmu3489gkhHe33KwOmFyWyFXcj
+\unrestrict jN8bT5u4jTFqDf8kcX6NF0eObAohQSNTdM1iepvjvcC8MukAvURdCFs4LoNtfVh
+

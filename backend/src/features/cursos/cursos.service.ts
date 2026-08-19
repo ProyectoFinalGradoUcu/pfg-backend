@@ -4,6 +4,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
+import {
+  AlcanceResuelto,
+  unidadIdDeAlcance,
+} from '../../lib/alcance/alcance.types';
+import {
+  assertCursoGestionableEnAlcance,
+  assertCursoVisibleEnAlcance,
+  whereCursosVisiblesPorAlcance,
+} from '../../lib/alcance/alcance.where';
 import { CursoDto } from './dto/curso.dto';
 import { ListCursosQueryDto } from './dto/list-cursos-query.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
@@ -17,7 +26,7 @@ import { UpdateDesignacionDto } from './dto/update-designacion.dto';
 export class CursosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CursoDto) {
+  async create(dto: CursoDto, alcance?: AlcanceResuelto) {
     const existe = await this.prisma.cursos.findFirst({
       where: { nombre_curso: dto.nombre_curso },
     });
@@ -33,6 +42,9 @@ export class CursosService {
           nombre_curso: dto.nombre_curso,
           institucion: dto.institucion,
           es_obligatorio: dto.es_obligatorio ?? true,
+          // Con alcance de unidad el curso queda bajo la unidad del usuario.
+          // Con alcance global queda como curso general de la fuerza (`unidad_id` nulo).
+          unidad_id: alcance ? unidadIdDeAlcance(alcance) : null,
         },
       });
 
@@ -41,11 +53,12 @@ export class CursosService {
         nombre_curso: curso.nombre_curso,
         institucion: curso.institucion,
         es_obligatorio: curso.es_obligatorio,
+        unidad_id: curso.unidad_id ? curso.unidad_id.toString() : null,
       };
     });
   }
 
-  async findAll(query: ListCursosQueryDto = {}) {
+  async findAll(query: ListCursosQueryDto = {}, alcance?: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
@@ -53,6 +66,8 @@ export class CursosService {
       ...(query.institucion ? { institucion: { contains: query.institucion, mode: 'insensitive' as const } } : {}),
       ...(query.nombre ? { nombre_curso: { contains: query.nombre, mode: 'insensitive' as const } } : {}),
       ...(query.es_obligatorio !== undefined ? { es_obligatorio: query.es_obligatorio } : {}),
+      // Alcance de unidad: cursos propios MAS los generales de la fuerza.
+      ...(alcance ? whereCursosVisiblesPorAlcance(alcance) : {}),
     };
 
     const [total, cursos] = await this.prisma.$transaction([
@@ -90,7 +105,11 @@ export class CursosService {
     };
   }
 
-  async getById(id: number) {
+  async getById(id: number, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoVisibleEnAlcance(this.prisma, BigInt(id), alcance);
+    }
+
     const curso = await this.prisma.cursos.findUnique({
       where: { id: BigInt(id) },
       include: {
@@ -119,7 +138,11 @@ export class CursosService {
     };
   }
 
-  async createModulo(cursoId: number, dto: CreateModuloCursoDto) {
+  async createModulo(cursoId: number, dto: CreateModuloCursoDto, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
     const curso = await this.prisma.cursos.findUnique({
       where: { id: BigInt(cursoId) },
     });
@@ -146,7 +169,11 @@ export class CursosService {
     };
   }
 
-  async removeCurso(id: number) {
+  async removeCurso(id: number, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(id), alcance);
+    }
+
     const curso = await this.prisma.cursos.findUnique({
       where: { id: BigInt(id) },
     });
@@ -165,12 +192,14 @@ export class CursosService {
     return { id: id.toString(), eliminado: true };
   }
 
-  async getCursosPorFuncionario(query: CursosPorFuncionarioQueryDto) {
+  async getCursosPorFuncionario(query: CursosPorFuncionarioQueryDto, alcance: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
+    const cursosFilter = whereCursosVisiblesPorAlcance(alcance);
     const where = {
       ...(query.cedula ? { personas: { cedula: query.cedula } } : {}),
       ...(query.incluir_bajas ? {} : { dado_de_baja: false }),
+      ...(Object.keys(cursosFilter).length > 0 ? { cursos: cursosFilter } : {}),
     };
 
     const [total, registros] = await this.prisma.$transaction([
@@ -259,7 +288,11 @@ export class CursosService {
     };
   }
 
-  async marcarCompletacion(cursoId: number, moduloId: number, dto: MarcarCompletacionDto) {
+  async marcarCompletacion(cursoId: number, moduloId: number, dto: MarcarCompletacionDto, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
     const modulo = await this.prisma.modulos_curso.findFirst({
       where: { id: BigInt(moduloId), curso_id: BigInt(cursoId) },
     });
@@ -324,7 +357,11 @@ export class CursosService {
     };
   }
 
-  async getCompletacionesModulo(cursoId: number, moduloId: number) {
+  async getCompletacionesModulo(cursoId: number, moduloId: number, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoVisibleEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
     const modulo = await this.prisma.modulos_curso.findFirst({
       where: { id: BigInt(moduloId), curso_id: BigInt(cursoId) },
     });
@@ -357,7 +394,11 @@ export class CursosService {
     }));
   }
 
-  async removeModuloCurso(cursoId: number, moduloId: number) {
+  async removeModuloCurso(cursoId: number, moduloId: number, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
     const curso = await this.prisma.cursos.findUnique({
       where: { id: BigInt(cursoId) },
     });
@@ -397,7 +438,11 @@ export class CursosService {
   }
 
   // ─── Editar curso ─────────────────────────────────────────────────────────
-  async editarCurso(id: number, dto: UpdateCursoDto) {
+  async editarCurso(id: number, dto: UpdateCursoDto, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(id), alcance);
+    }
+
     const curso = await this.prisma.cursos.findUnique({
       where: { id: BigInt(id) },
     });
@@ -434,7 +479,11 @@ export class CursosService {
   }
 
   // ─── Designar / Dictar (crear una instancia) ──────────────────────────────
-  async crearDesignacion(cursoId: number, dto: CreateDesignacionDto) {
+  async crearDesignacion(cursoId: number, dto: CreateDesignacionDto, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
     const curso = await this.prisma.cursos.findUnique({
       where: { id: BigInt(cursoId) },
     });
@@ -526,7 +575,11 @@ export class CursosService {
     };
   }
 
-  async actualizarDesignacion(cursoId: number, designacionId: number, dto: UpdateDesignacionDto) {
+  async actualizarDesignacion(cursoId: number, designacionId: number, dto: UpdateDesignacionDto, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
     const designacion = await this.prisma.funcionarios_cursos.findFirst({
       where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
     });
@@ -557,7 +610,12 @@ export class CursosService {
     designacionId: number,
     motivo: string,
     usuarioId: string,
+    alcance?: AlcanceResuelto,
   ) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
     const designacion = await this.prisma.funcionarios_cursos.findFirst({
       where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
     });
@@ -591,7 +649,11 @@ export class CursosService {
   }
 
   // ─── Reactivar (revertir la baja) ──────────────────────────────────────────
-  async reactivarDesignacion(cursoId: number, designacionId: number) {
+  async reactivarDesignacion(cursoId: number, designacionId: number, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
     const designacion = await this.prisma.funcionarios_cursos.findFirst({
       where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
     });

@@ -49,6 +49,23 @@ export class AuthService {
             },
           },
         },
+        usuarios_unidades: {
+          include: {
+            unidades: {
+              include: {
+                unidades_roles: {
+                  include: {
+                    roles: {
+                      include: {
+                        roles_permisos: { include: { permisos: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -89,20 +106,36 @@ export class AuthService {
       });
     }
 
-    const roles = usuario.usuarios_roles.map((ur) => ur.roles.nombre);
+    // Unidades del usuario (relación N:M via usuarios_unidades).
+    const unidadesUsuario = usuario.usuarios_unidades.map((uu) => uu.unidades);
+
+    // Roles efectivos = roles directos ∪ roles de todas las unidades.
+    const rolesDirectos = usuario.usuarios_roles.map((ur) => ur.roles);
+    const rolesDeUnidades = unidadesUsuario.flatMap(
+      (u) => u.unidades_roles.map((ur) => ur.roles),
+    );
+    const rolesEfectivos = [...rolesDirectos, ...rolesDeUnidades];
+
+    const roles = Array.from(new Set(rolesEfectivos.map((r) => r.nombre)));
     const permisos = Array.from(
       new Set(
-        usuario.usuarios_roles.flatMap((ur) =>
-          ur.roles.roles_permisos.map((rp) => rp.permisos.nombre),
+        rolesEfectivos.flatMap((r) =>
+          r.roles_permisos.map((rp) => rp.permisos.nombre),
         ),
       ),
     );
+
+    const unidades = unidadesUsuario.map((u) => ({
+      id: u.id.toString(),
+      denominacion: u.denominacion,
+    }));
 
     const payload: AuthPayload = {
       sub: usuario.id.toString(),
       username: usuario.username,
       roles,
       permisos,
+      unidades,
     };
 
     const expiresIn = process.env.JWT_EXPIRES_IN ?? DEFAULT_EXPIRES_IN;
@@ -117,6 +150,7 @@ export class AuthService {
       username: payload.username,
       roles,
       permisos,
+      unidades,
     };
 
     return { token, expiresIn: ttl, user };
@@ -157,10 +191,21 @@ export class AuthService {
     }
   }
 
-  async assertUsuarioActivo(id: string): Promise<void> {
+  /**
+   * Se ejecuta en cada request desde `JwtAuthGuard`.
+   *
+   * `emitidoEn` es el `iat` del JWT (en segundos). Se compara contra
+   * `sesiones_invalidas_desde` para forzar el re-login cuando cambiaron los permisos efectivos.
+   * La columna se agrega al `select` que ya se hacía, así que no suma queries por request.
+   */
+  async assertUsuarioActivo(id: string, emitidoEn?: number): Promise<void> {
     const usuario = await this.prisma.usuarios.findUnique({
       where: { id: BigInt(id) },
-      select: { estado: true, bloqueado_hasta: true },
+      select: {
+        estado: true,
+        bloqueado_hasta: true,
+        sesiones_invalidas_desde: true,
+      },
     });
 
     if (!usuario || usuario.estado !== 'activo') {
@@ -169,6 +214,19 @@ export class AuthService {
 
     if (usuario.bloqueado_hasta && usuario.bloqueado_hasta > new Date()) {
       throw new UnauthorizedException('Usuario bloqueado temporalmente');
+    }
+
+    if (usuario.sesiones_invalidas_desde && emitidoEn !== undefined) {
+      // `iat` viene en segundos y la columna es un timestamp: truncamos al segundo para que un
+      // token emitido en el mismo segundo del cambio se resuelva de forma determinística.
+      const invalidasDesdeSegundos = Math.floor(
+        usuario.sesiones_invalidas_desde.getTime() / 1000,
+      );
+      if (emitidoEn < invalidasDesdeSegundos) {
+        throw new UnauthorizedException(
+          'Sesión expirada por cambio de permisos',
+        );
+      }
     }
   }
 

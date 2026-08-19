@@ -1,10 +1,19 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Borders, Workbook } from 'exceljs';
 import { PrismaService } from '../../lib/prisma.service';
 import { REPORTES } from './definiciones';
 import { FUENTES } from './custom';
 import { FuenteCatalogo, FuenteCustom } from './custom/fuentes.types';
 import { CustomReporteDto } from './dto/custom-reporte.dto';
+import {
+  AlcanceResuelto,
+  unidadIdDeAlcance,
+} from '../../lib/alcance/alcance.types';
+import {
+  FUENTES_CON_ALCANCE_UNIDAD,
+  MENSAJE_REPORTE_SIN_ALCANCE,
+  REPORTES_CON_ALCANCE_UNIDAD,
+} from './alcance-reportes';
 import {
   ColumnaReporte,
   DefinicionReporte,
@@ -41,22 +50,57 @@ export class ReportesService {
     return { ...meta, parametros };
   }
 
+  /**
+   * Fuerza `unidad_id` cuando el alcance es de unidad, y bloquea los reportes que no saben
+   * acotarse en vez de dejarlos devolver el padrón completo.
+   */
+  private aplicarAlcance(
+    clave: string,
+    filtros: Record<string, string | undefined>,
+    permitidos: Set<string>,
+    alcance?: AlcanceResuelto,
+  ): Record<string, string | undefined> {
+    if (!alcance) return filtros;
+    const unidadId = unidadIdDeAlcance(alcance);
+    if (unidadId === null) return filtros;
+
+    if (!permitidos.has(clave)) {
+      throw new ForbiddenException(MENSAJE_REPORTE_SIN_ALCANCE);
+    }
+
+    return { ...filtros, unidad_id: unidadId.toString() };
+  }
+
   /* Ejecuta el reporte y devuelve los datos para mostrar en pantalla */
   async ejecutar(
     clave: string,
     filtros: Record<string, string | undefined>,
+    alcance?: AlcanceResuelto,
   ): Promise<ResultadoReporte> {
     const def = this.requerir(clave);
-    return def.ejecutar({ prisma: this.prisma, filtros });
+    const conAlcance = this.aplicarAlcance(
+      clave,
+      filtros,
+      REPORTES_CON_ALCANCE_UNIDAD,
+      alcance,
+    );
+    return def.ejecutar({ prisma: this.prisma, filtros: conAlcance });
   }
 
   /* Ejecuta el reporte y arma un archivo Excel */
   async exportarXlsx(
     clave: string,
     filtros: Record<string, string | undefined>,
+    alcance?: AlcanceResuelto,
   ): Promise<{ buffer: Buffer; nombreArchivo: string }> {
     const def = this.requerir(clave);
-    const resultado = await def.ejecutar({ prisma: this.prisma, filtros });
+    const conAlcance = this.aplicarAlcance(
+      clave,
+      filtros,
+      REPORTES_CON_ALCANCE_UNIDAD,
+      alcance,
+    );
+    const resultado = await def.ejecutar({ prisma: this.prisma, filtros: conAlcance });
     return { buffer: await this.construirLibro(resultado), nombreArchivo: `${def.clave}.xlsx` };
   }
 
@@ -72,7 +116,10 @@ export class ReportesService {
     );
   }
 
-  async previewCustom(dto: CustomReporteDto): Promise<ResultadoReporte> {
+  async previewCustom(
+    dto: CustomReporteDto,
+    alcance?: AlcanceResuelto,
+  ): Promise<ResultadoReporte> {
     const fuente = this.fuentes.get(dto.fuente);
     if (!fuente) throw new NotFoundException(`Fuente '${dto.fuente}' no encontrada`);
 
@@ -82,12 +129,22 @@ export class ReportesService {
       (clave) => fuente.columnas.find((c) => c.clave === clave)!,
     );
 
-    const filas = await fuente.consultar(this.prisma, dto.filtros ?? {});
+    const filtros = this.aplicarAlcance(
+      dto.fuente,
+      dto.filtros ?? {},
+      FUENTES_CON_ALCANCE_UNIDAD,
+      alcance,
+    );
+
+    const filas = await fuente.consultar(this.prisma, filtros);
     return { columnas, filas };
   }
 
-  async exportarCustom(dto: CustomReporteDto): Promise<{ buffer: Buffer; nombreArchivo: string }> {
-    const resultado = await this.previewCustom(dto);
+  async exportarCustom(
+    dto: CustomReporteDto,
+    alcance?: AlcanceResuelto,
+  ): Promise<{ buffer: Buffer; nombreArchivo: string }> {
+    const resultado = await this.previewCustom(dto, alcance);
     return {
       buffer: await this.construirLibro(resultado),
       nombreArchivo: `${dto.fuente}-personalizado.xlsx`,

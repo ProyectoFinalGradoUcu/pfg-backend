@@ -14,7 +14,8 @@ import {
 import { HistorialCursosService } from './historial-cursos.service';
 import { CreateHistorialCursoDto } from './dto/create-historial-curso.dto';
 import { ListHistorialCursosQueryDto } from './dto/list-historial-cursos-query.dto';
-import { RequirePermissions } from '../auth/decorators/permissions.decorator';
+import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator';
+import type { AlcanceResuelto } from '../../lib/alcance/alcance.types';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Historial Cursos')
@@ -25,18 +26,24 @@ export class HistorialCursosController {
   constructor(private readonly historialCursosService: HistorialCursosService) {}
 
   @Get()
-  @RequirePermissions('cursos.ver')
+  @RequireAlcance('personas.ver')
   @ApiOperation({ summary: 'Listar historial de cursos', description: 'Retorna lista paginada de todos los cursos asignados a funcionarios.' })
   @ApiResponse({ status: 200, description: 'Lista obtenida exitosamente.' })
-  async findAll(@Query() query: ListHistorialCursosQueryDto) {
-    return this.historialCursosService.findAll(query);
+  async findAll(
+    @Query() query: ListHistorialCursosQueryDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.historialCursosService.findAll(query, alcance);
   }
 
   @Post()
-  @RequirePermissions('cursos.gestionar')
+  @RequireAlcance('personas.ver')
   @ApiOperation({ summary: 'Registrar historial de curso', description: 'Crea un nuevo curso y lo asigna a un funcionario.' })
   @ApiResponse({ status: 201, description: 'Registro creado exitosamente.' })
-  async create(@Body() dto: CreateHistorialCursoDto) {
-    return this.historialCursosService.create(dto);
+  async create(
+    @Body() dto: CreateHistorialCursoDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.historialCursosService.create(dto, alcance);
   }
 }
