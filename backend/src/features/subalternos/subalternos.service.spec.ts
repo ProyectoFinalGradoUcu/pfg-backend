@@ -297,7 +297,7 @@ describe('SubalternosService', () => {
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [7n] } } },
+            destinos: { some: { fecha_fin: null, unidad_id: { in: [7n] } } },
           }),
         }),
       );
@@ -309,7 +309,7 @@ describe('SubalternosService', () => {
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            relaciones_laborales: { some: { fecha_fin: null, unidad_id: 99n } },
+            destinos: { some: { unidad_id: 99n, fecha_fin: null } },
           }),
         }),
       );
