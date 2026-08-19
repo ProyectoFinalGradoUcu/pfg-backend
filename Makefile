@@ -20,7 +20,7 @@ PSQL = $(CTR_CMD) exec -i $(DB_CTR) psql -v ON_ERROR_STOP=1 -U $(DB_USER) -d $(D
 SEED      = database/scripts/seed_integracion_personal.sql
 SEED_DEMO = database/scripts/seed_demo.sql
 
-.PHONY: up down reset fresh migrate wait-db seed seed-demo db build logs logs-backend logs-db ps gen-secret help
+.PHONY: up down reset fresh migrate wait-db seed seed-demo migrate-destinos seed-destinos db build logs logs-backend logs-db ps gen-secret help
 
 gen-secret:
 	@node -e " \
@@ -93,6 +93,14 @@ migrate-invitaciones:
 migrate-misiones:
 	@echo "  [skip] Ya incluida en migracion_integracion_personal.sql"
 
+migrate-destinos:
+	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < database/scripts/migration_destinos_v2.sql
+	@echo "  [ok] Destinos migrados a unidades; tabla destinos eliminada"
+
+seed-destinos:
+	$(CTR_CMD) exec -i $(DB_CTR) psql -U $(DB_USER) -d $(DB_NAME) < database/scripts/seed_destinos.sql
+	@echo "  [ok] Unidades y asignaciones de destino de demo cargadas"
+
 build:
 	$(COMPOSE) build
 
@@ -121,6 +129,8 @@ help:
 	@echo "  make backend      Levanta (o reinicia) solo el backend"
 	@echo "  make seed         Ejecuta el seed de producción (permisos, roles, admin)"
 	@echo "  make seed-demo    Carga datos de demo (30+ personas, 8 usuarios, misiones)"
+	@echo "  make migrate-destinos  Migra destinos a unidades (destino = asignación)"
+	@echo "  make seed-destinos     Carga unidades y asignaciones de destino de demo"
 	@echo "  make build        Construye imágenes sin levantar servicios"
 	@echo "  make logs         Logs de todos los servicios"
 	@echo "  make logs-backend Logs solo del backend"

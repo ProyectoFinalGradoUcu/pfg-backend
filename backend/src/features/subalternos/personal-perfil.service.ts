@@ -309,6 +309,34 @@ export class PersonalPerfilService {
     }));
   }
 
+  // ─── GET /personas/:id/destinos ───────────────────────────────────────────
+  async findDestinos(id: number) {
+    await this.assertExiste(id);
+
+    const asignaciones = await this.prisma.destinos.findMany({
+      where: { persona_id: BigInt(id) },
+      include: {
+        unidades: { select: { id: true, codigo: true, denominacion: true, tipo: true } },
+      },
+      orderBy: { fecha_inicio: 'desc' },
+    });
+
+    return asignaciones.map((a) => ({
+      id: a.id.toString(),
+      unidad_id: a.unidad_id ? a.unidad_id.toString() : null,
+      unidad: a.unidades?.denominacion ?? null,
+      codigo_unidad: a.unidades?.codigo ?? null,
+      tipo_unidad: a.unidades?.tipo ?? null,
+      posicion_destino: a.posicion_destino,
+      fecha_inicio: a.fecha_inicio ? a.fecha_inicio.toISOString().split('T')[0] : null,
+      fecha_fin: a.fecha_fin ? a.fecha_fin.toISOString().split('T')[0] : null,
+      numero_orden: a.numero_orden,
+      boletin: a.boletin,
+      observaciones: a.observaciones,
+      activo: a.fecha_fin == null,
+    }));
+  }
+
   // ─── PATCH /personas/:id ──────────────────────────────────────────────────
   async update(id: number, dto: UpdatePersonalDto, alcance?: AlcanceResuelto) {
     await this.assertAlcance(id, alcance);

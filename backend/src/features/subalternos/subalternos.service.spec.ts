@@ -52,6 +52,136 @@ describe('SubalternosService', () => {
     grado_id: 6,
   };
 
+  // ─── findAllPersonas ────────────────────────────────────────────────────────
+  // El campo `destino` sale del módulo de destinos (la fila vigente de la tabla
+  // `destinos`), no de la unidad de la relación laboral: esa última la escribe
+  // liquidación y el seed, y no refleja dónde revista el funcionario.
+
+  describe('findAllPersonas · destino', () => {
+    const makePersona = (overrides: any = {}) => ({
+      id: 1n,
+      cedula: '41234567',
+      primer_nombre: 'Martín',
+      segundo_nombre: null,
+      primer_apellido: 'González',
+      segundo_apellido: null,
+      relaciones_laborales: [
+        {
+          grados: { denominacion: 'Sargento' },
+          situaciones: { denominacion: 'Actividad' },
+        },
+      ],
+      destinos: [{ unidades: { denominacion: 'E.M.G.F.A.' } }],
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(1);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([makePersona()]);
+    });
+
+    it('toma el destino de la tabla destinos', async () => {
+      const result = await service.findAllPersonas({});
+
+      expect(result.items[0].destino).toBe('E.M.G.F.A.');
+    });
+
+    it('devuelve null cuando el funcionario no tiene destino cargado', async () => {
+      prisma.personas.findMany.mockResolvedValue([makePersona({ destinos: [] })]);
+
+      const result = await service.findAllPersonas({});
+
+      expect(result.items[0].destino).toBeNull();
+    });
+
+    it('no cae a la unidad de la relación laboral cuando no hay destino', async () => {
+      prisma.personas.findMany.mockResolvedValue([
+        makePersona({
+          destinos: [],
+          relaciones_laborales: [
+            {
+              grados: { denominacion: 'Sargento' },
+              situaciones: { denominacion: 'Actividad' },
+              unidades: { denominacion: 'Cuartel General' },
+            },
+          ],
+        }),
+      ]);
+
+      const result = await service.findAllPersonas({});
+
+      expect(result.items[0].destino).toBeNull();
+    });
+
+    it('pide solo el destino vigente y el más reciente', async () => {
+      await service.findAllPersonas({});
+
+      const { select } = prisma.personas.findMany.mock.calls[0][0];
+
+      expect(select.destinos).toEqual(
+        expect.objectContaining({
+          where: { fecha_fin: null },
+          orderBy: { fecha_inicio: 'desc' },
+          take: 1,
+        }),
+      );
+    });
+
+    it('rango y estado siguen saliendo de la relación laboral', async () => {
+      const result = await service.findAllPersonas({});
+
+      expect(result.items[0].rango).toBe('Sargento');
+      expect(result.items[0].estado).toBe('Actividad');
+    });
+  });
+
+  describe('findAllPersonas · filtro por destino', () => {
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(0);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([]);
+    });
+
+    it('filtra por la unidad del destino vigente', async () => {
+      await service.findAllPersonas({ destino: 5 });
+
+      const { where } = prisma.personas.findMany.mock.calls[0][0];
+
+      expect(where.destinos).toEqual({
+        some: { unidad_id: 5n, fecha_fin: null },
+      });
+    });
+
+    it('ya no filtra por la unidad de la relación laboral', async () => {
+      await service.findAllPersonas({ destino: 5 });
+
+      const { where } = prisma.personas.findMany.mock.calls[0][0];
+
+      expect(where.relaciones_laborales.some).not.toHaveProperty('unidad_id');
+    });
+
+    it('sin filtro de destino no restringe por destinos', async () => {
+      await service.findAllPersonas({});
+
+      const { where } = prisma.personas.findMany.mock.calls[0][0];
+
+      expect(where).not.toHaveProperty('destinos');
+    });
+
+    it('mantiene los filtros de estado y rango en la relación laboral', async () => {
+      await service.findAllPersonas({ estado: 2, rango: 6 });
+
+      const { where } = prisma.personas.findMany.mock.calls[0][0];
+
+      expect(where.relaciones_laborales.some).toEqual(
+        expect.objectContaining({
+          fecha_fin: null,
+          situacion_id: 2n,
+          grado_id: 6n,
+        }),
+      );
+    });
+  });
+
   describe('create', () => {
     it('Crea persona y su relación laboral como subalterno', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);

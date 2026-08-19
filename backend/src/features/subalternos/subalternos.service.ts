@@ -94,13 +94,17 @@ export class SubalternosService {
       fecha_fin: null,
       ...(query.estado && { situacion_id: BigInt(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
-      ...(unidadesForzadas !== null
-        ? { unidad_id: { in: unidadesForzadas } }
-        : query.destino && { unidad_id: BigInt(query.destino) }),
     };
 
     const where = {
       relaciones_laborales: { some: relacionWhere },
+      // Con alcance de unidad se fuerza el filtro por destino a las unidades del usuario.
+      // Sin alcance, se puede filtrar por query.destino opcionalmente.
+      ...(unidadesForzadas !== null
+        ? { destinos: { some: { unidad_id: { in: unidadesForzadas }, fecha_fin: null } } }
+        : query.destino && {
+            destinos: { some: { unidad_id: BigInt(query.destino), fecha_fin: null } },
+          }),
       ...(query.search && {
         OR: [
           { cedula: { contains: query.search, mode: 'insensitive' as const } },
@@ -152,9 +156,14 @@ export class SubalternosService {
             take: 1,
             select: {
               grados: { select: { denominacion: true } },
-              unidades: { select: { denominacion: true } },
               situaciones: { select: { denominacion: true } },
             },
+          },
+          destinos: {
+            where: { fecha_fin: null },
+            orderBy: { fecha_inicio: 'desc' },
+            take: 1,
+            select: { unidades: { select: { denominacion: true } } },
           },
         },
       }),
@@ -176,7 +185,7 @@ export class SubalternosService {
           nombre,
           cedula: p.cedula,
           rango: rel?.grados?.denominacion ?? null,
-          destino: rel?.unidades?.denominacion ?? null,
+          destino: p.destinos[0]?.unidades?.denominacion ?? null,
           estado: rel?.situaciones?.denominacion ?? null,
         };
       }),

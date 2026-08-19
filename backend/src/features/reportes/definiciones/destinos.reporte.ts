@@ -16,6 +16,7 @@ const COLUMNAS: ColumnaReporte[] = [
   { clave: 'tipo_destino', etiqueta: 'Tipo', tipo: 'texto' },
   { clave: 'cargo', etiqueta: 'Cargo', tipo: 'texto' },
   { clave: 'fecha_destino', etiqueta: 'Fecha destino', tipo: 'fecha' },
+  { clave: 'fecha_fin', etiqueta: 'Fecha fin', tipo: 'fecha' },
   { clave: 'numero_orden', etiqueta: 'N.º Orden', tipo: 'texto' },
 ];
 
@@ -30,9 +31,9 @@ export const destinosReporte: DefinicionReporte = {
   parametros: [],
 
   async ejecutar({ prisma }: ContextoEjecucion): Promise<ResultadoReporte> {
-    const asignaciones = await prisma.asignaciones_funcionario.findMany({
+    const asignaciones = await prisma.destinos.findMany({
       include: {
-        destinos: true,
+        unidades: true,
         personas: {
           include: {
             relaciones_laborales: {
@@ -54,11 +55,12 @@ export const destinosReporte: DefinicionReporte = {
         escalafon: rel?.escalafones?.codigo ?? '',
         apellido: unir(a.personas?.primer_apellido, a.personas?.segundo_apellido),
         nombre: unir(a.personas?.primer_nombre, a.personas?.segundo_nombre),
-        destino: a.destinos?.ubicacion ?? '',
-        tipo_destino: a.destinos?.tipo_destino ?? '',
+        destino: a.unidades?.denominacion ?? '',
+        tipo_destino: a.unidades?.tipo ?? '',
         cargo: a.posicion_destino ?? '',
         fecha_destino: fmtFecha(a.fecha_inicio),
-        numero_orden: a.destinos?.numero_orden ?? '',
+        fecha_fin: fmtFecha(a.fecha_fin),
+        numero_orden: a.numero_orden ?? '',
       };
     });
 

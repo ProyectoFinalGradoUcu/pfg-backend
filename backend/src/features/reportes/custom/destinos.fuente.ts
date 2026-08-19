@@ -13,6 +13,7 @@ export const destinosFuente: FuenteCustom = {
     { clave: 'tipo_destino', etiqueta: 'Tipo', tipo: 'texto' },
     { clave: 'cargo', etiqueta: 'Cargo', tipo: 'texto' },
     { clave: 'fecha_destino', etiqueta: 'Fecha destino', tipo: 'fecha' },
+    { clave: 'fecha_fin', etiqueta: 'Fecha fin', tipo: 'fecha' },
     { clave: 'numero_orden', etiqueta: 'N.º Orden', tipo: 'texto' },
   ],
   filtros: [
@@ -20,12 +21,12 @@ export const destinosFuente: FuenteCustom = {
   ],
 
   async consultar(prisma, filtros) {
-    const asignaciones = await prisma.asignaciones_funcionario.findMany({
+    const asignaciones = await prisma.destinos.findMany({
       where: {
         ...(filtros.persona_id ? { persona_id: BigInt(filtros.persona_id) } : {}),
       },
       include: {
-        destinos: true,
+        unidades: true,
         personas: {
           include: {
             relaciones_laborales: { where: { estado: 'activo' }, take: 1, include: { grados: true } },
@@ -39,11 +40,12 @@ export const destinosFuente: FuenteCustom = {
       apellido: unir(a.personas?.primer_apellido, a.personas?.segundo_apellido),
       nombre: unir(a.personas?.primer_nombre, a.personas?.segundo_nombre),
       grado: a.personas?.relaciones_laborales?.[0]?.grados?.denominacion ?? '',
-      destino: a.destinos?.ubicacion ?? '',
-      tipo_destino: a.destinos?.tipo_destino ?? '',
+      destino: a.unidades?.denominacion ?? '',
+      tipo_destino: a.unidades?.tipo ?? '',
       cargo: a.posicion_destino ?? '',
       fecha_destino: fmtFecha(a.fecha_inicio),
-      numero_orden: a.destinos?.numero_orden ?? '',
+      fecha_fin: fmtFecha(a.fecha_fin),
+      numero_orden: a.numero_orden ?? '',
     }));
   },
 };
