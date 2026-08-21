@@ -1,0 +1,94 @@
+# Producción, en ~/pfg de la VM. Rutas: ./src es el backend sincronizado por rsync,
+# ./www el frontend compilado, ./.env los secretos (creados a mano, nunca sincronizados).
+# Solo Caddy publica puertos; el resto queda en la red interna de Docker.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command: >
+      postgres
+      -c shared_buffers=1GB
+      -c effective_cache_size=3GB
+      -c max_connections=100
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      # Solo corre con el volumen vacío. seed_demo.sql son datos de demostración.
+      - ./src/database/scripts/legacy/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./src/database/scripts/migracion_integracion_personal.sql:/docker-entrypoint-initdb.d/02_migracion_integracion_personal.sql:ro
+      - ./src/database/scripts/seed_integracion_personal.sql:/docker-entrypoint-initdb.d/03_seed_integracion_personal.sql:ro
+      - ./src/database/scripts/seed_demo.sql:/docker-entrypoint-initdb.d/04_seed_demo.sql:ro
+      - ./src/database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/05_destinos_v2.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./src/backend
+    container_name: backend
+    env_file:
+      - ./.env
+    environment:
+      # Lo que depende de la red interna de Docker, para que el .env no pueda romperlo.
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+      NODE_ENV: production
+      PORT: "3000"
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_USE_SSL: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./www:/srv/www:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  minio_data:
+  caddy_data:
+  caddy_config:

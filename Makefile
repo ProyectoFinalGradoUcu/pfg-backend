@@ -10,8 +10,8 @@ DB_NAME   = pfg_database
 # Migraciones idempotentes, en orden de dependencia. Se aplican siempre que se levanta
 # la base: son todas CREATE/ALTER ... IF NOT EXISTS + INSERT ... ON CONFLICT DO NOTHING,
 # así que volver a correrlas no hace nada.
-MIGRATIONS = \
-	database/scripts/migracion_integracion_personal.sql
+# La lista vive en deploy/migrations.txt: el despliegue a producción lee la misma.
+MIGRATIONS = $(shell grep -vE '^[[:space:]]*(#|$$)' deploy/migrations.txt)
 
 # ON_ERROR_STOP=1 es importante: sin eso psql termina con código 0 aunque el script falle
 # a mitad de camino, y la migración parecería exitosa.

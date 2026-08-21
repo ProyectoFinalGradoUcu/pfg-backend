@@ -1,0 +1,40 @@
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# route respeta el orden escrito; handle solo lo ordena por especificidad.
+	route {
+		# Sin recortar: Swagger está en /api/docs dentro del backend.
+		handle /api/docs* {
+			reverse_proxy backend:3000
+		}
+
+		# handle_path recorta el /api: el front pide /api/auth/sign-in y el backend,
+		# que tiene las rutas en la raíz, recibe /auth/sign-in.
+		handle_path /api/* {
+			request_body {
+				max_size 50MB
+			}
+			reverse_proxy backend:3000
+		}
+
+		handle {
+			root * /srv/www
+			# Las rutas desconocidas van al index.html para que las resuelva el router.
+			try_files {path} /index.html
+			file_server
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000;"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MB
+			roll_keep 5
+		}
+	}
+}

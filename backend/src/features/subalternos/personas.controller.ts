@@ -12,6 +12,7 @@ import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
 import type { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 
