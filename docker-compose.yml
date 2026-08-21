@@ -7,9 +7,14 @@ services:
       POSTGRES_PASSWORD: pfg_password
       POSTGRES_DB: pfg_database
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./database/scripts/legacy/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/scripts/migracion_integracion_personal.sql:/docker-entrypoint-initdb.d/02_migracion_integracion_personal.sql:ro
+      - ./database/scripts/seed_integracion_personal.sql:/docker-entrypoint-initdb.d/03_seed_integracion_personal.sql:ro
+      - ./database/scripts/seed_demo.sql:/docker-entrypoint-initdb.d/04_seed_demo.sql:ro
+      - ./database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/05_destinos_v2.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pfg_user -d pfg_database"]
       interval: 10s
@@ -17,5 +22,58 @@ services:
       retries: 5
     restart: unless-stopped
 
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: pfg_minio_user
+      MINIO_ROOT_PASSWORD: pfg_minio_password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    container_name: backend
+    env_file:
+      - ./backend/.env
+    environment:
+      # Overrides del .env local: DATABASE_URL apunta al contenedor postgres, no a localhost
+      DATABASE_URL: "postgresql://pfg_user:pfg_password@postgres:5432/pfg_database?schema=public"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+      NODE_ENV: production
+      JWT_EXPIRES_IN: "4h"
+      MAX_LOGIN_ATTEMPTS: "5"
+      LOCK_DURATION_MIN: "15"
+      CORS_ORIGIN: "http://localhost:4200"
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: pfg_minio_user
+      MINIO_SECRET_KEY: pfg_minio_password
+      MINIO_BUCKET: pfg-documents
+      MINIO_USE_SSL: "false"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:4200}"
+      INVITATION_TTL_HOURS: "${INVITATION_TTL_HOURS:-48}"
+      RESET_PASSWORD_TTL_HOURS: "${RESET_PASSWORD_TTL_HOURS:-1}"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pg_data:
+  minio_data:

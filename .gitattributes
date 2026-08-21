@@ -1,0 +1,5 @@
+# Normalizar todos los archivos de texto a LF al commitear
+* text=auto eol=lf
+
+# Scripts shell siempre LF, nunca CRLF
+*.sh text eol=lf
