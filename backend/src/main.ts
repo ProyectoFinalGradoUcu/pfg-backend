@@ -10,6 +10,10 @@ import cookieParser from 'cookie-parser';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Detrás del reverse proxy, sin esto Express toma la IP del gateway de Docker como origen
+  // de todas las peticiones y el throttler las cuenta como si vinieran de un solo usuario.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   app.use(helmet());
   app.use(cookieParser());
 

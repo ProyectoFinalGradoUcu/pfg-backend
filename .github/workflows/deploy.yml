@@ -1,0 +1,64 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Dos deploys simultaneos se pisarian el rsync.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to VM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts
+
+      # El compose de la VM espera el repo en ./src.
+      - name: Sync source code
+        run: |
+          rsync -rltz --delete --chmod=D755,F644 \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'node_modules' \
+            --exclude 'dist' \
+            --exclude '.env' \
+            --exclude 'coverage' \
+            ./ "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:pfg/src/"
+
+      - name: Publish compose and Caddyfile
+        run: |
+          scp -i ~/.ssh/deploy_key deploy/docker-compose.prod.yml \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:pfg/docker-compose.yml"
+          scp -i ~/.ssh/deploy_key deploy/Caddyfile \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:pfg/Caddyfile"
+
+      - name: Rebuild and restart
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+            'set -e
+             cd pfg
+             docker compose up -d --build
+             docker image prune -f'
+
+      - name: Apply database migrations
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+            'set -e
+             cd pfg
+             bash src/deploy/migrate.sh
+             docker compose ps'
