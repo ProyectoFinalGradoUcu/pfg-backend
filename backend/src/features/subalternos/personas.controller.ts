@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Query, Body, Param, ParseIntPipe, Res,
+  Controller, Get, Post, Patch, Delete, Query, Body, Param, ParseIntPipe, Res,
   UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -11,6 +11,7 @@ import { PersonalPerfilService } from './personal-perfil.service.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
+import { FamiliarDto } from './dto/familiar.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
@@ -85,6 +86,19 @@ export class PersonasController {
     return this.subalternosService.createPersonal(dto, alcance);
   }
 
+  // ─── Familiares por cédula ────────────────────────────────────────────────
+
+  @ApiOperation({ summary: 'Familiares vinculados a un funcionario, buscando por cédula' })
+  @ApiParam({ name: 'cedula', type: String })
+  @RequireAlcance('personas.ver')
+  @Get('cedula/:cedula/familiares')
+  findFamiliaresPorCedula(
+    @Param('cedula') cedula: string,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.findFamiliaresPorCedula(cedula, alcance);
+  }
+
   // ─── Detalle ──────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Datos personales + relación laboral activa (tab Datos Personales)' })
@@ -107,6 +121,33 @@ export class PersonasController {
     @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.perfilService.findFamiliares(id, alcance);
+  }
+
+  @ApiOperation({ summary: 'Vincular un familiar ya registrado (debe ser oficial o subalterno)' })
+  @ApiParam({ name: 'id', type: Number })
+  @RequireAlcance('personas.editar')
+  @Post(':id/familiares')
+  addFamiliar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FamiliarDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.addFamiliar(id, dto, alcance);
+  }
+
+  @ApiOperation({ summary: 'Desvincular un familiar' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiParam({ name: 'familiarId', type: Number })
+  @ApiResponse({ status: 200, description: 'Familiar desvinculado.' })
+  @ApiResponse({ status: 404, description: 'No existe ese vínculo familiar.' })
+  @RequireAlcance('personas.editar')
+  @Delete(':id/familiares/:familiarId')
+  removeFamiliar(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('familiarId', ParseIntPipe) familiarId: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.removeFamiliar(id, familiarId, alcance);
   }
 
   @ApiOperation({ summary: 'Historial de rangos / ascensos (tab Historial Militar)' })

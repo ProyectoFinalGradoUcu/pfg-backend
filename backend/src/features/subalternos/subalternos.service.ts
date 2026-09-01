@@ -15,6 +15,7 @@ import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
+import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 
 const FK_MENSAJES: Record<string, string> = {
@@ -296,6 +297,26 @@ export class SubalternosService {
     return this.createPersonalMilitar(dto);
   }
 
+  /**
+   * El familiar debe ser una persona ya registrada y militar (es_civil = false),
+   * sin importar si quien lo agrega es civil o militar.
+   */
+  private async resolverFamiliares(familiares: FamiliarDto[]) {
+    type PersonaFamiliar = { id: bigint; cedula: string; primer_nombre: string; primer_apellido: string; es_civil: boolean | null };
+    const cedulasFamiliares = familiares.map((f) => f.cedula);
+    const personasEncontradas = (await this.prisma.personas.findMany({
+      where: { cedula: { in: cedulasFamiliares } },
+      select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true, es_civil: true },
+    })) as unknown as PersonaFamiliar[];
+    const porCedula = new Map(personasEncontradas.map((p) => [p.cedula, p]));
+    for (const f of familiares) {
+      const persona = porCedula.get(f.cedula);
+      if (!persona) throw new BadRequestException(`No existe ningún personal registrado con cédula ${f.cedula}`);
+      if (persona.es_civil) throw new BadRequestException(`El familiar con cédula ${f.cedula} es civil. Debe ser un oficial o subalterno`);
+    }
+    return familiares.map((f) => ({ ...porCedula.get(f.cedula)!, tipo_relacion: f.tipo_relacion }));
+  }
+
   private async createPersonalCivil(dto: CreatePersonalDto) {
     if (!dto.familiares || dto.familiares.length === 0) {
       throw new BadRequestException(
@@ -303,19 +324,7 @@ export class SubalternosService {
       );
     }
 
-    type PersonaFamiliar = { id: bigint; cedula: string; primer_nombre: string; primer_apellido: string; es_civil: boolean | null };
-    const cedulasFamiliares = dto.familiares.map((f) => f.cedula);
-    const personasEncontradas = (await this.prisma.personas.findMany({
-      where: { cedula: { in: cedulasFamiliares } },
-      select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true, es_civil: true },
-    })) as unknown as PersonaFamiliar[];
-    const porCedula = new Map(personasEncontradas.map((p) => [p.cedula, p]));
-    for (const f of dto.familiares) {
-      const persona = porCedula.get(f.cedula);
-      if (!persona) throw new BadRequestException(`No existe ningún personal registrado con cédula ${f.cedula}`);
-      if (persona.es_civil) throw new BadRequestException(`El familiar con cédula ${f.cedula} es civil. Debe ser un oficial o subalterno`);
-    }
-    const familiaresResueltos = dto.familiares.map((f) => ({ ...porCedula.get(f.cedula)!, tipo_relacion: f.tipo_relacion }));
+    const familiaresResueltos = await this.resolverFamiliares(dto.familiares);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -399,6 +408,10 @@ export class SubalternosService {
 
     assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
 
+    const familiaresResueltos = dto.familiares && dto.familiares.length > 0
+      ? await this.resolverFamiliares(dto.familiares)
+      : [];
+
     try {
       return await this.prisma.$transaction(async (tx) => {
         const persona = await tx.personas.create({
@@ -452,6 +465,16 @@ export class SubalternosService {
           },
         });
 
+        if (familiaresResueltos.length > 0) {
+          await tx.relaciones_familiares.createMany({
+            data: familiaresResueltos.map((f) => ({
+              persona_id: persona.id,
+              familiar_id: f.id,
+              tipo_relacion: f.tipo_relacion ?? null,
+            })),
+          });
+        }
+
         return {
           id: Number(persona.id),
           cedula: persona.cedula,
@@ -470,6 +493,12 @@ export class SubalternosService {
           codigo_postal: persona.codigo_postal,
           seccional: persona.seccional,
           es_civil: false,
+          familiares: familiaresResueltos.map((f) => ({
+            id: Number(f.id),
+            cedula: f.cedula,
+            nombre: `${f.primer_nombre} ${f.primer_apellido}`,
+            tipo_relacion: f.tipo_relacion ?? null,
+          })),
           relacion_laboral: {
             id: Number(relacion.id),
             tipo_funcionario: relacion.tipo_funcionario,

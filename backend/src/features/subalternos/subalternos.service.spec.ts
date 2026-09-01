@@ -246,6 +246,51 @@ describe('SubalternosService', () => {
         sub_unidad: null,
       });
     });
+
+    it('Un militar también puede tener familiares (no es exclusivo de civiles)', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([
+        { id: 50n, cedula: '99999999', primer_nombre: 'Pedro', primer_apellido: 'Ramos', es_civil: false },
+      ]);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      const r = await service.createPersonal({
+        ...dtoMilitar,
+        familiares: [{ cedula: '99999999', tipo_relacion: 'Hermano/a' }],
+      });
+
+      expect(prisma.relaciones_familiares.createMany).toHaveBeenCalledWith({
+        data: [{ persona_id: 1n, familiar_id: 50n, tipo_relacion: 'Hermano/a' }],
+      });
+      expect((r as any).familiares).toEqual([
+        { id: 50, cedula: '99999999', nombre: 'Pedro Ramos', tipo_relacion: 'Hermano/a' },
+      ]);
+    });
+
+    it('Rechaza un familiar civil también para un militar (el familiar debe ser militar)', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([
+        { id: 50n, cedula: '99999999', primer_nombre: 'Ana', primer_apellido: 'Ruiz', es_civil: true },
+      ]);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      await expect(
+        service.createPersonal({
+          ...dtoMilitar,
+          familiares: [{ cedula: '99999999' }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('Un militar sin familiares no intenta crear vínculos', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      await service.createPersonal(dtoMilitar);
+
+      expect(prisma.relaciones_familiares.createMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('update', () => {
