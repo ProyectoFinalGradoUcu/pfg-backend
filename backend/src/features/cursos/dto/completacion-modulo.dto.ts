@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class MarcarCompletacionDto {
@@ -16,11 +16,23 @@ export class MarcarCompletacionDto {
   @IsDateString()
   fecha_finalizacion?: string;
 
-  @ApiPropertyOptional({ example: 'Aprobado', maxLength: 50 })
+  @ApiPropertyOptional({ description: 'true si aprobó el módulo, false si lo desaprobó' })
+  @IsOptional()
+  @IsBoolean()
+  aprobado?: boolean;
+
+  @ApiPropertyOptional({ description: 'Calificación entera entre 1 y 10', minimum: 1, maximum: 10 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  calificacion?: number;
+
+  @ApiPropertyOptional({ example: 'No alcanzó el mínimo de asistencia', maxLength: 500 })
   @IsOptional()
   @IsString()
-  @MaxLength(50)
-  calificacion?: string;
+  @MaxLength(500)
+  observacion?: string;
 
   @ApiPropertyOptional({ example: 'ORD-1542', maxLength: 50, description: 'Orden que designa a la persona a ESTE módulo' })
   @IsOptional()

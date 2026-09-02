@@ -263,7 +263,9 @@ export class CursosService {
       boletin: r.boletin,
       fecha_inicio: r.fecha_inicio,
       fecha_fin: r.fecha_fin,
+      aprobado: r.aprobado,
       calificacion: r.calificacion !== null && r.calificacion !== undefined ? Number(r.calificacion) : null,
+      observacion: r.observacion_calificacion,
       dado_de_baja: r.dado_de_baja,
       motivo_baja: r.motivo_baja,
       fecha_baja: r.fecha_baja,
@@ -279,7 +281,9 @@ export class CursosService {
         boletin: m.boletin,
         completado: m.completado,
         fecha_finalizacion: m.fecha_finalizacion,
+        aprobado: m.aprobado,
         calificacion: m.calificacion !== null && m.calificacion !== undefined ? Number(m.calificacion) : null,
+        observacion: m.observacion_calificacion,
       })),
     })),
       total,
@@ -331,14 +335,18 @@ export class CursosService {
           modulo_id: BigInt(moduloId),
           completado: dto.completado ?? false,
           fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
-          calificacion: dto.calificacion ?? null,
+          aprobado: dto.aprobado ?? null,
+          calificacion: dto.calificacion != null ? dto.calificacion.toString() : null,
+          observacion_calificacion: dto.observacion ?? null,
           numero_orden: dto.numero_orden ?? null,
           boletin: dto.boletin ?? null,
         },
         update: {
           completado: dto.completado ?? false,
           fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
-          calificacion: dto.calificacion ?? null,
+          aprobado: dto.aprobado ?? null,
+          calificacion: dto.calificacion != null ? dto.calificacion.toString() : null,
+          observacion_calificacion: dto.observacion ?? null,
           numero_orden: dto.numero_orden ?? null,
           boletin: dto.boletin ?? null,
         },
@@ -351,7 +359,9 @@ export class CursosService {
       modulo_id: completacion.modulo_id.toString(),
       completado: completacion.completado,
       fecha_finalizacion: completacion.fecha_finalizacion,
-      calificacion: completacion.calificacion,
+      aprobado: completacion.aprobado,
+      calificacion: completacion.calificacion != null ? Number(completacion.calificacion) : null,
+      observacion: completacion.observacion_calificacion,
       numero_orden: completacion.numero_orden,
       boletin: completacion.boletin,
     };
@@ -388,7 +398,9 @@ export class CursosService {
       primer_apellido: c.funcionarios_cursos.personas.primer_apellido,
       completado: c.completado,
       fecha_finalizacion: c.fecha_finalizacion,
-      calificacion: c.calificacion,
+      aprobado: c.aprobado,
+      calificacion: c.calificacion != null ? Number(c.calificacion) : null,
+      observacion: c.observacion_calificacion,
       numero_orden: c.numero_orden,
       boletin: c.boletin,
     }));
@@ -592,7 +604,9 @@ export class CursosService {
     const actualizado = await this.prisma.funcionarios_cursos.update({
       where: { id: BigInt(designacionId) },
       data: {
-        calificacion: dto.calificacion.toString(),
+        aprobado: dto.aprobado,
+        calificacion: dto.calificacion != null ? dto.calificacion.toString() : null,
+        observacion_calificacion: dto.observacion ?? null,
       },
     });
 
@@ -600,7 +614,9 @@ export class CursosService {
       id: actualizado.id.toString(),
       curso_id: actualizado.curso_id.toString(),
       persona_id: actualizado.persona_id.toString(),
-      calificacion: Number(actualizado.calificacion),
+      aprobado: actualizado.aprobado,
+      calificacion: actualizado.calificacion != null ? Number(actualizado.calificacion) : null,
+      observacion: actualizado.observacion_calificacion,
     };
   }
 

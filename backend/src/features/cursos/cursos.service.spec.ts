@@ -50,7 +50,9 @@ const makeInscripcion = (overrides: Partial<any> = {}) => ({
   boletin: null,
   fecha_inicio: new Date('2026-01-01'),
   fecha_fin: new Date('2026-06-30'),
+  aprobado: null,
   calificacion: null,
+  observacion_calificacion: null,
   personas: makePersona(),
   cursos: {
     id: 1n,
@@ -600,6 +602,30 @@ describe('CursosService', () => {
       expect(result.items[0].calificacion).toBe(8);
     });
 
+    it('devuelve el resultado y la observacion de la calificacion', async () => {
+      prisma.funcionarios_cursos.count.mockResolvedValue(1);
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([
+        makeInscripcion({ aprobado: false, calificacion: '3', observacion_calificacion: 'No alcanzo la asistencia' }),
+      ]);
+
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
+
+      expect(result.items[0].aprobado).toBe(false);
+      expect(result.items[0].observacion).toBe('No alcanzo la asistencia');
+    });
+
+    it('devuelve aprobado sin nota cuando se califico sin cargar calificacion', async () => {
+      prisma.funcionarios_cursos.count.mockResolvedValue(1);
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([
+        makeInscripcion({ aprobado: true, calificacion: null }),
+      ]);
+
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
+
+      expect(result.items[0].aprobado).toBe(true);
+      expect(result.items[0].calificacion).toBeNull();
+    });
+
     it('devuelve calificacion como null cuando no fue cargada', async () => {
       prisma.funcionarios_cursos.count.mockResolvedValue(1);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([makeInscripcion({ calificacion: null })]);
@@ -616,29 +642,29 @@ describe('CursosService', () => {
       expect(result.total).toBe(0);
     });
 
-    it('calcula el contador "Cursos Completados" — inscripciones con calificacion no nula', async () => {
+    it('calcula el contador "Cursos Completados" — inscripciones con resultado cargado', async () => {
       prisma.funcionarios_cursos.count.mockResolvedValue(3);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([
-        makeInscripcion({ id: 1n, calificacion: '8' }),
-        makeInscripcion({ id: 2n, calificacion: '7' }),
-        makeInscripcion({ id: 3n, calificacion: null }),
+        makeInscripcion({ id: 1n, aprobado: true, calificacion: '8' }),
+        makeInscripcion({ id: 2n, aprobado: false, calificacion: null }),
+        makeInscripcion({ id: 3n, aprobado: null, calificacion: null }),
       ]);
 
       const result = await service.getCursosPorFuncionario({}, GLOBAL);
-      const completados = result.items.filter((i) => i.calificacion !== null).length;
+      const completados = result.items.filter((i) => i.aprobado !== null).length;
 
       expect(completados).toBe(2);
     });
 
-    it('calcula el contador "En Curso" — inscripciones sin calificacion', async () => {
+    it('calcula el contador "En Curso" — inscripciones sin resultado', async () => {
       prisma.funcionarios_cursos.count.mockResolvedValue(2);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([
-        makeInscripcion({ id: 1n, calificacion: null }),
-        makeInscripcion({ id: 2n, calificacion: '9' }),
+        makeInscripcion({ id: 1n, aprobado: null }),
+        makeInscripcion({ id: 2n, aprobado: true, calificacion: '9' }),
       ]);
 
       const result = await service.getCursosPorFuncionario({}, GLOBAL);
-      const enCurso = result.items.filter((i) => i.calificacion === null).length;
+      const enCurso = result.items.filter((i) => i.aprobado === null).length;
 
       expect(enCurso).toBe(1);
     });
@@ -657,21 +683,21 @@ describe('CursosService', () => {
       expect(obligatorios).toBe(2);
     });
 
-    it('obtiene cursos finalizados pendientes de calificación (fecha_fin pasada + sin nota)', async () => {
+    it('obtiene cursos finalizados pendientes de calificación (fecha_fin pasada + sin resultado)', async () => {
       const pasada = new Date('2025-01-01');
       const futura = new Date('2099-12-31');
 
       prisma.funcionarios_cursos.count.mockResolvedValue(3);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([
-        makeInscripcion({ id: 1n, fecha_fin: pasada, calificacion: null }),    // pendiente
-        makeInscripcion({ id: 2n, fecha_fin: pasada, calificacion: '7' }),    // ya calificado
-        makeInscripcion({ id: 3n, fecha_fin: futura, calificacion: null }),   // aún no finalizado
+        makeInscripcion({ id: 1n, fecha_fin: pasada, aprobado: null }),   // pendiente
+        makeInscripcion({ id: 2n, fecha_fin: pasada, aprobado: true }),   // ya calificado
+        makeInscripcion({ id: 3n, fecha_fin: futura, aprobado: null }),   // aún no finalizado
       ]);
 
       const ahora = new Date();
       const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const pendientes = result.items.filter(
-        (i) => i.fecha_fin && i.fecha_fin < ahora && i.calificacion === null,
+        (i) => i.fecha_fin && i.fecha_fin < ahora && i.aprobado === null,
       );
 
       expect(pendientes).toHaveLength(1);
@@ -680,29 +706,29 @@ describe('CursosService', () => {
     it('excluye de pendientes los cursos sin fecha_fin', async () => {
       prisma.funcionarios_cursos.count.mockResolvedValue(1);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([
-        makeInscripcion({ id: 1n, fecha_fin: null, calificacion: null }),
+        makeInscripcion({ id: 1n, fecha_fin: null, aprobado: null }),
       ]);
 
       const ahora = new Date();
       const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const pendientes = result.items.filter(
-        (i) => i.fecha_fin && i.fecha_fin < ahora && i.calificacion === null,
+        (i) => i.fecha_fin && i.fecha_fin < ahora && i.aprobado === null,
       );
 
       expect(pendientes).toHaveLength(0);
     });
 
-    it('excluye de pendientes los ya calificados', async () => {
+    it('excluye de pendientes los desaprobados sin nota', async () => {
       const pasada = new Date('2025-01-01');
       prisma.funcionarios_cursos.count.mockResolvedValue(1);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([
-        makeInscripcion({ id: 1n, fecha_fin: pasada, calificacion: '9' }),
+        makeInscripcion({ id: 1n, fecha_fin: pasada, aprobado: false, calificacion: null }),
       ]);
 
       const ahora = new Date();
       const result = await service.getCursosPorFuncionario({}, GLOBAL);
       const pendientes = result.items.filter(
-        (i) => i.fecha_fin && i.fecha_fin < ahora && i.calificacion === null,
+        (i) => i.fecha_fin && i.fecha_fin < ahora && i.aprobado === null,
       );
 
       expect(pendientes).toHaveLength(0);
@@ -712,36 +738,81 @@ describe('CursosService', () => {
   // ─── actualizarDesignacion ────────────────────────────────────────────────
 
   describe('actualizarDesignacion', () => {
-    it('carga una nota válida (1–10) en la designación', async () => {
-      prisma.funcionarios_cursos.findFirst.mockResolvedValue({
-        id: 1n,
-        persona_id: 10n,
-        curso_id: 1n,
-        calificacion: null,
-      });
+    const designacionExistente = {
+      id: 1n,
+      persona_id: 10n,
+      curso_id: 1n,
+      aprobado: null,
+      calificacion: null,
+      observacion_calificacion: null,
+    };
+
+    it('registra el resultado con nota y observación', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(designacionExistente);
       prisma.funcionarios_cursos.update.mockResolvedValue({
-        id: 1n,
-        curso_id: 1n,
-        persona_id: 10n,
+        ...designacionExistente,
+        aprobado: true,
         calificacion: '8',
+        observacion_calificacion: 'Buen desempeño',
       });
 
-      const result = await service.actualizarDesignacion(1, 1, { calificacion: 8 });
+      const result = await service.actualizarDesignacion(1, 1, {
+        aprobado: true,
+        calificacion: 8,
+        observacion: 'Buen desempeño',
+      });
 
+      expect(result.aprobado).toBe(true);
       expect(result.calificacion).toBe(8);
+      expect(result.observacion).toBe('Buen desempeño');
       expect(result.id).toBe('1');
+    });
+
+    it('registra el resultado sin nota — la calificación es opcional', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(designacionExistente);
+      prisma.funcionarios_cursos.update.mockResolvedValue({
+        ...designacionExistente,
+        aprobado: true,
+      });
+
+      const result = await service.actualizarDesignacion(1, 1, { aprobado: true });
+
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { aprobado: true, calificacion: null, observacion_calificacion: null },
+        }),
+      );
+      expect(result.aprobado).toBe(true);
+      expect(result.calificacion).toBeNull();
+    });
+
+    it('registra un desaprobado con la observación que lo justifica', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(designacionExistente);
+      prisma.funcionarios_cursos.update.mockResolvedValue({
+        ...designacionExistente,
+        aprobado: false,
+        observacion_calificacion: 'No alcanzó el mínimo de asistencia',
+      });
+
+      const result = await service.actualizarDesignacion(1, 1, {
+        aprobado: false,
+        observacion: 'No alcanzó el mínimo de asistencia',
+      });
+
+      expect(result.aprobado).toBe(false);
+      expect(result.observacion).toBe('No alcanzó el mínimo de asistencia');
     });
 
     it('lanza NotFoundException si la designación no existe', async () => {
       prisma.funcionarios_cursos.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.actualizarDesignacion(1, 999, { calificacion: 8 }),
+        service.actualizarDesignacion(1, 999, { aprobado: true }),
       ).rejects.toThrow(NotFoundException);
     });
 
     it.todo('lanza error si se intenta calificar un curso aún no finalizado (fecha_fin futura)');
-    it.todo('calificación masiva: guarda varias notas en una sola operación');
+    it.todo('calificación masiva: guarda varios resultados en una sola operación');
     it.todo('calificación masiva: si una nota es inválida, no guarda ninguna (rollback)');
     it.todo('calificación masiva: el contador de pendientes baja correctamente tras guardar');
   });
@@ -841,31 +912,49 @@ describe('CursosService', () => {
 
     describe('UpdateDesignacionDto (CargarNotaDto)', () => {
       it('acepta calificación mínima válida (1)', async () => {
-        const dto = plainToInstance(UpdateDesignacionDto, { calificacion: 1 });
+        const dto = plainToInstance(UpdateDesignacionDto, { aprobado: true, calificacion: 1 });
         const errors = await validate(dto);
         expect(errors).toHaveLength(0);
       });
 
       it('acepta calificación máxima válida (10)', async () => {
-        const dto = plainToInstance(UpdateDesignacionDto, { calificacion: 10 });
+        const dto = plainToInstance(UpdateDesignacionDto, { aprobado: true, calificacion: 10 });
         const errors = await validate(dto);
         expect(errors).toHaveLength(0);
       });
 
+      it('acepta el resultado sin calificación', async () => {
+        const dto = plainToInstance(UpdateDesignacionDto, { aprobado: false });
+        const errors = await validate(dto);
+        expect(errors).toHaveLength(0);
+      });
+
+      it('rechaza el payload sin resultado', async () => {
+        const dto = plainToInstance(UpdateDesignacionDto, { calificacion: 8 });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'aprobado')).toBe(true);
+      });
+
+      it('rechaza un resultado que no sea booleano', async () => {
+        const dto = plainToInstance(UpdateDesignacionDto, { aprobado: 'si' });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'aprobado')).toBe(true);
+      });
+
       it('rechaza calificación 0 (fuera de rango mínimo)', async () => {
-        const dto = plainToInstance(UpdateDesignacionDto, { calificacion: 0 });
+        const dto = plainToInstance(UpdateDesignacionDto, { aprobado: true, calificacion: 0 });
         const errors = await validate(dto);
         expect(errors.some((e) => e.property === 'calificacion')).toBe(true);
       });
 
       it('rechaza calificación 11 (fuera de rango máximo)', async () => {
-        const dto = plainToInstance(UpdateDesignacionDto, { calificacion: 11 });
+        const dto = plainToInstance(UpdateDesignacionDto, { aprobado: true, calificacion: 11 });
         const errors = await validate(dto);
         expect(errors.some((e) => e.property === 'calificacion')).toBe(true);
       });
 
       it('rechaza calificación negativa', async () => {
-        const dto = plainToInstance(UpdateDesignacionDto, { calificacion: -5 });
+        const dto = plainToInstance(UpdateDesignacionDto, { aprobado: true, calificacion: -5 });
         const errors = await validate(dto);
         expect(errors.some((e) => e.property === 'calificacion')).toBe(true);
       });

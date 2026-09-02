@@ -638,15 +638,15 @@ JOIN misiones m ON m.nombre_mision = v.mision_nombre
 ON CONFLICT (persona_id, mision_id) DO NOTHING;
 
 -- Funcionarios en cursos
-INSERT INTO funcionarios_cursos (persona_id, curso_id, fecha_inicio, fecha_fin, calificacion)
-SELECT per.id, c.id, v.fini::date, v.ffin::date, v.calif
+INSERT INTO funcionarios_cursos (persona_id, curso_id, fecha_inicio, fecha_fin, aprobado, calificacion, observacion_calificacion)
+SELECT per.id, c.id, v.fini::date, v.ffin::date, v.aprobado, v.calif, v.obs
 FROM (VALUES
-  ('60000011', 'Curso de Seguridad en Vuelo BA1',         '2024-03-01', NULL,          NULL),
-  ('60000012', 'Curso de Mantenimiento de Aeronaves BA1', '2024-06-01', '2024-12-15',  'Aprobado - Muy Bueno'),
-  ('60000013', 'Curso de Operaciones Aéreas BA2',         '2025-01-15', NULL,          NULL),
-  ('60000017', 'Taller de Aviónica Nivel 1',              '2024-04-01', '2024-10-30',  'Aprobado - Excelente'),
-  ('60000018', 'Taller de Aviónica Nivel 2',              '2025-02-01', NULL,          NULL)
-) AS v(cedula, curso_nombre, fini, ffin, calif)
+  ('60000011', 'Curso de Seguridad en Vuelo BA1',         '2024-03-01', NULL,          NULL,  NULL, NULL),
+  ('60000012', 'Curso de Mantenimiento de Aeronaves BA1', '2024-06-01', '2024-12-15',  TRUE,  '8',  'Muy bueno'),
+  ('60000013', 'Curso de Operaciones Aéreas BA2',         '2025-01-15', NULL,          NULL,  NULL, NULL),
+  ('60000017', 'Taller de Aviónica Nivel 1',              '2024-04-01', '2024-10-30',  TRUE,  '10', 'Excelente'),
+  ('60000018', 'Taller de Aviónica Nivel 2',              '2025-02-01', NULL,          NULL,  NULL, NULL)
+) AS v(cedula, curso_nombre, fini, ffin, aprobado, calif, obs)
 JOIN personas per ON per.cedula = v.cedula
 JOIN cursos c ON c.nombre_curso = v.curso_nombre
 ON CONFLICT (persona_id, curso_id) DO NOTHING;

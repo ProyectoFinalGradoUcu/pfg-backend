@@ -1,7 +1,9 @@
 # Migraciones para bases que ya existen, en orden de dependencia. Una ruta por linea,
 # relativa a la raiz del repo. La leen MIGRATIONS en el Makefile y deploy/migrate.sh.
 #
-# Vacia a proposito: los scripts actuales ya estan en la cadena de init del compose.
-# Lo que se agregue aca va tambien a esa cadena, y tiene que poder correrse dos veces
-# sin cambiar nada la segunda. Ojo con los renombres: destinos_v2 renombra una tabla
-# que migracion_integracion_personal vuelve a crear vacia al reaplicarse.
+# Lo que se agregue aca va tambien a la cadena de init del compose, y tiene que poder
+# correrse dos veces sin cambiar nada la segunda. Ojo con los renombres: destinos_v2
+# renombra una tabla que migracion_integracion_personal vuelve a crear vacia al
+# reaplicarse.
+
+database/scripts/migration_aprobacion_cursos.sql
