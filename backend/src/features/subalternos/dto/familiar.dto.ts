@@ -1,8 +1,8 @@
 import { IsString, IsOptional, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class FamiliarCivilDto {
-  @ApiProperty({ example: '87654321', maxLength: 12, description: 'Cédula del familiar militar ya registrado en el sistema' })
+export class FamiliarDto {
+  @ApiProperty({ example: '87654321', maxLength: 12, description: 'Cédula del familiar (debe ser personal militar ya registrado en el sistema)' })
   @IsString()
   @MaxLength(12)
   cedula: string;

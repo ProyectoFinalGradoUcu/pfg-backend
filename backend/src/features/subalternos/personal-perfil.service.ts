@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import {
 } from '../../lib/alcance/alcance.types.js';
 import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
+import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 
 @Injectable()
@@ -109,50 +111,150 @@ export class PersonalPerfilService {
     };
   }
 
+  // ─── GET /personas/cedula/:cedula/familiares ──────────────────────────────
+  async findFamiliaresPorCedula(cedula: string, alcance?: AlcanceResuelto) {
+    const persona = await this.prisma.personas.findUnique({
+      where: { cedula },
+      select: { id: true },
+    });
+    if (!persona) throw new NotFoundException(`No existe personal con cédula ${cedula}`);
+
+    return this.findFamiliares(Number(persona.id), alcance);
+  }
+
   // ─── GET /personas/:id/familiares ─────────────────────────────────────────
   async findFamiliares(id: number, alcance?: AlcanceResuelto) {
     await this.assertAlcance(id, alcance);
 
     await this.assertExiste(id);
 
-    const relaciones = await this.prisma.relaciones_familiares.findMany({
-      where: { persona_id: BigInt(id) },
-      select: {
-        tipo_relacion: true,
-        personas_relaciones_familiares_familiar_idTopersonas: {
-          select: {
-            id: true,
-            cedula: true,
-            primer_nombre: true,
-            segundo_nombre: true,
-            primer_apellido: true,
-            segundo_apellido: true,
-            relaciones_laborales: {
-              where: { fecha_fin: null },
-              take: 1,
-              select: {
-                grados: { select: { denominacion: true } },
-                unidades: { select: { denominacion: true } },
-              },
-            },
-          },
+    const personaSelect = {
+      id: true,
+      cedula: true,
+      primer_nombre: true,
+      segundo_nombre: true,
+      primer_apellido: true,
+      segundo_apellido: true,
+      genero: true,
+      relaciones_laborales: {
+        where: { fecha_fin: null },
+        take: 1,
+        select: {
+          grados: { select: { denominacion: true } },
+          unidades: { select: { denominacion: true } },
         },
+      },
+    };
+
+    const relaciones = await this.prisma.relaciones_familiares.findMany({
+      where: { OR: [{ persona_id: BigInt(id) }, { familiar_id: BigInt(id) }] },
+      select: {
+        persona_id: true,
+        tipo_relacion: true,
+        personas_relaciones_familiares_persona_idTopersonas: { select: personaSelect },
+        personas_relaciones_familiares_familiar_idTopersonas: { select: personaSelect },
       },
     });
 
     return relaciones.map((r) => {
-      const f = r.personas_relaciones_familiares_familiar_idTopersonas;
+      const esAnclaLaPersona = Number(r.persona_id) === id;
+      const f = esAnclaLaPersona
+        ? r.personas_relaciones_familiares_familiar_idTopersonas
+        : r.personas_relaciones_familiares_persona_idTopersonas;
+      const anclaGenero = esAnclaLaPersona
+        ? null
+        : r.personas_relaciones_familiares_familiar_idTopersonas.genero;
+      const tipoRelacion = esAnclaLaPersona
+        ? r.tipo_relacion
+        : this.invertirTipoRelacion(r.tipo_relacion, anclaGenero);
       const rel = f.relaciones_laborales[0] ?? null;
       return {
         id: Number(f.id),
         cedula: f.cedula,
         nombre_completo: [f.primer_nombre, f.segundo_nombre, f.primer_apellido, f.segundo_apellido]
           .filter(Boolean).join(' '),
-        tipo_relacion: r.tipo_relacion,
+        tipo_relacion: tipoRelacion,
         grado: rel?.grados?.denominacion ?? null,
         unidad: rel?.unidades?.denominacion ?? null,
       };
     });
+  }
+
+  /**
+   * `tipo_relacion` se carga desde la perspectiva de quien da de alta el vínculo (persona_id),
+   * describiendo qué es el familiar respecto de esa persona. Al listar los familiares de la otra
+   * punta de la relación (familiar_id) hay que invertir esa descripción.
+   */
+  private invertirTipoRelacion(tipo: string | null, generoAncla: string | null): string | null {
+    if (!tipo) return tipo;
+    switch (tipo.trim()) {
+      case 'Madre':
+      case 'Padre':
+        return 'Hijo/a';
+      case 'Hijo/a':
+        if (generoAncla?.startsWith('F')) return 'Madre';
+        if (generoAncla?.startsWith('M')) return 'Padre';
+        return 'Padre/Madre';
+      case 'Cónyuge':
+        return 'Cónyuge';
+      case 'Hermano/a':
+        return 'Hermano/a';
+      default:
+        return tipo;
+    }
+  }
+
+  // ─── POST /personas/:id/familiares ────────────────────────────────────────
+  async addFamiliar(id: number, dto: FamiliarDto, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+    await this.assertExiste(id);
+
+    const familiar = await this.prisma.personas.findUnique({
+      where: { cedula: dto.cedula },
+      select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true, es_civil: true },
+    });
+    if (!familiar) throw new BadRequestException(`No existe ningún personal registrado con cédula ${dto.cedula}`);
+    if (familiar.es_civil) throw new BadRequestException(`El familiar con cédula ${dto.cedula} es civil. Debe ser un oficial o subalterno`);
+    if (Number(familiar.id) === id) throw new BadRequestException('Una persona no puede ser familiar de sí misma');
+
+    const yaVinculados = await this.prisma.relaciones_familiares.findFirst({
+      where: {
+        OR: [
+          { persona_id: BigInt(id), familiar_id: familiar.id },
+          { persona_id: familiar.id, familiar_id: BigInt(id) },
+        ],
+      },
+    });
+    if (yaVinculados) throw new ConflictException(`${familiar.primer_nombre} ${familiar.primer_apellido} ya está vinculado como familiar`);
+
+    await this.prisma.relaciones_familiares.create({
+      data: { persona_id: BigInt(id), familiar_id: familiar.id, tipo_relacion: dto.tipo_relacion ?? null },
+    });
+
+    return {
+      id: Number(familiar.id),
+      cedula: familiar.cedula,
+      nombre_completo: `${familiar.primer_nombre} ${familiar.primer_apellido}`,
+      tipo_relacion: dto.tipo_relacion ?? null,
+      grado: null,
+      unidad: null,
+    };
+  }
+
+  // ─── DELETE /personas/:id/familiares/:familiarId ──────────────────────────
+  async removeFamiliar(id: number, familiarId: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+    await this.assertExiste(id);
+
+    const { count } = await this.prisma.relaciones_familiares.deleteMany({
+      where: {
+        OR: [
+          { persona_id: BigInt(id), familiar_id: BigInt(familiarId) },
+          { persona_id: BigInt(familiarId), familiar_id: BigInt(id) },
+        ],
+      },
+    });
+    if (count === 0) throw new NotFoundException('No existe ese vínculo familiar');
   }
 
   // ─── GET /personas/:id/historial-militar ─────────────────────────────────

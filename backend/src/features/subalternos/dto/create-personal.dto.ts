@@ -12,7 +12,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { FamiliarCivilDto } from './familiar-civil.dto.js';
+import { FamiliarDto } from './familiar.dto.js';
 
 export class CreatePersonalDto {
   // --- Datos personales (siempre requeridos) ---
@@ -171,16 +171,16 @@ export class CreatePersonalDto {
   @IsInt()
   sub_unidad_id?: number;
 
-  // --- Vínculos familiares (requerido solo si es_civil = true, al menos uno) ---
+  // --- Vínculos familiares (requerido solo si es_civil = true, al menos uno; opcional para el resto) ---
 
   @ApiPropertyOptional({
-    type: [FamiliarCivilDto],
-    description: 'Lista de familiares militares asociados. Requerido si es_civil = true, mínimo uno.',
+    type: [FamiliarDto],
+    description: 'Lista de familiares militares asociados. Requerido si es_civil = true (mínimo uno); opcional para oficiales/subalternos.',
   })
   @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => FamiliarCivilDto)
-  familiares?: FamiliarCivilDto[];
+  @Type(() => FamiliarDto)
+  familiares?: FamiliarDto[];
 }
