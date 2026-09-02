@@ -1,4 +1,4 @@
-import { IsDateString, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ModuloCursoDto } from '../../cursos/dto/modulo-curso.dto';
 
 export class FuncionarioModuloCursoDto {
@@ -22,8 +22,18 @@ export class FuncionarioModuloCursoDto {
   fecha_fin?: string;
 
   @IsOptional()
+  @IsBoolean()
+  aprobado?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  calificacion?: number;
+
+  @IsOptional()
   @IsString()
-  calificacion?: string;
+  observacion?: string;
 
 //   @IsOptional()
 //   persona?: PersonaDto;

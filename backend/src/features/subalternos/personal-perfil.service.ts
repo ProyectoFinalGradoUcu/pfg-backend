@@ -345,7 +345,9 @@ export class PersonalPerfilService {
         boletin: true,
         fecha_inicio: true,
         fecha_fin: true,
+        aprobado: true,
         calificacion: true,
+        observacion_calificacion: true,
         cursos: {
           select: {
             id: true,
@@ -367,7 +369,9 @@ export class PersonalPerfilService {
       numero_orden: r.numero_orden,
       fecha_inicio: r.fecha_inicio,
       fecha_fin: r.fecha_fin,
+      aprobado: r.aprobado,
       calificacion: r.calificacion,
+      observacion: r.observacion_calificacion,
       completado: r.fecha_fin != null,
     }));
   }

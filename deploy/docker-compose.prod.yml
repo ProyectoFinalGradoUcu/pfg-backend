@@ -21,8 +21,9 @@ services:
       - ./src/database/scripts/legacy/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./src/database/scripts/migracion_integracion_personal.sql:/docker-entrypoint-initdb.d/02_migracion_integracion_personal.sql:ro
       - ./src/database/scripts/seed_integracion_personal.sql:/docker-entrypoint-initdb.d/03_seed_integracion_personal.sql:ro
-      - ./src/database/scripts/seed_demo.sql:/docker-entrypoint-initdb.d/04_seed_demo.sql:ro
-      - ./src/database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/05_destinos_v2.sql:ro
+      - ./src/database/scripts/migration_aprobacion_cursos.sql:/docker-entrypoint-initdb.d/04_aprobacion_cursos.sql:ro
+      - ./src/database/scripts/seed_demo.sql:/docker-entrypoint-initdb.d/05_seed_demo.sql:ro
+      - ./src/database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/06_destinos_v2.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
