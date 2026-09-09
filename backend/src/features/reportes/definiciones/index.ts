@@ -6,6 +6,7 @@ import { movimientosUnidadReporte } from './movimientos-unidad.reporte';
 import { misionesOficialesReporte } from './misiones-oficiales.reporte';
 import { resumenFuerzaEfectivaReporte } from './resumen-fuerza-efectiva.reporte';
 import { movimientosPersonalReporte } from './movimientos-personal.reporte';
+import { pasiblesAscensoReporte } from './pasibles-ascenso.reporte';
 
 /**
  * Registro de reportes predefinidos.
@@ -22,4 +23,5 @@ export const REPORTES: DefinicionReporte[] = [
   misionesOficialesReporte,
   resumenFuerzaEfectivaReporte,
   movimientosPersonalReporte,
+  pasiblesAscensoReporte,
 ];
