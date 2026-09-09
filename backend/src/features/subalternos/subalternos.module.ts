@@ -4,11 +4,17 @@ import { PersonasController } from './personas.controller.js';
 import { SubalternosService } from './subalternos.service.js';
 import { PersonasCargaService } from './personas-carga.service.js';
 import { PersonalPerfilService } from './personal-perfil.service.js';
+import { LegajoMilitarService } from './legajo-militar.service.js';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [AuthModule],
   controllers: [SubalternosController, PersonasController],
-  providers: [SubalternosService, PersonasCargaService, PersonalPerfilService],
+  providers: [
+    SubalternosService,
+    PersonasCargaService,
+    PersonalPerfilService,
+    LegajoMilitarService,
+  ],
 })
 export class SubalternosModule {}
