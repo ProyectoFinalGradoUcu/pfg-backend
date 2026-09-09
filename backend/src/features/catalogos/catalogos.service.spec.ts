@@ -31,6 +31,9 @@ const makePrismaMock = () => ({
   destinos: {
     count: jest.fn(),
   },
+  motivos_baja: {
+    findMany: jest.fn(),
+  },
   relaciones_laborales: {
     count: jest.fn(),
   },
@@ -356,9 +359,47 @@ describe('CatalogosService · unidades', () => {
       await expect(service.darDeBajaUnidad(999)).rejects.toThrow(NotFoundException);
     });
   });
-});
 
-// ─── Validación de DTOs ───────────────────────────────────────────────────────
+  // ─── findMotivosBaja ────────────────────────────────────────────────────────
+  // Alimenta el desplegable de motivo_baja_id al registrar un retiro.
+
+  describe('findMotivosBaja', () => {
+    it('devuelve solo los vigentes, ordenados por denominacion', async () => {
+      prisma.motivos_baja.findMany.mockResolvedValue([
+        { id: 4n, codigo: 'BAJA_DEFINITIVA', denominacion: 'Baja definitiva.' },
+        { id: 5n, codigo: 'RETIRO_OBL', denominacion: 'Baja por retiro obligatorio.' },
+      ]);
+
+      const result = await service.findMotivosBaja();
+
+      expect(prisma.motivos_baja.findMany).toHaveBeenCalledWith({
+        where: { vigente: true },
+        orderBy: { denominacion: 'asc' },
+        select: { id: true, codigo: true, denominacion: true },
+      });
+      expect(result).toEqual([
+        { id: 4, codigo: 'BAJA_DEFINITIVA', denominacion: 'Baja definitiva.' },
+        { id: 5, codigo: 'RETIRO_OBL', denominacion: 'Baja por retiro obligatorio.' },
+      ]);
+    });
+
+    it('convierte el BigInt del id a number', async () => {
+      prisma.motivos_baja.findMany.mockResolvedValue([
+        { id: 9007199254740991n, codigo: 'X', denominacion: 'X' },
+      ]);
+
+      const result = await service.findMotivosBaja();
+
+      expect(typeof result[0].id).toBe('number');
+    });
+
+    it('devuelve lista vacia si no hay motivos vigentes', async () => {
+      prisma.motivos_baja.findMany.mockResolvedValue([]);
+
+      expect(await service.findMotivosBaja()).toEqual([]);
+    });
+  });
+});
 
 describe('DTOs de unidades', () => {
   const errores = async (cls: any, payload: object) =>

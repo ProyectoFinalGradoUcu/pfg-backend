@@ -160,6 +160,15 @@ export class CatalogosService {
     return items.map((i) => ({ id: Number(i.id), codigo: i.codigo, denominacion: i.denominacion }));
   }
 
+  async findMotivosBaja() {
+    const items = await this.prisma.motivos_baja.findMany({
+      where: { vigente: true },
+      orderBy: { denominacion: 'asc' },
+      select: { id: true, codigo: true, denominacion: true },
+    });
+    return items.map((i) => ({ id: Number(i.id), codigo: i.codigo, denominacion: i.denominacion }));
+  }
+
   async findEscalafones() {
     const items = await this.prisma.escalafones.findMany({
       where: { vigente: true },
