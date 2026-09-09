@@ -13,6 +13,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FamiliarDto } from './familiar.dto.js';
+import { NIVELES_EDUCATIVOS } from '../legajo-militar.constants.js';
 
 export class CreatePersonalDto {
   // --- Datos personales (siempre requeridos) ---
@@ -170,6 +171,41 @@ export class CreatePersonalDto {
   @IsOptional()
   @IsInt()
   sub_unidad_id?: number;
+
+  // --- Legajo militar (opcional) ---
+
+  @ApiPropertyOptional({
+    enum: NIVELES_EDUCATIVOS,
+    example: 'BACHILLERATO_TECNOLOGICO',
+    description: 'Nivel educativo civil. Va a la tabla propia `legajo_militar`.',
+  })
+  @IsOptional()
+  @IsIn([...NIVELES_EDUCATIVOS])
+  nivel_educativo?: string;
+
+  @ApiPropertyOptional({ example: '2018-03-01', description: 'Ingreso a la ETA' })
+  @IsOptional()
+  @IsDateString()
+  fecha_ingreso_eta?: string;
+
+  @ApiPropertyOptional({ example: '2020-12-15', description: 'Egreso de la ETA' })
+  @IsOptional()
+  @IsDateString()
+  fecha_egreso_eta?: string;
+
+  @ApiPropertyOptional({ example: 'O.C.G.F.A. N.º 12.345', maxLength: 50 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  numero_orden_egreso_eta?: string;
+
+  @ApiPropertyOptional({
+    example: 'Mutado de Servicios Generales a Aerotécnicos, O.D. 8.221',
+    description: 'Mutación de escalafón. Se guarda en la relación laboral, no en el legajo.',
+  })
+  @IsOptional()
+  @IsString()
+  mutaciones?: string;
 
   // --- Vínculos familiares (requerido solo si es_civil = true, al menos uno; opcional para el resto) ---
 

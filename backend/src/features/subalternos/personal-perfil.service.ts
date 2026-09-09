@@ -13,6 +13,14 @@ import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import {
+  guardarLegajoEnTransaccion,
+} from './legajo-militar.service.js';
+import {
+  ETIQUETAS_NIVEL_EDUCATIVO,
+  NivelEducativo,
+  esMutado,
+} from './legajo-militar.constants.js';
 
 @Injectable()
 export class PersonalPerfilService {
@@ -42,6 +50,14 @@ export class PersonalPerfilService {
         codigo_postal: true,
         seccional: true,
         es_civil: true,
+        legajo_militar: {
+          select: {
+            nivel_educativo: true,
+            fecha_ingreso_eta: true,
+            fecha_egreso_eta: true,
+            numero_orden_egreso_eta: true,
+          },
+        },
         relaciones_laborales: {
           where: { fecha_fin: null },
           orderBy: { fecha_inicio: 'desc' },
@@ -49,6 +65,9 @@ export class PersonalPerfilService {
           select: {
             id: true,
             fecha_inicio: true,
+            fecha_ultimo_ascenso: true,
+            fecha_ascenso_oficial: true,
+            mutaciones: true,
             estado: true,
             tipo_funcionario: true,
             prima_tecnica: true,
@@ -70,6 +89,8 @@ export class PersonalPerfilService {
     if (!persona) throw new NotFoundException(`No existe personal con id ${id}`);
 
     const rel = persona.relaciones_laborales[0] ?? null;
+    const legajo = persona.legajo_militar;
+    const nivelEducativo = legajo?.nivel_educativo ?? null;
 
     return {
       id: Number(persona.id),
@@ -91,9 +112,24 @@ export class PersonalPerfilService {
       codigo_postal: persona.codigo_postal,
       seccional: persona.seccional,
       es_civil: persona.es_civil,
+      legajo_militar: {
+        nivel_educativo: nivelEducativo,
+        nivel_educativo_label: nivelEducativo
+          ? (ETIQUETAS_NIVEL_EDUCATIVO[nivelEducativo as NivelEducativo] ?? nivelEducativo)
+          : null,
+        fecha_ingreso_eta: legajo?.fecha_ingreso_eta ?? null,
+        fecha_egreso_eta: legajo?.fecha_egreso_eta ?? null,
+        numero_orden_egreso_eta: legajo?.numero_orden_egreso_eta ?? null,
+        egresado_eta: (legajo?.fecha_egreso_eta ?? null) !== null,
+        mutaciones: rel?.mutaciones ?? null,
+        es_mutado: esMutado(rel?.mutaciones ?? null),
+      },
       relacion_laboral: rel ? {
         id: Number(rel.id),
         fecha_inicio: rel.fecha_inicio,
+        fecha_ultimo_ascenso: rel.fecha_ultimo_ascenso,
+        fecha_ascenso_oficial: rel.fecha_ascenso_oficial,
+        mutaciones: rel.mutaciones,
         estado: rel.estado,
         tipo_funcionario: rel.tipo_funcionario,
         prima_tecnica: rel.prima_tecnica,
@@ -271,12 +307,21 @@ export class PersonalPerfilService {
           id: true,
           fecha_ascenso: true,
           observaciones: true,
+          numero_orden: true,
+          cumplia_requisitos: true,
+          motivo_excepcion: true,
+          anulado_en: true,
+          motivo_anulacion: true,
+          orden_ascenso_id: true,
           grados: { select: { id: true, denominacion: true, codigo: true } },
+          grados_grado_anterior: { select: { id: true, denominacion: true, codigo: true } },
         },
       }),
       this.prisma.relaciones_laborales.findFirst({
         where: { persona_id: BigInt(id) },
-        orderBy: { fecha_inicio: 'asc' },
+        // Un ascenso copia `fecha_inicio` a la relación nueva, así que el
+        // desempate por id es lo que devuelve la relación de ingreso.
+        orderBy: [{ fecha_inicio: 'asc' }, { id: 'asc' }],
         select: {
           fecha_inicio: true,
           grados: { select: { id: true, denominacion: true, codigo: true } },
@@ -288,31 +333,59 @@ export class PersonalPerfilService {
       }),
     ]);
 
-    // ascensos viene ordenado desc (más reciente primero), el primero es el rango actual
-    const entradasAscensos = ascensos.map((a, idx) => ({
+    // El rango actual es el ascenso más nuevo que no esté anulado.
+    const idRangoActual = ascensos.find((a) => a.anulado_en == null)?.id ?? null;
+
+    const entradasAscensos = ascensos.map((a) => ({
       id: Number(a.id),
       fecha_ascenso: a.fecha_ascenso,
-      numero_orden: a.observaciones ?? null,
+      // Las filas viejas tenían el número de orden en observaciones.
+      numero_orden: a.numero_orden ?? a.observaciones ?? null,
+      observaciones: a.observaciones,
+      orden_ascenso_id: a.orden_ascenso_id ? Number(a.orden_ascenso_id) : null,
       es_rango_inicial: false,
-      es_rango_actual: idx === 0,
+      es_rango_actual: idRangoActual != null && a.id === idRangoActual,
+      cumplia_requisitos: a.cumplia_requisitos,
+      por_excepcion: a.cumplia_requisitos === false,
+      motivo_excepcion: a.motivo_excepcion,
+      anulado: a.anulado_en != null,
+      motivo_anulacion: a.motivo_anulacion,
       grado: a.grados ? {
         id: Number(a.grados.id),
         denominacion: a.grados.denominacion,
         codigo: a.grados.codigo,
       } : null,
+      grado_anterior: a.grados_grado_anterior ? {
+        id: Number(a.grados_grado_anterior.id),
+        denominacion: a.grados_grado_anterior.denominacion,
+        codigo: a.grados_grado_anterior.codigo,
+      } : null,
     }));
+
+    // La relación de ingreso guarda el grado ACTUAL, no con el que entró. Si hay
+    // ascensos cargados, el grado de ingreso es el anterior al más viejo de ellos.
+    const masViejo = entradasAscensos[entradasAscensos.length - 1];
+    const gradoDeIngreso = masViejo?.grado_anterior ?? (primeraRelacion?.grados ? {
+      id: Number(primeraRelacion.grados.id),
+      denominacion: primeraRelacion.grados.denominacion,
+      codigo: primeraRelacion.grados.codigo,
+    } : null);
 
     const entradaInicial = primeraRelacion ? {
       id: null,
       fecha_ascenso: primeraRelacion.fecha_inicio,
       numero_orden: null,
+      observaciones: null,
+      orden_ascenso_id: null,
       es_rango_inicial: true,
-      es_rango_actual: ascensos.length === 0,
-      grado: primeraRelacion.grados ? {
-        id: Number(primeraRelacion.grados.id),
-        denominacion: primeraRelacion.grados.denominacion,
-        codigo: primeraRelacion.grados.codigo,
-      } : null,
+      es_rango_actual: idRangoActual == null,
+      cumplia_requisitos: null,
+      por_excepcion: false,
+      motivo_excepcion: null,
+      anulado: false,
+      motivo_anulacion: null,
+      grado: gradoDeIngreso,
+      grado_anterior: null,
     } : null;
 
     // más reciente arriba, rango inicial al final
@@ -489,8 +562,9 @@ export class PersonalPerfilService {
       );
     }
 
-    await Promise.all([
-      this.prisma.personas.update({
+    // Datos personales, relación laboral y legajo se guardan juntos o no se guarda nada.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.personas.update({
         where: { id: BigInt(id) },
         data: {
           primer_nombre: dto.primer_nombre,
@@ -508,30 +582,36 @@ export class PersonalPerfilService {
           codigo_postal: dto.codigo_postal,
           seccional: dto.seccional,
         },
-      }),
-      relacionActiva && (
+      });
+
+      const tocaRelacion =
         dto.fecha_inicio || dto.grado_id || dto.unidad_id || dto.situacion_id || dto.regimen_id ||
         dto.programa_id || dto.escalafon_id || dto.sub_unidad_id !== undefined ||
-        dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined || dto.observaciones_laborales !== undefined
-      )
-        ? this.prisma.relaciones_laborales.update({
-            where: { id: relacionActiva.id },
-            data: {
-              ...(dto.fecha_inicio && { fecha_inicio: new Date(dto.fecha_inicio) }),
-              ...(dto.grado_id && { grado_id: BigInt(dto.grado_id) }),
-              ...(dto.unidad_id && { unidad_id: BigInt(dto.unidad_id) }),
-              ...(dto.situacion_id && { situacion_id: BigInt(dto.situacion_id) }),
-              ...(dto.regimen_id && { regimen_id: BigInt(dto.regimen_id) }),
-              ...(dto.programa_id && { programa_id: BigInt(dto.programa_id) }),
-              ...(dto.escalafon_id && { escalafon_id: BigInt(dto.escalafon_id) }),
-              ...(dto.sub_unidad_id !== undefined && { sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null }),
-              ...(dto.prima_tecnica !== undefined && { prima_tecnica: dto.prima_tecnica }),
-              ...(dto.tiene_mando !== undefined && { tiene_mando: dto.tiene_mando }),
-              ...(dto.observaciones_laborales !== undefined && { observaciones: dto.observaciones_laborales }),
-            },
-          })
-        : Promise.resolve(null),
-    ]);
+        dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined ||
+        dto.observaciones_laborales !== undefined || dto.mutaciones !== undefined;
+
+      if (relacionActiva && tocaRelacion) {
+        await tx.relaciones_laborales.update({
+          where: { id: relacionActiva.id },
+          data: {
+            ...(dto.fecha_inicio && { fecha_inicio: new Date(dto.fecha_inicio) }),
+            ...(dto.grado_id && { grado_id: BigInt(dto.grado_id) }),
+            ...(dto.unidad_id && { unidad_id: BigInt(dto.unidad_id) }),
+            ...(dto.situacion_id && { situacion_id: BigInt(dto.situacion_id) }),
+            ...(dto.regimen_id && { regimen_id: BigInt(dto.regimen_id) }),
+            ...(dto.programa_id && { programa_id: BigInt(dto.programa_id) }),
+            ...(dto.escalafon_id && { escalafon_id: BigInt(dto.escalafon_id) }),
+            ...(dto.sub_unidad_id !== undefined && { sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null }),
+            ...(dto.prima_tecnica !== undefined && { prima_tecnica: dto.prima_tecnica }),
+            ...(dto.tiene_mando !== undefined && { tiene_mando: dto.tiene_mando }),
+            ...(dto.observaciones_laborales !== undefined && { observaciones: dto.observaciones_laborales }),
+            ...(dto.mutaciones !== undefined && { mutaciones: dto.mutaciones ?? null }),
+          },
+        });
+      }
+
+      await guardarLegajoEnTransaccion(tx, BigInt(id), dto);
+    });
 
     // No hace falta invalidar ninguna sesion: la unidad del usuario del sistema es
     // independiente del destino del funcionario, y el filtrado de datos se resuelve por

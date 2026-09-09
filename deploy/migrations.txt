@@ -7,3 +7,8 @@
 # reaplicarse.
 
 database/scripts/migration_aprobacion_cursos.sql
+
+database/scripts/seed_integracion_personal.sql
+
+database/scripts/migration_ascensos.sql
+database/scripts/seed_ascensos.sql

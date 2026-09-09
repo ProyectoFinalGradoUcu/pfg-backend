@@ -17,6 +17,7 @@ import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -453,6 +454,7 @@ export class SubalternosService {
             prima_tecnica: dto.prima_tecnica,
             tiene_mando: dto.tiene_mando,
             observaciones: dto.observaciones,
+            mutaciones: dto.mutaciones ?? undefined,
           },
           include: {
             grados: { select: { denominacion: true } },
@@ -474,6 +476,8 @@ export class SubalternosService {
             })),
           });
         }
+
+        await guardarLegajoEnTransaccion(tx, persona.id, dto);
 
         return {
           id: Number(persona.id),

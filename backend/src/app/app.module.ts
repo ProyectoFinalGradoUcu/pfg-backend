@@ -22,6 +22,7 @@ import { HistorialCursosModule } from '../features/historial-cursos/historial-cu
 import { AuditoriaModule } from '../features/auditoria/auditoria.module';
 import { AuditoriaHttpModule } from '../features/auditoria/auditoria-http.module';
 import { ReportesModule } from '../features/reportes/reportes.module';
+import { AscensosModule } from '../features/ascensos/ascensos.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ReportesModule } from '../features/reportes/reportes.module';
     HistorialCursosModule,
     AuditoriaHttpModule,
     ReportesModule,
+    AscensosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

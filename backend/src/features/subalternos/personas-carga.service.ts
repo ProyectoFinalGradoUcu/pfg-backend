@@ -6,6 +6,8 @@ import {
   unidadIdDeAlcance,
 } from '../../lib/alcance/alcance.types.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
+import { NIVELES_EDUCATIVOS } from './legajo-militar.constants.js';
 
 interface FilaCarga {
   // Personales
@@ -35,6 +37,12 @@ interface FilaCarga {
   sub_unidad_id?: number;
   // Civil: "cedula1:tipo_relacion1|cedula2:tipo_relacion2"
   familiares?: string;
+  // Legajo militar (solo militares)
+  nivel_educativo?: string;
+  fecha_ingreso_eta?: string;
+  fecha_egreso_eta?: string;
+  numero_orden_egreso_eta?: string;
+  mutaciones?: string;
 }
 
 export interface ResultadoFila {
@@ -70,6 +78,13 @@ const COLUMNAS = [
   'fecha_inicio',
   'sub_unidad_id',
   'familiares',
+  // Al final para no correr las columnas de las plantillas ya distribuidas: el
+  // parseo mapea por posición.
+  'nivel_educativo',
+  'fecha_ingreso_eta',
+  'fecha_egreso_eta',
+  'numero_orden_egreso_eta',
+  'mutaciones',
 ];
 
 @Injectable()
@@ -105,6 +120,11 @@ export class PersonasCargaService {
       'fecha_inicio (AAAA-MM-DD) — solo si NO civil',
       'sub_unidad_id — solo si NO civil (opcional)',
       'familiares — solo si civil (cedula1:tipo_relacion|cedula2:tipo_relacion)',
+      `nivel_educativo (${NIVELES_EDUCATIVOS.join(' / ')}) — opcional`,
+      'fecha_ingreso_eta (AAAA-MM-DD) — opcional',
+      'fecha_egreso_eta (AAAA-MM-DD) — opcional',
+      'numero_orden_egreso_eta — opcional',
+      'mutaciones (texto libre del cambio de escalafón) — opcional',
     ];
 
     const ejemploMilitar = [
@@ -112,6 +132,7 @@ export class PersonasCargaService {
       '1990-05-15', 'juan@ejemplo.com', '099111222', 'Av. 18 de Julio 100',
       'M', 'Soltero', 'Montevideo', 'NO', '',
       'oficial', '1', '2', '1', '3', '1', '4', '2024-01-01', '', '',
+      'BACHILLERATO_TECNOLOGICO', '2018-03-01', '2020-12-15', 'O.C.G.F.A. N.º 12.345', '',
     ];
 
     const ejemploCivil = [
@@ -120,6 +141,7 @@ export class PersonasCargaService {
       'F', 'Casado', 'Montevideo', 'SI', 'Cónyuge de oficial',
       '', '', '', '', '', '', '', '', '',
       '12345678:Cónyuge|11223344:Padre',
+      '', '', '', '', '',
     ];
 
     const ws = XLSX.utils.aoa_to_sheet([encabezados, ejemploMilitar, ejemploCivil]);
@@ -142,6 +164,9 @@ export class PersonasCargaService {
       ['   Consulte al administrador si no conoce los IDs.'],
       ['7. Formato de fechas: AAAA-MM-DD (ej: 1990-05-15)'],
       ['8. No modifique los nombres de columnas de la hoja "Personal".'],
+      ['9. Legajo militar (opcional, solo para militares): nivel_educativo, fecha_ingreso_eta,'],
+      ['   fecha_egreso_eta, numero_orden_egreso_eta y mutaciones. Los usan las reglas de ascenso.'],
+      [`   nivel_educativo admite: ${NIVELES_EDUCATIVOS.join(', ')}`],
     ];
 
     const wsInstrucciones = XLSX.utils.aoa_to_sheet(instrucciones);
@@ -231,6 +256,14 @@ export class PersonasCargaService {
 
     const numCol = (field: (typeof COLUMNAS)[number]) => { const v = col(field); return v ? Number(v) : undefined; };
 
+    const nivelEducativo = col('nivel_educativo').toUpperCase() || undefined;
+    if (nivelEducativo && !NIVELES_EDUCATIVOS.includes(nivelEducativo as never)) {
+      throw new Error(
+        `Columna "nivel_educativo" inválida (fila ${numeroFila}): "${nivelEducativo}". ` +
+          `Valores admitidos: ${NIVELES_EDUCATIVOS.join(', ')}`,
+      );
+    }
+
     return {
       cedula,
       primer_nombre,
@@ -256,6 +289,11 @@ export class PersonasCargaService {
       fecha_inicio: col('fecha_inicio') || undefined,
       sub_unidad_id: numCol('sub_unidad_id'),
       familiares: col('familiares') || undefined,
+      nivel_educativo: nivelEducativo,
+      fecha_ingreso_eta: col('fecha_ingreso_eta') || undefined,
+      fecha_egreso_eta: col('fecha_egreso_eta') || undefined,
+      numero_orden_egreso_eta: col('numero_orden_egreso_eta') || undefined,
+      mutaciones: col('mutaciones') || undefined,
     };
   }
 
@@ -369,8 +407,11 @@ export class PersonasCargaService {
           tipo_funcionario: datos.tipo_funcionario,
           sub_unidad_id: datos.sub_unidad_id ? BigInt(datos.sub_unidad_id) : undefined,
           observaciones: datos.observaciones,
+          mutaciones: datos.mutaciones,
         },
       });
+
+      await guardarLegajoEnTransaccion(tx, persona.id, datos);
 
       return Number(persona.id);
     });

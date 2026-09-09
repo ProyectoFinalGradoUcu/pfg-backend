@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Query, Body, Param, ParseIntPipe, Res,
+  Controller, Get, Post, Patch, Put, Delete, Query, Body, Param, ParseIntPipe, Res,
   UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -8,10 +8,12 @@ import type { Response } from 'express';
 import { SubalternosService } from './subalternos.service.js';
 import { PersonasCargaService } from './personas-carga.service.js';
 import { PersonalPerfilService } from './personal-perfil.service.js';
+import { LegajoMilitarService } from './legajo-militar.service.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
+import { LegajoMilitarDto } from './dto/legajo-militar.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
@@ -26,6 +28,7 @@ export class PersonasController {
     private readonly subalternosService: SubalternosService,
     private readonly cargaService: PersonasCargaService,
     private readonly perfilService: PersonalPerfilService,
+    private readonly legajoMilitarService: LegajoMilitarService,
   ) {}
 
   // ─── Listado ───────────────────────────────────────────────────────────────
@@ -181,6 +184,35 @@ export class PersonasController {
     @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.perfilService.findMisiones(id, alcance);
+  }
+
+  @ApiOperation({
+    summary:
+      'Datos militares del legajo: nivel educativo, egreso de la ETA y mutación de escalafón',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @RequireAlcance('personas.ver')
+  @Get(':id/legajo-militar')
+  obtenerLegajoMilitar(
+    @Param('id', ParseIntPipe) id: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.legajoMilitarService.obtener(id, alcance);
+  }
+
+  @ApiOperation({
+    summary: 'Guardar los datos militares del legajo que consultan las reglas de ascenso',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @RequireAlcance('personas.editar')
+  @Auditar({ contexto: 'Legajo militar', entidad: 'Legajo militar', accion: 'ACTUALIZAR' })
+  @Put(':id/legajo-militar')
+  guardarLegajoMilitar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: LegajoMilitarDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.legajoMilitarService.guardar(id, dto, alcance);
   }
 
   @ApiOperation({ summary: 'Historial de destinos (tab Destinos)' })

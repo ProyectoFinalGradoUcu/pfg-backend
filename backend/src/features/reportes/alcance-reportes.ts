@@ -14,6 +14,7 @@
 export const REPORTES_CON_ALCANCE_UNIDAD = new Set<string>([
   'compensacion-idoneidad',
   'movimientos-unidad',
+  'pasibles-ascenso',
   'porcentaje-mujeres',
   'prima-tecnica',
 ]);

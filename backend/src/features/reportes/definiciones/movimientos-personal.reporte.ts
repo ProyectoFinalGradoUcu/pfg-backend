@@ -95,9 +95,11 @@ export const movimientosPersonalReporte: DefinicionReporte = {
     });
 
     const ascRaw = await prisma.ascensos.findMany({
-      where: rango ? { fecha_ascenso: rango } : {},
+      // Un ascenso anulado no es una novedad del período: se revirtió.
+      where: { anulado_en: null, ...(rango ? { fecha_ascenso: rango } : {}) },
       include: {
         grados: true,
+        grados_grado_anterior: true,
         personas: {
           include: {
             relaciones_laborales: {
@@ -110,12 +112,14 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       },
       orderBy: [{ persona_id: 'asc' }, { fecha_ascenso: 'asc' }],
     });
-    // grado viejo = grado del ascenso previo de la misma persona (dentro del set)
+    // Sale de `grado_anterior_id`; la deducción por ascenso previo queda como
+    // respaldo para las filas viejas que no lo tienen cargado.
     const gradoPrevio = new Map<string, string>();
     const ascensos = ascRaw.map((a) => {
       const rel = a.personas?.relaciones_laborales?.[0];
       const claveP = a.persona_id?.toString() ?? '';
-      const gradoViejo = gradoPrevio.get(claveP) ?? '';
+      const gradoViejo =
+        a.grados_grado_anterior?.denominacion ?? gradoPrevio.get(claveP) ?? '';
       gradoPrevio.set(claveP, a.grados?.denominacion ?? '');
       return {
         cedula: a.personas?.cedula ?? '',
@@ -124,7 +128,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
         apellido: unir(a.personas?.primer_apellido, a.personas?.segundo_apellido),
         fecha: fmtFecha(a.fecha_ascenso),
         grado_nuevo: a.grados?.denominacion ?? '',
-        orden: a.observaciones ?? '',
+        orden: a.numero_orden ?? a.observaciones ?? '',
         unidad: rel?.unidades?.denominacion ?? '',
         ley: rel?.regimenes?.numero_ley ?? '',
       };
