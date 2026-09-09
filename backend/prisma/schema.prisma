@@ -804,6 +804,7 @@ model movimientos_laborales {
   relaciones_laborales relaciones_laborales @relation(fields: [relacion_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tipos_movimiento     tipos_movimiento     @relation(fields: [tipo_movimiento_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios             usuarios?            @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  retiros              retiros[]
 }
 
 model ocupaciones_vivienda {
@@ -901,7 +902,7 @@ model personas {
   relaciones_familiares_relaciones_familiares_persona_idTopersonas  relaciones_familiares[]             @relation("relaciones_familiares_persona_idTopersonas")
   relaciones_laborales                                              relaciones_laborales[]
   legajo_militar                                                    legajo_militar?
-  retiros                                                           retiros?
+  retiros                                                           retiros[]
   retroactividades                                                  retroactividades[]
   invitaciones                                                      invitaciones[]
   usuarios                                                          usuarios[]
@@ -998,6 +999,7 @@ model relaciones_laborales {
   situaciones                                                  situaciones                         @relation(fields: [situacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sub_unidades                                                 sub_unidades?                       @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   unidades                                                     unidades                            @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  retiros                                                      retiros[]
 
   @@index([grado_id], map: "idx_relaciones_laborales_grado")
   @@index([persona_id, estado], map: "idx_relaciones_laborales_persona_activo")
@@ -1023,12 +1025,33 @@ model remuneraciones_grado {
 }
 
 model retiros {
-  id           BigInt    @id @default(autoincrement())
-  persona_id   BigInt?   @unique
-  fecha_retiro DateTime? @db.Date
-  hora_retiro  DateTime? @db.Time(6)
-  motivo       String?
-  personas     personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                    BigInt                 @id @default(autoincrement())
+  persona_id            BigInt
+  relacion_laboral_id   BigInt
+  fecha_retiro          DateTime               @db.Date
+  hora_retiro           DateTime?              @db.Time(6)
+  motivo_baja_id        BigInt
+  motivo                String?
+  numero_orden          String?                @db.VarChar(50)
+  boletin               String?                @db.VarChar(50)
+  observaciones         String?
+  movimiento_laboral_id BigInt?
+  cierres_aplicados     Json                   @default("{}")
+  registrado_por        BigInt?
+  registrado_en         DateTime               @default(now()) @db.Timestamptz(6)
+  anulado               Boolean                @default(false)
+  motivo_anulacion      String?
+  fecha_anulacion       DateTime?              @db.Timestamptz(6)
+  anulado_por           BigInt?
+  personas              personas               @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  relaciones_laborales  relaciones_laborales   @relation(fields: [relacion_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  motivos_baja          motivos_baja           @relation(fields: [motivo_baja_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  movimientos_laborales movimientos_laborales? @relation(fields: [movimiento_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_registro     usuarios?              @relation("retiros_registrado_por", fields: [registrado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_anulacion    usuarios?              @relation("retiros_anulado_por", fields: [anulado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id], map: "idx_retiros_persona")
+  @@index([fecha_retiro], map: "idx_retiros_fecha")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1262,6 +1285,8 @@ model usuarios {
   personas                                                                   personas?                        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_roles                                                             usuarios_roles[]
   usuarios_unidades                                                          usuarios_unidades[]
+  retiros_registrados                                                        retiros[]                        @relation("retiros_registrado_por")
+  retiros_anulados                                                           retiros[]                        @relation("retiros_anulado_por")
 
   @@unique([username, aplicacion])
 }
@@ -1558,6 +1583,7 @@ model motivos_baja {
   denominacion         String                 @db.VarChar(200)
   vigente              Boolean                @default(true)
   relaciones_laborales relaciones_laborales[]
+  retiros              retiros[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

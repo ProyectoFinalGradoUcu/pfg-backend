@@ -9,6 +9,8 @@ import { SubalternosService } from './subalternos.service.js';
 import { PersonasCargaService } from './personas-carga.service.js';
 import { PersonalPerfilService } from './personal-perfil.service.js';
 import { LegajoMilitarService } from './legajo-militar.service.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../auth/types/auth.types.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
@@ -234,7 +236,8 @@ export class PersonasController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdatePersonalDto,
     @Alcance() alcance: AlcanceResuelto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.perfilService.update(id, dto, alcance);
+    return this.perfilService.update(id, dto, BigInt(user.id), alcance);
   }
 }

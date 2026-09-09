@@ -6,9 +6,10 @@ import { PersonasCargaService } from './personas-carga.service.js';
 import { PersonalPerfilService } from './personal-perfil.service.js';
 import { LegajoMilitarService } from './legajo-militar.service.js';
 import { AuthModule } from '../auth/auth.module';
+import { RetirosModule } from '../retiros/retiros.module.js';
 
 @Module({
-  imports: [AuthModule],
+  imports: [RetirosModule, AuthModule],
   controllers: [SubalternosController, PersonasController],
   providers: [
     SubalternosService,

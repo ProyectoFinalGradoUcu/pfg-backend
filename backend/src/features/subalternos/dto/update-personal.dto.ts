@@ -24,6 +24,11 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 5, description: 'ID del nuevo grado/rango' }) @IsOptional() @IsInt() grado_id?: number;
   @ApiPropertyOptional({ example: 2, description: 'ID de la unidad/destino' }) @IsOptional() @IsInt() unidad_id?: number;
   @ApiPropertyOptional({ example: 1, description: 'ID de la situación/estado' }) @IsOptional() @IsInt() situacion_id?: number;
+
+  @ApiPropertyOptional({
+    example: '2026-08-30',
+    description: 'Al setearla se cierra la carrera del funcionario con motivo FALLECIMIENTO',
+  }) @IsOptional() @IsDateString() fecha_fallecimiento?: string;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() regimen_id?: number;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() programa_id?: number;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() escalafon_id?: number;

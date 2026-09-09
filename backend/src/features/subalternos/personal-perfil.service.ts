@@ -21,10 +21,14 @@ import {
   NivelEducativo,
   esMutado,
 } from './legajo-militar.constants.js';
+import { CierreCarreraService } from '../retiros/cierre-carrera.service.js';
 
 @Injectable()
 export class PersonalPerfilService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cierre: CierreCarreraService,
+  ) {}
 
   // ─── GET /personas/:id ────────────────────────────────────────────────────
   async findOne(id: number, alcance?: AlcanceResuelto) {
@@ -299,7 +303,7 @@ export class PersonalPerfilService {
 
     await this.assertExiste(id);
 
-    const [ascensos, primeraRelacion, retiro] = await Promise.all([
+    const [ascensos, primeraRelacion, retiros, relacionActivaHoy] = await Promise.all([
       this.prisma.ascensos.findMany({
         where: { persona_id: BigInt(id) },
         orderBy: { fecha_ascenso: 'desc' },
@@ -327,9 +331,22 @@ export class PersonalPerfilService {
           grados: { select: { id: true, denominacion: true, codigo: true } },
         },
       }),
-      this.prisma.retiros.findUnique({
-        where: { persona_id: BigInt(id) },
-        select: { fecha_retiro: true, hora_retiro: true, motivo: true },
+      // Un funcionario puede tener más de un retiro: se retira, lo reincorporan
+      // y se vuelve a retirar. Los anulados (errores de carga) no cuentan.
+      this.prisma.retiros.findMany({
+        where: { persona_id: BigInt(id), anulado: false },
+        orderBy: { fecha_retiro: 'desc' },
+        select: {
+          id: true,
+          fecha_retiro: true,
+          hora_retiro: true,
+          motivo: true,
+          motivos_baja: { select: { codigo: true, denominacion: true } },
+        },
+      }),
+      this.prisma.relaciones_laborales.findFirst({
+        where: { persona_id: BigInt(id), estado: 'activo' },
+        select: { id: true },
       }),
     ]);
 
@@ -396,11 +413,18 @@ export class PersonalPerfilService {
 
     return {
       historial_rangos,
-      retiro: retiro ? {
-        fecha_retiro: retiro.fecha_retiro,
-        hora_retiro: retiro.hora_retiro,
-        motivo: retiro.motivo,
-      } : null,
+      retiros: retiros.map((r, idx) => ({
+        id: r.id.toString(),
+        fecha_retiro: r.fecha_retiro ? r.fecha_retiro.toISOString().split('T')[0] : null,
+        hora_retiro: r.hora_retiro ? r.hora_retiro.toISOString().split('T')[1].slice(0, 8) : null,
+        motivo: r.motivo,
+        motivo_baja: r.motivos_baja
+          ? { codigo: r.motivos_baja.codigo, denominacion: r.motivos_baja.denominacion }
+          : null,
+        // Solo el retiro más reciente puede estar en pie, y solo si la persona
+        // no volvió al servicio.
+        vigente: idx === 0 && relacionActivaHoy === null,
+      })),
     };
   }
 
@@ -517,7 +541,12 @@ export class PersonalPerfilService {
   }
 
   // ─── PATCH /personas/:id ──────────────────────────────────────────────────
-  async update(id: number, dto: UpdatePersonalDto, alcance?: AlcanceResuelto) {
+  async update(
+    id: number,
+    dto: UpdatePersonalDto,
+    autorId: bigint,
+    alcance?: AlcanceResuelto,
+  ) {
     await this.assertAlcance(id, alcance);
 
     const persona = await this.prisma.personas.findUnique({
@@ -581,6 +610,9 @@ export class PersonalPerfilService {
           etnia: dto.etnia,
           codigo_postal: dto.codigo_postal,
           seccional: dto.seccional,
+          ...(dto.fecha_fallecimiento !== undefined && {
+            fecha_fallecimiento: new Date(dto.fecha_fallecimiento),
+          }),
         },
       });
 
@@ -612,6 +644,34 @@ export class PersonalPerfilService {
 
       await guardarLegajoEnTransaccion(tx, BigInt(id), dto);
     });
+
+    // El fallecimiento es un hecho sobre la persona, pero cierra la carrera. La
+    // cascada vive una sola vez, en CierreCarreraService: acá es la segunda
+    // puerta, y va forzada porque un fallecido no elige qué cerrar.
+    if (dto.fecha_fallecimiento) {
+      const activa = await this.prisma.relaciones_laborales.findFirst({
+        where: { persona_id: BigInt(id), estado: 'activo' },
+        select: { id: true },
+      });
+
+      if (activa) {
+        const motivo = await this.prisma.motivos_baja.findFirst({
+          where: { codigo: 'FALLECIMIENTO' },
+          select: { id: true },
+        });
+        if (motivo) {
+          await this.cierre.cerrar({
+            personaId: id,
+            fechaRetiro: new Date(dto.fecha_fallecimiento),
+            motivoBajaId: Number(motivo.id),
+            motivo: 'Fallecimiento',
+            autorId,
+            cierres: { destino: true, inscripciones: [], usuario: true },
+            forzarCascada: true,
+          });
+        }
+      }
+    }
 
     // No hace falta invalidar ninguna sesion: la unidad del usuario del sistema es
     // independiente del destino del funcionario, y el filtrado de datos se resuelve por
