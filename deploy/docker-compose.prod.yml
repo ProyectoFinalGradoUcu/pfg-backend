@@ -22,8 +22,12 @@ services:
       - ./src/database/scripts/migracion_integracion_personal.sql:/docker-entrypoint-initdb.d/02_migracion_integracion_personal.sql:ro
       - ./src/database/scripts/seed_integracion_personal.sql:/docker-entrypoint-initdb.d/03_seed_integracion_personal.sql:ro
       - ./src/database/scripts/migration_aprobacion_cursos.sql:/docker-entrypoint-initdb.d/04_aprobacion_cursos.sql:ro
-      - ./src/database/scripts/seed_demo.sql:/docker-entrypoint-initdb.d/05_seed_demo.sql:ro
-      - ./src/database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/06_destinos_v2.sql:ro
+      # DDL del módulo de ascensos: va ANTES del seed, que ya usa las columnas nuevas.
+      - ./src/database/scripts/migration_ascensos.sql:/docker-entrypoint-initdb.d/05_migration_ascensos.sql:ro
+      - ./src/database/scripts/seed_demo.sql:/docker-entrypoint-initdb.d/06_seed_demo.sql:ro
+      - ./src/database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/07_destinos_v2.sql:ro
+      # Cursos y reglas FAU: necesitan el catálogo de grados y unidades ya cargado.
+      - ./src/database/scripts/seed_ascensos.sql:/docker-entrypoint-initdb.d/08_seed_ascensos.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s

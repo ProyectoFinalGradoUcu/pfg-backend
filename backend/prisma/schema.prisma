@@ -79,14 +79,131 @@ model aguinaldos {
   @@unique([persona_id, anio, semestre])
 }
 
+/// Historial de ascensos. Tabla NUESTRA: liquidación no la lee.
+/// Las columnas a partir de `orden_ascenso_id` las agrega migration_ascensos.sql.
 model ascensos {
-  id            BigInt    @id @default(autoincrement())
-  persona_id    BigInt?
-  grado_id      BigInt?
-  fecha_ascenso DateTime? @db.Date
-  observaciones String?
-  grados        grados?   @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  personas      personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                           BigInt    @id @default(autoincrement())
+  persona_id                   BigInt?
+  grado_id                     BigInt?
+  fecha_ascenso                DateTime? @db.Date
+  observaciones                String?
+  orden_ascenso_id             BigInt?
+  relacion_laboral_anterior_id BigInt?
+  relacion_laboral_nueva_id    BigInt?
+  grado_anterior_id            BigInt?
+  numero_orden                 String?   @db.VarChar(50)
+  regla_id                     BigInt?
+  cumplia_requisitos           Boolean?
+  evaluacion                   Json?
+  motivo_excepcion             String?
+  anulado_en                   DateTime? @db.Timestamp(6)
+  anulado_por                  BigInt?
+  motivo_anulacion             String?
+  registrado_por               BigInt?
+  creado_en                    DateTime  @default(now()) @db.Timestamp(6)
+
+  grados                    grados?               @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grados_grado_anterior     grados?               @relation("ascensos_grado_anterior_idTogrados", fields: [grado_anterior_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas                  personas?             @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ascensos_ordenes          ascensos_ordenes?     @relation(fields: [orden_ascenso_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ascensos_reglas           ascensos_reglas?      @relation(fields: [regla_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  relacion_laboral_anterior relaciones_laborales? @relation("ascensos_relacion_anterior", fields: [relacion_laboral_anterior_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  relacion_laboral_nueva    relaciones_laborales? @relation("ascensos_relacion_nueva", fields: [relacion_laboral_nueva_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario_registro          usuarios?             @relation("ascensos_registrado_por", fields: [registrado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario_anulacion         usuarios?             @relation("ascensos_anulado_por", fields: [anulado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id, fecha_ascenso(sort: Desc)], map: "idx_ascensos_persona_fecha")
+  @@index([orden_ascenso_id], map: "idx_ascensos_orden")
+}
+
+/// Orden administrativa (N.º de O.C.G.F.A.) que agrupa los ascensos. Tabla NUESTRA.
+model ascensos_ordenes {
+  id               BigInt    @id @default(autoincrement())
+  numero_orden     String?   @db.VarChar(50)
+  fecha_orden      DateTime  @db.Date
+  boletin          String?   @db.VarChar(50)
+  observaciones    String?
+  anulada_en       DateTime? @db.Timestamp(6)
+  anulada_por      BigInt?
+  motivo_anulacion String?
+  creada_por       BigInt?
+  creada_en        DateTime  @default(now()) @db.Timestamp(6)
+
+  ascensos          ascensos[]
+  usuario_creacion  usuarios?  @relation("ascensos_ordenes_creada_por", fields: [creada_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario_anulacion usuarios?  @relation("ascensos_ordenes_anulada_por", fields: [anulada_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([fecha_orden(sort: Desc)], map: "idx_ascensos_ordenes_fecha")
+  @@index([numero_orden], map: "idx_ascensos_ordenes_numero")
+}
+
+/// Regla "grado origen → grado destino" del módulo de ascensos. Tabla NUESTRA:
+/// `reglas_ascenso` (del equipo de liquidación) queda vacía y sin tocar.
+model ascensos_reglas {
+  id               BigInt    @id @default(autoincrement())
+  nombre           String    @db.VarChar(150)
+  grado_origen_id  BigInt
+  grado_destino_id BigInt
+  dias_minimos     Int
+  edad_maxima      Int?      @db.SmallInt
+  notas            String?
+  es_por_defecto   Boolean   @default(false)
+  activo           Boolean   @default(true)
+  vigente_desde    DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  vigente_hasta    DateTime? @db.Date
+  actualizado_por  BigInt?
+  actualizado_en   DateTime  @default(now()) @db.Timestamp(6)
+
+  grado_origen  grados    @relation("ascensos_reglas_grado_origen", fields: [grado_origen_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grado_destino grados    @relation("ascensos_reglas_grado_destino", fields: [grado_destino_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario       usuarios? @relation("ascensos_reglas_actualizado_por", fields: [actualizado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  requisitos ascensos_reglas_requisitos[]
+  ascensos   ascensos[]
+
+  @@index([grado_origen_id], map: "idx_ascensos_reglas_origen")
+}
+
+/// Requisito de una regla. `aplica_si` es una lista de condiciones: con que se
+/// cumpla una, el requisito aplica. '{SIEMPRE}' aplica siempre.
+model ascensos_reglas_requisitos {
+  id          BigInt   @id @default(autoincrement())
+  regla_id    BigInt
+  tipo        String   @db.VarChar(40)
+  descripcion String   @db.VarChar(200)
+  modo        String   @default("TODOS") @db.VarChar(10)
+  aplica_si   String[]
+  parametros  Json?
+  orden       Int      @default(1) @db.SmallInt
+
+  regla  ascensos_reglas                     @relation(fields: [regla_id], references: [id], onDelete: Cascade)
+  cursos ascensos_reglas_requisito_cursos[]
+
+  @@index([regla_id], map: "idx_ascensos_reglas_requisitos_regla")
+}
+
+/// Cursos concretos que satisfacen un requisito de tipo CURSO_APROBADO.
+model ascensos_reglas_requisito_cursos {
+  requisito_id BigInt
+  curso_id     BigInt
+
+  requisito ascensos_reglas_requisitos @relation(fields: [requisito_id], references: [id], onDelete: Cascade)
+  curso     cursos                     @relation(fields: [curso_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([requisito_id, curso_id])
+}
+
+/// Datos de legajo que las reglas necesitan y que liquidación no tiene. 1:1 con
+/// `personas`. La mutación NO va acá: se lee de `relaciones_laborales.mutaciones`.
+model legajo_militar {
+  persona_id              BigInt    @id
+  nivel_educativo         String?   @db.VarChar(30)
+  fecha_ingreso_eta       DateTime? @db.Date
+  fecha_egreso_eta        DateTime? @db.Date
+  numero_orden_egreso_eta String?   @db.VarChar(50)
+  actualizado_en          DateTime  @default(now()) @db.Timestamp(6)
+
+  personas personas @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model destinos {
@@ -281,6 +398,7 @@ model cursos {
   unidades            unidades?             @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   funcionarios_cursos funcionarios_cursos[]
   modulos_curso       modulos_curso[]
+  requisitos_ascenso  ascensos_reglas_requisito_cursos[]
 
   @@index([unidad_id], map: "idx_cursos_unidad")
 }
@@ -450,6 +568,9 @@ model grados {
   es_oficial                                                                                 Boolean                             @default(false)
   es_subalterno                                                                              Boolean                             @default(false)
   ascensos                                                                                   ascensos[]
+  ascensos_grado_anterior                                                                    ascensos[]                          @relation("ascensos_grado_anterior_idTogrados")
+  ascensos_reglas_origen                                                                     ascensos_reglas[]                   @relation("ascensos_reglas_grado_origen")
+  ascensos_reglas_destino                                                                    ascensos_reglas[]                   @relation("ascensos_reglas_grado_destino")
   compensaciones_diferencia_ascenso_compensaciones_diferencia_ascenso_grado_nuevo_idTogrados compensaciones_diferencia_ascenso[] @relation("compensaciones_diferencia_ascenso_grado_nuevo_idTogrados")
   compensaciones_diferencia_ascenso_compensaciones_diferencia_ascenso_grado_viejo_idTogrados compensaciones_diferencia_ascenso[] @relation("compensaciones_diferencia_ascenso_grado_viejo_idTogrados")
   config_compensaciones                                                                      config_compensaciones[]
@@ -779,6 +900,7 @@ model personas {
   relaciones_familiares_relaciones_familiares_familiar_idTopersonas relaciones_familiares[]             @relation("relaciones_familiares_familiar_idTopersonas")
   relaciones_familiares_relaciones_familiares_persona_idTopersonas  relaciones_familiares[]             @relation("relaciones_familiares_persona_idTopersonas")
   relaciones_laborales                                              relaciones_laborales[]
+  legajo_militar                                                    legajo_militar?
   retiros                                                           retiros?
   retroactividades                                                  retroactividades[]
   invitaciones                                                      invitaciones[]
@@ -862,6 +984,8 @@ model relaciones_laborales {
   categoria_viatico                                            Int                                 @default(0) @db.SmallInt
   usa_fonasa                                                   Boolean                             @default(false)
   compensaciones_diferencia_ascenso                            compensaciones_diferencia_ascenso[]
+  ascensos_como_relacion_anterior                              ascensos[]                          @relation("ascensos_relacion_anterior")
+  ascensos_como_relacion_nueva                                 ascensos[]                          @relation("ascensos_relacion_nueva")
   items_liquidacion                                            items_liquidacion[]
   movimientos_laborales                                        movimientos_laborales[]
   escalafones                                                  escalafones                         @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1130,6 +1254,11 @@ model usuarios {
   retroactividades_retroactividades_creado_porTousuarios                     retroactividades[]               @relation("retroactividades_creado_porTousuarios")
   invitaciones                                                               invitaciones[]
   tokens_reset_password                                                      tokens_reset_password[]
+  ascensos_registrados                                                       ascensos[]                       @relation("ascensos_registrado_por")
+  ascensos_anulados                                                          ascensos[]                       @relation("ascensos_anulado_por")
+  ascensos_ordenes_creadas                                                   ascensos_ordenes[]               @relation("ascensos_ordenes_creada_por")
+  ascensos_ordenes_anuladas                                                  ascensos_ordenes[]               @relation("ascensos_ordenes_anulada_por")
+  ascensos_reglas_actualizadas                                               ascensos_reglas[]                @relation("ascensos_reglas_actualizado_por")
   personas                                                                   personas?                        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_roles                                                             usuarios_roles[]
   usuarios_unidades                                                          usuarios_unidades[]
