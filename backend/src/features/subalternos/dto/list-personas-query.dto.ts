@@ -1,9 +1,15 @@
 import { Transform } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 const toInt = ({ value }: { value: unknown }) =>
   value === undefined ? undefined : Number(value);
+
+const toBool = ({ value }: { value: unknown }) => {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+};
 
 export class ListPersonasQueryDto {
   @ApiPropertyOptional({ example: 1 })
@@ -46,4 +52,14 @@ export class ListPersonasQueryDto {
   @IsInt()
   @Min(1)
   estado?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      'false (default) lista solo funcionarios con relación laboral abierta. true incluye a los retirados, que traen relacion_estado = "inactivo".',
+  })
+  @IsOptional()
+  @Transform(toBool)
+  @IsBoolean()
+  incluir_inactivos?: boolean;
 }
