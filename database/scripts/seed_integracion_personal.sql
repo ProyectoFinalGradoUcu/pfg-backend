@@ -216,7 +216,8 @@ SELECT nombre, descripcion FROM (VALUES
   ('Unidades',            'Gestión de unidades y sus roles'),
   ('Ascensos',            'Registro, consulta y anulación de ascensos y sus órdenes'),
   ('Reglas de ascenso',   'Reglas de ascenso y sus versiones'),
-  ('Legajo militar',      'Nivel educativo y egreso de la ETA de un funcionario')
+  ('Legajo militar',      'Nivel educativo y egreso de la ETA de un funcionario'),
+  ('Retiros',             'Registro de retiros, anulaciones y reincorporaciones')
 ) AS t(nombre, descripcion)
 ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
 

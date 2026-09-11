@@ -92,8 +92,12 @@ export class SubalternosService {
     // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
     const unidadesForzadas = alcance ? unidadIdsDeAlcance(alcance) : null;
 
+    // Un retirado tiene fecha_fin, así que por defecto queda fuera del listado.
+    // `incluir_inactivos` lo trae de vuelta con relacion_estado = 'inactivo'.
+    const soloAbiertas = query.incluir_inactivos !== true;
+
     const relacionWhere = {
-      fecha_fin: null,
+      ...(soloAbiertas && { fecha_fin: null }),
       ...(query.estado && { situacion_id: BigInt(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
     };
@@ -153,10 +157,11 @@ export class SubalternosService {
           primer_apellido: true,
           segundo_apellido: true,
           relaciones_laborales: {
-            where: { fecha_fin: null },
+            where: soloAbiertas ? { fecha_fin: null } : {},
             orderBy: { fecha_inicio: 'desc' },
             take: 1,
             select: {
+              estado: true,
               grados: { select: { denominacion: true } },
               situaciones: { select: { denominacion: true } },
             },
@@ -189,6 +194,7 @@ export class SubalternosService {
           rango: rel?.grados?.denominacion ?? null,
           destino: p.destinos[0]?.unidades?.denominacion ?? null,
           estado: rel?.situaciones?.denominacion ?? null,
+          relacion_estado: rel?.estado ?? null,
         };
       }),
       total,
