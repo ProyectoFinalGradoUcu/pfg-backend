@@ -179,10 +179,33 @@ export class CatalogosService {
   }
 
   async findGrados(escalafon_id?: number) {
+    const escalafon = escalafon_id
+      ? await this.prisma.escalafones.findUnique({
+          where: { id: BigInt(escalafon_id) },
+          select: { codigo: true },
+        })
+      : null;
+
+    let filtroEscalafon = {};
+    if (escalafon_id) {
+      if (!escalafon) return [];
+
+      // El catálogo compartido de producción no vincula los grados a escalafones.
+      // SG/ST usan la escala subalterna, AT la aerotécnica y el resto la oficial.
+      filtroEscalafon = {
+        OR: [
+          { escalafon_id: BigInt(escalafon_id) },
+          ...(escalafon.codigo === 'AT'
+            ? [{ codigo: { in: ['AT_2DA', 'AT_1RA', 'AT_PPAL', 'INST_AT', 'SUP_AT'] } }]
+            : [{ [escalafon.codigo === 'SG' || escalafon.codigo === 'ST' ? 'es_subalterno' : 'es_oficial']: true }]),
+        ],
+      };
+    }
+
     const items = await this.prisma.grados.findMany({
       where: {
         vigente: true,
-        ...(escalafon_id ? { escalafon_id: BigInt(escalafon_id) } : {}),
+        ...filtroEscalafon,
       },
       orderBy: { orden: 'asc' },
       select: { id: true, codigo: true, denominacion: true, escalafon_id: true, orden: true },
@@ -191,7 +214,7 @@ export class CatalogosService {
       id: Number(i.id),
       codigo: i.codigo,
       denominacion: i.denominacion,
-      escalafon_id: Number(i.escalafon_id),
+      escalafon_id: i.escalafon_id ? Number(i.escalafon_id) : null,
       orden: i.orden,
     }));
   }

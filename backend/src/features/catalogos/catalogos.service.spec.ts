@@ -34,9 +34,81 @@ const makePrismaMock = () => ({
   motivos_baja: {
     findMany: jest.fn(),
   },
+  escalafones: {
+    findUnique: jest.fn(),
+  },
+  grados: {
+    findMany: jest.fn(),
+  },
   relaciones_laborales: {
     count: jest.fn(),
   },
+});
+
+describe('CatalogosService · grados por escalafón', () => {
+  let service: CatalogosService;
+  let prisma: ReturnType<typeof makePrismaMock>;
+
+  beforeEach(async () => {
+    prisma = makePrismaMock();
+    const module = await Test.createTestingModule({
+      providers: [CatalogosService, { provide: PrismaService, useValue: prisma }],
+    }).compile();
+    service = module.get(CatalogosService);
+  });
+
+  it.each([
+    ['SG', { es_subalterno: true }],
+    ['ST', { es_subalterno: true }],
+    ['AV', { es_oficial: true }],
+  ])('usa la escala correspondiente cuando %s no tiene grados vinculados', async (codigo, fallback) => {
+    prisma.escalafones.findUnique.mockResolvedValue({ codigo });
+    prisma.grados.findMany.mockResolvedValue([]);
+
+    await service.findGrados(13);
+
+    expect(prisma.grados.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        vigente: true,
+        OR: [{ escalafon_id: 13n }, fallback],
+      },
+    }));
+  });
+
+  it('usa la escala propia de aerotécnicos para AT', async () => {
+    prisma.escalafones.findUnique.mockResolvedValue({ codigo: 'AT' });
+    prisma.grados.findMany.mockResolvedValue([]);
+
+    await service.findGrados(14);
+
+    expect(prisma.grados.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        vigente: true,
+        OR: [
+          { escalafon_id: 14n },
+          { codigo: { in: ['AT_2DA', 'AT_1RA', 'AT_PPAL', 'INST_AT', 'SUP_AT'] } },
+        ],
+      },
+    }));
+  });
+
+  it('devuelve el escalafón como null cuando el catálogo compartido no lo informa', async () => {
+    prisma.escalafones.findUnique.mockResolvedValue({ codigo: 'AV' });
+    prisma.grados.findMany.mockResolvedValue([
+      { id: 7n, codigo: 'ALF', denominacion: 'Alf.', escalafon_id: null, orden: 7 },
+    ]);
+
+    await expect(service.findGrados(1)).resolves.toEqual([
+      { id: 7, codigo: 'ALF', denominacion: 'Alf.', escalafon_id: null, orden: 7 },
+    ]);
+  });
+
+  it('devuelve vacío si el escalafón no existe', async () => {
+    prisma.escalafones.findUnique.mockResolvedValue(null);
+
+    await expect(service.findGrados(999)).resolves.toEqual([]);
+    expect(prisma.grados.findMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('CatalogosService · unidades', () => {
