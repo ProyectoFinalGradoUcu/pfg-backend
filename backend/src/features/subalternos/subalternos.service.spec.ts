@@ -34,6 +34,9 @@ describe('SubalternosService', () => {
         }),
         deleteMany: jest.fn(),
       },
+      destinos: {
+        create: jest.fn(),
+      },
       $transaction: jest.fn((cb) => cb(prisma)),
     };
     service = new SubalternosService(prisma);
@@ -189,6 +192,14 @@ describe('SubalternosService', () => {
       expect(r.relacion_laboral.tipo_funcionario).toBe('subalterno');
     });
 
+    it('Crea también el destino en la unidad de alta, para que aparezca en el listado por unidad', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      await service.create(dto);
+      expect(prisma.destinos.create).toHaveBeenCalledWith({
+        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dto.fecha_inicio) },
+      });
+    });
+
     it('Falla si la cédula ya existe', async () => {
       prisma.personas.findUnique.mockResolvedValue({ id: 99n });
       await expect(service.create(dto)).rejects.toThrow(ConflictException);
@@ -290,6 +301,14 @@ describe('SubalternosService', () => {
       await service.createPersonal(dtoMilitar);
 
       expect(prisma.relaciones_familiares.createMany).not.toHaveBeenCalled();
+    });
+
+    it('Crea también el destino en la unidad de alta, para que aparezca en el listado por unidad', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      await service.createPersonal(dtoMilitar);
+      expect(prisma.destinos.create).toHaveBeenCalledWith({
+        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
+      });
     });
   });
 
