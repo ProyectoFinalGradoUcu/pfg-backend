@@ -256,6 +256,14 @@ export class SubalternosService {
         },
       });
 
+      await tx.destinos.create({
+        data: {
+          persona_id: persona.id,
+          unidad_id: BigInt(dto.unidad_id),
+          fecha_inicio: new Date(dto.fecha_inicio),
+        },
+      });
+
       return {
         id: Number(persona.id),
         cedula: persona.cedula,
@@ -482,6 +490,14 @@ export class SubalternosService {
             })),
           });
         }
+
+        await tx.destinos.create({
+          data: {
+            persona_id: persona.id,
+            unidad_id: BigInt(dto.unidad_id!),
+            fecha_inicio: new Date(dto.fecha_inicio!),
+          },
+        });
 
         await guardarLegajoEnTransaccion(tx, persona.id, dto);
 
