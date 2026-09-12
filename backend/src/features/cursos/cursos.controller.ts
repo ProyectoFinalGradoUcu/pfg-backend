@@ -115,8 +115,8 @@ export class CursosController {
   @Patch(':cursoId/designaciones/:designacionId')
   @RequireAlcance('cursos.gestionar')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Cargar calificación', description: 'Actualiza la calificación de una designación y marca el estado como completado.' })
-  @ApiResponse({ status: 200, description: 'Calificación registrada.' })
+  @ApiOperation({ summary: 'Registrar resultado', description: 'Marca la designación como aprobada o desaprobada. La calificación y la observación son opcionales.' })
+  @ApiResponse({ status: 200, description: 'Resultado registrado.' })
   @ApiResponse({ status: 404, description: 'Designación no encontrada.' })
   async actualizarDesignacion(
     @Param('cursoId', ParseIntPipe) cursoId: number,

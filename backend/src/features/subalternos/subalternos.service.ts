@@ -15,7 +15,9 @@ import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
+import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -90,8 +92,12 @@ export class SubalternosService {
     // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
     const unidadesForzadas = alcance ? unidadIdsDeAlcance(alcance) : null;
 
+    // Un retirado tiene fecha_fin, así que por defecto queda fuera del listado.
+    // `incluir_inactivos` lo trae de vuelta con relacion_estado = 'inactivo'.
+    const soloAbiertas = query.incluir_inactivos !== true;
+
     const relacionWhere = {
-      fecha_fin: null,
+      ...(soloAbiertas && { fecha_fin: null }),
       ...(query.estado && { situacion_id: BigInt(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
     };
@@ -151,10 +157,11 @@ export class SubalternosService {
           primer_apellido: true,
           segundo_apellido: true,
           relaciones_laborales: {
-            where: { fecha_fin: null },
+            where: soloAbiertas ? { fecha_fin: null } : {},
             orderBy: { fecha_inicio: 'desc' },
             take: 1,
             select: {
+              estado: true,
               grados: { select: { denominacion: true } },
               situaciones: { select: { denominacion: true } },
             },
@@ -187,6 +194,7 @@ export class SubalternosService {
           rango: rel?.grados?.denominacion ?? null,
           destino: p.destinos[0]?.unidades?.denominacion ?? null,
           estado: rel?.situaciones?.denominacion ?? null,
+          relacion_estado: rel?.estado ?? null,
         };
       }),
       total,
@@ -248,6 +256,14 @@ export class SubalternosService {
         },
       });
 
+      await tx.destinos.create({
+        data: {
+          persona_id: persona.id,
+          unidad_id: BigInt(dto.unidad_id),
+          fecha_inicio: new Date(dto.fecha_inicio),
+        },
+      });
+
       return {
         id: Number(persona.id),
         cedula: persona.cedula,
@@ -296,6 +312,26 @@ export class SubalternosService {
     return this.createPersonalMilitar(dto);
   }
 
+  /**
+   * El familiar debe ser una persona ya registrada y militar (es_civil = false),
+   * sin importar si quien lo agrega es civil o militar.
+   */
+  private async resolverFamiliares(familiares: FamiliarDto[]) {
+    type PersonaFamiliar = { id: bigint; cedula: string; primer_nombre: string; primer_apellido: string; es_civil: boolean | null };
+    const cedulasFamiliares = familiares.map((f) => f.cedula);
+    const personasEncontradas = (await this.prisma.personas.findMany({
+      where: { cedula: { in: cedulasFamiliares } },
+      select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true, es_civil: true },
+    })) as unknown as PersonaFamiliar[];
+    const porCedula = new Map(personasEncontradas.map((p) => [p.cedula, p]));
+    for (const f of familiares) {
+      const persona = porCedula.get(f.cedula);
+      if (!persona) throw new BadRequestException(`No existe ningún personal registrado con cédula ${f.cedula}`);
+      if (persona.es_civil) throw new BadRequestException(`El familiar con cédula ${f.cedula} es civil. Debe ser un oficial o subalterno`);
+    }
+    return familiares.map((f) => ({ ...porCedula.get(f.cedula)!, tipo_relacion: f.tipo_relacion }));
+  }
+
   private async createPersonalCivil(dto: CreatePersonalDto) {
     if (!dto.familiares || dto.familiares.length === 0) {
       throw new BadRequestException(
@@ -303,19 +339,7 @@ export class SubalternosService {
       );
     }
 
-    type PersonaFamiliar = { id: bigint; cedula: string; primer_nombre: string; primer_apellido: string; es_civil: boolean | null };
-    const cedulasFamiliares = dto.familiares.map((f) => f.cedula);
-    const personasEncontradas = (await this.prisma.personas.findMany({
-      where: { cedula: { in: cedulasFamiliares } },
-      select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true, es_civil: true },
-    })) as unknown as PersonaFamiliar[];
-    const porCedula = new Map(personasEncontradas.map((p) => [p.cedula, p]));
-    for (const f of dto.familiares) {
-      const persona = porCedula.get(f.cedula);
-      if (!persona) throw new BadRequestException(`No existe ningún personal registrado con cédula ${f.cedula}`);
-      if (persona.es_civil) throw new BadRequestException(`El familiar con cédula ${f.cedula} es civil. Debe ser un oficial o subalterno`);
-    }
-    const familiaresResueltos = dto.familiares.map((f) => ({ ...porCedula.get(f.cedula)!, tipo_relacion: f.tipo_relacion }));
+    const familiaresResueltos = await this.resolverFamiliares(dto.familiares);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -399,6 +423,10 @@ export class SubalternosService {
 
     assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
 
+    const familiaresResueltos = dto.familiares && dto.familiares.length > 0
+      ? await this.resolverFamiliares(dto.familiares)
+      : [];
+
     try {
       return await this.prisma.$transaction(async (tx) => {
         const persona = await tx.personas.create({
@@ -440,6 +468,7 @@ export class SubalternosService {
             prima_tecnica: dto.prima_tecnica,
             tiene_mando: dto.tiene_mando,
             observaciones: dto.observaciones,
+            mutaciones: dto.mutaciones ?? undefined,
           },
           include: {
             grados: { select: { denominacion: true } },
@@ -451,6 +480,26 @@ export class SubalternosService {
             sub_unidades: { select: { denominacion: true } },
           },
         });
+
+        if (familiaresResueltos.length > 0) {
+          await tx.relaciones_familiares.createMany({
+            data: familiaresResueltos.map((f) => ({
+              persona_id: persona.id,
+              familiar_id: f.id,
+              tipo_relacion: f.tipo_relacion ?? null,
+            })),
+          });
+        }
+
+        await tx.destinos.create({
+          data: {
+            persona_id: persona.id,
+            unidad_id: BigInt(dto.unidad_id!),
+            fecha_inicio: new Date(dto.fecha_inicio!),
+          },
+        });
+
+        await guardarLegajoEnTransaccion(tx, persona.id, dto);
 
         return {
           id: Number(persona.id),
@@ -470,6 +519,12 @@ export class SubalternosService {
           codigo_postal: persona.codigo_postal,
           seccional: persona.seccional,
           es_civil: false,
+          familiares: familiaresResueltos.map((f) => ({
+            id: Number(f.id),
+            cedula: f.cedula,
+            nombre: `${f.primer_nombre} ${f.primer_apellido}`,
+            tipo_relacion: f.tipo_relacion ?? null,
+          })),
           relacion_laboral: {
             id: Number(relacion.id),
             tipo_funcionario: relacion.tipo_funcionario,

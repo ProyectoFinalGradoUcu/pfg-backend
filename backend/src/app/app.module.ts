@@ -12,6 +12,7 @@ import { UsuariosModule } from '../features/usuarios/usuarios.module';
 import { SubalternosModule } from '../features/subalternos/subalternos.module';
 import { MisionesModule } from '../features/misiones/misiones.module';
 import { DestinosModule } from '../features/destinos/destinos.module';
+import { RetirosModule } from '../features/retiros/retiros.module';
 import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
 import { SesionesModule } from '../lib/sesiones/sesiones.module';
@@ -22,6 +23,7 @@ import { HistorialCursosModule } from '../features/historial-cursos/historial-cu
 import { AuditoriaModule } from '../features/auditoria/auditoria.module';
 import { AuditoriaHttpModule } from '../features/auditoria/auditoria-http.module';
 import { ReportesModule } from '../features/reportes/reportes.module';
+import { AscensosModule } from '../features/ascensos/ascensos.module';
 
 @Module({
   imports: [
@@ -40,12 +42,14 @@ import { ReportesModule } from '../features/reportes/reportes.module';
     SubalternosModule,
     MisionesModule,
     DestinosModule,
+    RetirosModule,
     FilesModule,
     CursosModule,
     CatalogosModule,
     HistorialCursosModule,
     AuditoriaHttpModule,
     ReportesModule,
+    AscensosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

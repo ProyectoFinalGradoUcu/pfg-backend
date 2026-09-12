@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Query, Body, Param, ParseIntPipe, Res,
+  Controller, Get, Post, Patch, Put, Delete, Query, Body, Param, ParseIntPipe, Res,
   UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -8,9 +8,14 @@ import type { Response } from 'express';
 import { SubalternosService } from './subalternos.service.js';
 import { PersonasCargaService } from './personas-carga.service.js';
 import { PersonalPerfilService } from './personal-perfil.service.js';
+import { LegajoMilitarService } from './legajo-militar.service.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../auth/types/auth.types.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
+import { FamiliarDto } from './dto/familiar.dto.js';
+import { LegajoMilitarDto } from './dto/legajo-militar.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
@@ -25,6 +30,7 @@ export class PersonasController {
     private readonly subalternosService: SubalternosService,
     private readonly cargaService: PersonasCargaService,
     private readonly perfilService: PersonalPerfilService,
+    private readonly legajoMilitarService: LegajoMilitarService,
   ) {}
 
   // ─── Listado ───────────────────────────────────────────────────────────────
@@ -85,6 +91,19 @@ export class PersonasController {
     return this.subalternosService.createPersonal(dto, alcance);
   }
 
+  // ─── Familiares por cédula ────────────────────────────────────────────────
+
+  @ApiOperation({ summary: 'Familiares vinculados a un funcionario, buscando por cédula' })
+  @ApiParam({ name: 'cedula', type: String })
+  @RequireAlcance('personas.ver')
+  @Get('cedula/:cedula/familiares')
+  findFamiliaresPorCedula(
+    @Param('cedula') cedula: string,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.findFamiliaresPorCedula(cedula, alcance);
+  }
+
   // ─── Detalle ──────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Datos personales + relación laboral activa (tab Datos Personales)' })
@@ -107,6 +126,33 @@ export class PersonasController {
     @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.perfilService.findFamiliares(id, alcance);
+  }
+
+  @ApiOperation({ summary: 'Vincular un familiar ya registrado (debe ser oficial o subalterno)' })
+  @ApiParam({ name: 'id', type: Number })
+  @RequireAlcance('personas.editar')
+  @Post(':id/familiares')
+  addFamiliar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FamiliarDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.addFamiliar(id, dto, alcance);
+  }
+
+  @ApiOperation({ summary: 'Desvincular un familiar' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiParam({ name: 'familiarId', type: Number })
+  @ApiResponse({ status: 200, description: 'Familiar desvinculado.' })
+  @ApiResponse({ status: 404, description: 'No existe ese vínculo familiar.' })
+  @RequireAlcance('personas.editar')
+  @Delete(':id/familiares/:familiarId')
+  removeFamiliar(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('familiarId', ParseIntPipe) familiarId: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.removeFamiliar(id, familiarId, alcance);
   }
 
   @ApiOperation({ summary: 'Historial de rangos / ascensos (tab Historial Militar)' })
@@ -142,6 +188,35 @@ export class PersonasController {
     return this.perfilService.findMisiones(id, alcance);
   }
 
+  @ApiOperation({
+    summary:
+      'Datos militares del legajo: nivel educativo, egreso de la ETA y mutación de escalafón',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @RequireAlcance('personas.ver')
+  @Get(':id/legajo-militar')
+  obtenerLegajoMilitar(
+    @Param('id', ParseIntPipe) id: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.legajoMilitarService.obtener(id, alcance);
+  }
+
+  @ApiOperation({
+    summary: 'Guardar los datos militares del legajo que consultan las reglas de ascenso',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @RequireAlcance('personas.editar')
+  @Auditar({ contexto: 'Legajo militar', entidad: 'Legajo militar', accion: 'ACTUALIZAR' })
+  @Put(':id/legajo-militar')
+  guardarLegajoMilitar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: LegajoMilitarDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.legajoMilitarService.guardar(id, dto, alcance);
+  }
+
   @ApiOperation({ summary: 'Historial de destinos (tab Destinos)' })
   @ApiParam({ name: 'id', type: Number })
   @RequirePermissions('personas.ver')
@@ -161,7 +236,8 @@ export class PersonasController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdatePersonalDto,
     @Alcance() alcance: AlcanceResuelto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.perfilService.update(id, dto, alcance);
+    return this.perfilService.update(id, dto, BigInt(user.id), alcance);
   }
 }

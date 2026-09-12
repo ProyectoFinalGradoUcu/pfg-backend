@@ -65,6 +65,7 @@ export class ServiceResponseInterceptor implements NestInterceptor {
   }
 
   private normalizeJson<T>(value: T): T {
+    if (value === undefined) return null as T;
     return JSON.parse(this.safeStringify(value)) as T;
   }
 

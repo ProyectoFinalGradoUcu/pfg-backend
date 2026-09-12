@@ -29,6 +29,11 @@ SELECT nombre, descripcion, 'personal' FROM (VALUES
   -- Ascensos
   ('ascensos.ver',                    'Consultar ascensos'),
   ('ascensos.registrar',              'Registrar ascensos'),
+  ('ascensos.anular',                 'Anular órdenes de ascenso y ascensos puntuales'),
+  ('ascensos.excepcion',              'Registrar un ascenso por excepción, sin cumplir la regla'),
+  -- Reglas de ascenso
+  ('reglas_ascenso.ver',              'Consultar las reglas de ascenso y sus versiones'),
+  ('reglas_ascenso.gestionar',        'Crear, editar y desactivar reglas de ascenso'),
   -- Retiros
   ('retiros.ver',                     'Consultar retiros'),
   ('retiros.registrar',               'Registrar retiros'),
@@ -70,7 +75,8 @@ SELECT nombre, descripcion, 'personal' FROM (VALUES
   ('personas.eliminar.unidad',        'Eliminar únicamente el personal de la propia unidad'),
   ('cursos.ver.unidad',               'Consultar los cursos de la propia unidad y los generales'),
   ('cursos.gestionar.unidad',         'Crear y modificar únicamente los cursos de la propia unidad'),
-  ('reportes.ejecutar.unidad',        'Ejecutar reportes acotados a la propia unidad')
+  ('reportes.ejecutar.unidad',        'Ejecutar reportes acotados a la propia unidad'),
+  ('ascensos.ver.unidad',             'Consultar los ascensos y pasibles únicamente de la propia unidad')
 ) AS t(nombre, descripcion)
 ON CONFLICT (nombre, aplicacion) DO NOTHING;
 
@@ -107,7 +113,8 @@ FROM roles r
 JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'personas.ver', 'personas.crear', 'personas.editar', 'personas.eliminar',
   'relaciones_laborales.ver', 'relaciones_laborales.gestionar',
-  'ascensos.ver', 'ascensos.registrar',
+  'ascensos.ver', 'ascensos.registrar', 'ascensos.anular', 'ascensos.excepcion',
+  'reglas_ascenso.ver', 'reglas_ascenso.gestionar',
   'retiros.ver', 'retiros.registrar',
   'destinos.ver', 'destinos.gestionar',
   'misiones.ver', 'misiones.gestionar',
@@ -129,6 +136,7 @@ JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'personas.ver',
   'relaciones_laborales.ver',
   'ascensos.ver',
+  'reglas_ascenso.ver',
   'retiros.ver',
   'destinos.ver',
   'misiones.ver',
@@ -182,7 +190,12 @@ SELECT nombre, descripcion FROM (VALUES
   ('DESCARGAR',         'Descarga o exportación de datos'),
   ('unidad_rol.agregar',             'Se asignó un rol a una unidad'),
   ('unidad_rol.quitar',              'Se quitó un rol de una unidad'),
-  ('relacion_laboral.cambio_unidad', 'Se cambió el destino de un funcionario')
+  ('relacion_laboral.cambio_unidad', 'Se cambió el destino de un funcionario'),
+  ('ascenso.registrar',              'Se registró una orden de ascenso'),
+  ('ascenso.anular',                 'Se anuló un ascenso puntual'),
+  ('orden_ascenso.anular',           'Se anuló una orden de ascenso completa'),
+  ('regla_ascenso.desactivar',       'Se desactivó una regla de ascenso'),
+  ('regla_ascenso.restaurar',        'Se restauraron las reglas de ascenso por defecto de la FAU')
 ) AS t(nombre, descripcion)
 ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
 
@@ -200,7 +213,11 @@ SELECT nombre, descripcion FROM (VALUES
   ('Historial de cursos', 'Registro histórico de cursos por funcionario'),
   ('Catálogos',           'Catálogos del sistema'),
   ('Archivos',            'Carga y borrado de archivos'),
-  ('Unidades',            'Gestión de unidades y sus roles')
+  ('Unidades',            'Gestión de unidades y sus roles'),
+  ('Ascensos',            'Registro, consulta y anulación de ascensos y sus órdenes'),
+  ('Reglas de ascenso',   'Reglas de ascenso y sus versiones'),
+  ('Legajo militar',      'Nivel educativo y egreso de la ETA de un funcionario'),
+  ('Retiros',             'Registro de retiros, anulaciones y reincorporaciones')
 ) AS t(nombre, descripcion)
 ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
 

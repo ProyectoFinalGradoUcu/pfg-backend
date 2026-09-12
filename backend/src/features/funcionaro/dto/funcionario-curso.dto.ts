@@ -1,8 +1,12 @@
 import {
-  IsString,
-  IsOptional,
-  MaxLength,
+  IsBoolean,
   IsDate,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CursoDto } from '../../cursos/dto/curso.dto';
@@ -23,11 +27,23 @@ export class FuncionarioCursoDto {
   @IsDate()
   fecha_fin?: string;
 
-  @ApiPropertyOptional({ example: '100', maxLength: 100 })
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  aprobado?: boolean;
+
+  @ApiPropertyOptional({ example: 8, minimum: 1, maximum: 10 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  calificacion?: number;
+
+  @ApiPropertyOptional({ example: 'No alcanzó el mínimo de asistencia', maxLength: 500 })
   @IsOptional()
   @IsString()
-  @MaxLength(50)
-  calificacion?: string;
+  @MaxLength(500)
+  observacion?: string;
 
   @ApiPropertyOptional({ example: 'ORD-1542', maxLength: 50, description: 'Orden que designa el curso (nivel inscripción)' })
   @IsOptional()
