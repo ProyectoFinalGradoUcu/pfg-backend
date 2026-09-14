@@ -28,7 +28,8 @@ services:
       - ./src/database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/07_destinos_v2.sql:ro
       # Cursos y reglas FAU: necesitan el catálogo de grados y unidades ya cargado.
       - ./src/database/scripts/seed_ascensos.sql:/docker-entrypoint-initdb.d/08_seed_ascensos.sql:ro
-      - ./src/database/scripts/migration_retiros_v2.sql:/docker-entrypoint-initdb.d/09_retiros_v2.sql:ro
+      - ./src/database/scripts/seed_retiros.sql:/docker-entrypoint-initdb.d/09_seed_retiros.sql:ro
+      - ./src/database/scripts/migration_retiros_v2.sql:/docker-entrypoint-initdb.d/10_retiros_v2.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s

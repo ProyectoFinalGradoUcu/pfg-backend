@@ -13,4 +13,5 @@ database/scripts/seed_integracion_personal.sql
 database/scripts/migration_ascensos.sql
 database/scripts/seed_ascensos.sql
 
+database/scripts/seed_retiros.sql
 database/scripts/migration_retiros_v2.sql
