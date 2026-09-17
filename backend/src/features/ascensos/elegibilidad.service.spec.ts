@@ -543,6 +543,16 @@ describe('ElegibilidadService', () => {
       expect(where.personas).toEqual({ es_civil: false });
     });
 
+    it('no cuenta los retiros anulados: un reincorporado no queda bloqueado', async () => {
+      prisma.relaciones_laborales.findMany.mockResolvedValue([makeRelacionFila()]);
+      prisma.ascensos_reglas.findMany.mockResolvedValue([makeReglaFila()]);
+
+      await service.listarPasibles();
+
+      const where = prisma.retiros.findMany.mock.calls[0][0].where;
+      expect(where.anulado).toBe(false);
+    });
+
     it('con alcance de unidad filtra por las unidades del usuario', async () => {
       await service.listarPasibles({}, { tipo: 'unidad', unidadIds: ['5', '7'] });
 
