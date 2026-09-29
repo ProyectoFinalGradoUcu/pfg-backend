@@ -63,7 +63,7 @@ const requisitoCurso = (overrides: Partial<ReglaEvaluable['requisitos'][number]>
   descripcion: 'Curso de pasaje de grado (M-02)',
   modo: 'TODOS',
   aplica_si: ['SIEMPRE'],
-  parametros: null,
+  anios_antiguedad: null,
   orden: 1,
   cursos: [{ id: '12', nombre: 'Curso M-02' }],
   ...overrides,
@@ -543,6 +543,16 @@ describe('ElegibilidadService', () => {
       expect(where.personas).toEqual({ es_civil: false });
     });
 
+    it('no cuenta los retiros anulados: un reincorporado no queda bloqueado', async () => {
+      prisma.relaciones_laborales.findMany.mockResolvedValue([makeRelacionFila()]);
+      prisma.ascensos_reglas.findMany.mockResolvedValue([makeReglaFila()]);
+
+      await service.listarPasibles();
+
+      const where = prisma.retiros.findMany.mock.calls[0][0].where;
+      expect(where.anulado).toBe(false);
+    });
+
     it('con alcance de unidad filtra por las unidades del usuario', async () => {
       await service.listarPasibles({}, { tipo: 'unidad', unidadIds: ['5', '7'] });
 
@@ -623,7 +633,7 @@ describe('ElegibilidadService', () => {
               descripcion: 'Curso de pasaje',
               modo: 'TODOS',
               aplica_si: ['SIEMPRE'],
-              parametros: null,
+              anios_antiguedad: null,
               orden: 1,
               cursos: [{ curso: { id: 12n, nombre_curso: 'Curso M-02' } }],
             },

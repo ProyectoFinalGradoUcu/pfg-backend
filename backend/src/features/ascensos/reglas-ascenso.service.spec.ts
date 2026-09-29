@@ -28,7 +28,7 @@ const makeRequisito = (overrides: Partial<any> = {}) => ({
   descripcion: 'Curso de pasaje de grado (M-02)',
   modo: 'TODOS',
   aplica_si: ['ES_MUTADO', 'NIVEL_LICEAL'],
-  parametros: null,
+  anios_antiguedad: null,
   orden: 1,
   cursos: [
     { curso_id: 12n, curso: { id: 12n, nombre_curso: 'Curso M-02', institucion: 'ETA' } },
@@ -264,6 +264,39 @@ describe('ReglasAscensoService', () => {
           ...dto,
           requisitos: [
             { tipo: 'CURSO_APROBADO', descripcion: 'Curso fantasma', cursos_ids: [999] },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza un requisito de antigüedad de servicio sin años definidos', async () => {
+      gradosOk();
+      prisma.ascensos_reglas.create.mockResolvedValue({ id: 40n });
+
+      await expect(
+        service.crear({
+          ...dto,
+          requisitos: [
+            { tipo: 'ANTIGUEDAD_SERVICIO', descripcion: 'Antigüedad de servicio' },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza un requisito de antigüedad de servicio con cursos vinculados', async () => {
+      gradosOk();
+      prisma.ascensos_reglas.create.mockResolvedValue({ id: 40n });
+
+      await expect(
+        service.crear({
+          ...dto,
+          requisitos: [
+            {
+              tipo: 'ANTIGUEDAD_SERVICIO',
+              descripcion: 'Antigüedad de servicio',
+              anios_antiguedad: 10,
+              cursos_ids: [12],
+            },
           ],
         }),
       ).rejects.toThrow(BadRequestException);
