@@ -338,7 +338,7 @@ export class ElegibilidadService {
         select: { persona_id: true, nivel_educativo: true, fecha_egreso_eta: true },
       }),
       this.prisma.retiros.findMany({
-        where: { persona_id: { in: idsDePersonas } },
+        where: { persona_id: { in: idsDePersonas }, anulado: false },
         select: { persona_id: true, fecha_retiro: true },
       }),
     ]);
