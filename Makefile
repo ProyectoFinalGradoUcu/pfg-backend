@@ -103,6 +103,7 @@ seed-destinos:
 
 migrate-ascensos:
 	$(PSQL) < database/scripts/migration_ascensos.sql
+	$(PSQL) < database/scripts/migration_ascensos_v2.sql
 	@echo "  [ok] Tablas del modulo de ascensos creadas"
 
 seed-ascensos:

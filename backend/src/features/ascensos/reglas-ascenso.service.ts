@@ -460,6 +460,19 @@ export class ReglasAscensoService {
         );
       }
 
+      if (req.tipo === 'ANTIGUEDAD_SERVICIO') {
+        if (req.anios_antiguedad == null || req.anios_antiguedad <= 0) {
+          throw new BadRequestException(
+            `El requisito "${req.descripcion}" es de antigüedad de servicio y no tiene años definidos`,
+          );
+        }
+        if ((req.cursos_ids ?? []).length > 0) {
+          throw new BadRequestException(
+            `El requisito "${req.descripcion}" es de antigüedad de servicio y no puede tener cursos vinculados`,
+          );
+        }
+      }
+
       const creado = await tx.ascensos_reglas_requisitos.create({
         data: {
           regla_id: reglaId,
@@ -467,7 +480,7 @@ export class ReglasAscensoService {
           descripcion: req.descripcion,
           modo: req.modo ?? 'TODOS',
           aplica_si: req.aplica_si ?? ['SIEMPRE'],
-          parametros: (req.parametros as Prisma.InputJsonValue) ?? Prisma.DbNull,
+          anios_antiguedad: req.anios_antiguedad ?? null,
           orden: req.orden ?? i + 1,
         },
       });
@@ -498,7 +511,7 @@ export class ReglasAscensoService {
       descripcion: req.descripcion,
       modo: req.modo,
       aplica_si: req.aplica_si,
-      parametros: (req.parametros as Record<string, unknown>) ?? undefined,
+      anios_antiguedad: req.anios_antiguedad ?? undefined,
       orden: req.orden,
       cursos_ids: req.cursos.map((c) => Number(c.curso_id)),
     };
@@ -546,7 +559,7 @@ export class ReglasAscensoService {
         descripcion: req.descripcion,
         modo: req.modo,
         aplica_si: req.aplica_si,
-        parametros: req.parametros,
+        anios_antiguedad: req.anios_antiguedad,
         orden: req.orden,
         cursos: req.cursos.map((c) => ({
           id: c.curso.id,

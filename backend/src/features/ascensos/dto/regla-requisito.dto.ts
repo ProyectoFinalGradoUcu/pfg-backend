@@ -3,9 +3,9 @@ import {
   IsArray,
   IsIn,
   IsInt,
-  IsObject,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -49,12 +49,14 @@ export class ReglaRequisitoDto {
   aplica_si?: string[];
 
   @ApiPropertyOptional({
-    example: { anios_minimos: 15 },
-    description: 'Parámetros del requisito. Para ANTIGUEDAD_SERVICIO: { anios_minimos }.',
+    example: 15,
+    description: 'Años de antigüedad requeridos. Obligatorio si tipo = ANTIGUEDAD_SERVICIO.',
   })
   @IsOptional()
-  @IsObject()
-  parametros?: Record<string, unknown>;
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  anios_antiguedad?: number;
 
   @ApiPropertyOptional({ example: 1, description: 'Orden de presentación dentro de la regla' })
   @IsOptional()

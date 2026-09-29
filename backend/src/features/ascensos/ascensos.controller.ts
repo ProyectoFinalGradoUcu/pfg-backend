@@ -18,6 +18,7 @@ import { ListOrdenesQueryDto } from './dto/list-ordenes-query.dto.js';
 import { CreateOrdenDto } from './dto/create-orden.dto.js';
 import { AnularDto } from './dto/anular.dto.js';
 import { EstadisticasQueryDto } from './dto/estadisticas-query.dto.js';
+import { DetalleOrdenQueryDto } from './dto/detalle-orden-query.dto.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types/auth.types.js';
@@ -98,12 +99,16 @@ export class AscensosController {
 
   @Get('ordenes/:id')
   @ApiOperation({
-    summary: 'Detalle de una orden: sus funcionarios y la foto de evaluación de cada uno',
+    summary:
+      'Detalle de una orden: sus funcionarios (paginados) y la foto de evaluación de cada uno',
   })
   @ApiParam({ name: 'id', type: Number })
   @RequirePermissions('ascensos.ver')
-  obtenerOrden(@Param('id', ParseIntPipe) id: number) {
-    return this.ordenes.obtener(id);
+  obtenerOrden(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: DetalleOrdenQueryDto,
+  ) {
+    return this.ordenes.obtener(id, query);
   }
 
   @Post('ordenes')

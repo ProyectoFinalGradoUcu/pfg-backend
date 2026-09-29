@@ -173,7 +173,7 @@ model ascensos_reglas_requisitos {
   descripcion String   @db.VarChar(200)
   modo        String   @default("TODOS") @db.VarChar(10)
   aplica_si   String[]
-  parametros  Json?
+  anios_antiguedad Int? @db.SmallInt
   orden       Int      @default(1) @db.SmallInt
 
   regla  ascensos_reglas                     @relation(fields: [regla_id], references: [id], onDelete: Cascade)
