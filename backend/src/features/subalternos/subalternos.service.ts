@@ -18,6 +18,11 @@ import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
+import {
+  describirBloqueos,
+  mensajeDeBloqueo,
+  SELECT_CONTEO_BLOQUEOS,
+} from './bloqueos-borrado.js';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -572,21 +577,55 @@ export class SubalternosService {
       await assertPersonaEnAlcance(this.prisma, BigInt(id), alcance);
     }
 
+    const personaId = BigInt(id);
     const persona = await this.prisma.personas.findUnique({
-      where: { id: BigInt(id) },
+      where: { id: personaId },
+      select: {
+        id: true,
+        retiros: { select: { id: true } },
+        _count: { select: SELECT_CONTEO_BLOQUEOS },
+      },
     });
     if (!persona) {
       throw new NotFoundException(`No existe subalterno con id ${id}`);
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.relaciones_laborales.deleteMany({
-        where: { persona_id: BigInt(id) },
-      });
-      await tx.personas.delete({
-        where: { id: BigInt(id) },
-      });
+    // Se avisa qué tiene en vez de intentar el borrado y devolver el error crudo de la FK.
+    const vinculosFamiliares = await this.prisma.relaciones_familiares.count({
+      where: { OR: [{ persona_id: personaId }, { familiar_id: personaId }] },
     });
+    const bloqueos = describirBloqueos({
+      ...persona._count,
+      relaciones_familiares: vinculosFamiliares,
+      retiros: persona.retiros ? 1 : 0,
+    });
+    if (bloqueos.length > 0) {
+      throw new ConflictException({
+        message: mensajeDeBloqueo(bloqueos),
+        data: { motivo: 'tiene_registros', registros: bloqueos },
+      });
+    }
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.relaciones_laborales.deleteMany({ where: { persona_id: personaId } });
+        await tx.legajo_militar.deleteMany({ where: { persona_id: personaId } });
+        // Solo los de archivos ya borrados: un documento activo tiene que seguir bloqueando.
+        await tx.personas_documentos.deleteMany({
+          where: { persona_id: personaId, archivos: { eliminado_en: { not: null } } },
+        });
+        await tx.personas.delete({ where: { id: personaId } });
+      });
+    } catch (err) {
+      // Red de seguridad: una relación que el conteo no cubre, o una carrera.
+      if ((err as { code?: unknown })?.code === 'P2003') {
+        throw new ConflictException({
+          message: 'No se puede eliminar: el funcionario tiene registros asociados',
+          data: { motivo: 'tiene_registros', registros: [] },
+        });
+      }
+      throw err;
+    }
 
     return { id, eliminado: true };
   }
