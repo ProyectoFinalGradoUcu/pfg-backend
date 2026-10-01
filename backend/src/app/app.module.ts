@@ -13,6 +13,7 @@ import { SubalternosModule } from '../features/subalternos/subalternos.module';
 import { MisionesModule } from '../features/misiones/misiones.module';
 import { DestinosModule } from '../features/destinos/destinos.module';
 import { ArchivosModule } from '../features/archivos/archivos.module';
+import { RetirosModule } from '../features/retiros/retiros.module';
 import { PrismaModule } from '../lib/prisma.module';
 import { SesionesModule } from '../lib/sesiones/sesiones.module';
 import { UnidadesModule } from '../features/unidades/unidades.module';
@@ -42,6 +43,7 @@ import { AscensosModule } from '../features/ascensos/ascensos.module';
     MisionesModule,
     DestinosModule,
     ArchivosModule,
+    RetirosModule,
     CursosModule,
     CatalogosModule,
     HistorialCursosModule,

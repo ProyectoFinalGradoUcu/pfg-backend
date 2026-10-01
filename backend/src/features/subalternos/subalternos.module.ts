@@ -8,10 +8,11 @@ import { PersonalPerfilService } from './personal-perfil.service.js';
 import { LegajoMilitarService } from './legajo-militar.service.js';
 import { PersonasDocumentosService } from './personas-documentos.service.js';
 import { AuthModule } from '../auth/auth.module';
+import { RetirosModule } from '../retiros/retiros.module.js';
 import { ArchivosModule } from '../archivos/archivos.module';
 
 @Module({
-  imports: [AuthModule, ArchivosModule],
+  imports: [RetirosModule, AuthModule, ArchivosModule],
   controllers: [SubalternosController, PersonasController, PersonasDocumentosController],
   providers: [
     SubalternosService,

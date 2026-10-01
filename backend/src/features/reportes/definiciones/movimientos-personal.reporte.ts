@@ -160,22 +160,21 @@ export const movimientosPersonalReporte: DefinicionReporte = {
     }));
 
     const retirosRaw = await prisma.retiros.findMany({
-      where: rango ? { fecha_retiro: rango } : {},
+      where: {
+        anulado: false,
+        ...(rango ? { fecha_retiro: rango } : {}),
+      },
       include: {
-        personas: {
-          include: {
-            relaciones_laborales: {
-              orderBy: { fecha_inicio: 'desc' },
-              take: 1,
-              include: { grados: true, unidades: true, regimenes: true },
-            },
-          },
+        personas: true,
+        // La relación que este retiro cerró, no la más reciente de la persona
+        relaciones_laborales: {
+          include: { grados: true, unidades: true, regimenes: true },
         },
       },
       orderBy: { fecha_retiro: 'desc' },
     });
     const retiros = retirosRaw.map((r) => {
-      const rel = r.personas?.relaciones_laborales?.[0];
+      const rel = r.relaciones_laborales;
       return {
         cedula: r.personas?.cedula ?? '',
         grado: rel?.grados?.denominacion ?? '',

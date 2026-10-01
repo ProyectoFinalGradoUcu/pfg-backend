@@ -97,8 +97,12 @@ export class SubalternosService {
     // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
     const unidadesForzadas = alcance ? unidadIdsDeAlcance(alcance) : null;
 
+    // Un retirado tiene fecha_fin, así que por defecto queda fuera del listado.
+    // `incluir_inactivos` lo trae de vuelta con relacion_estado = 'inactivo'.
+    const soloAbiertas = query.incluir_inactivos !== true;
+
     const relacionWhere = {
-      fecha_fin: null,
+      ...(soloAbiertas && { fecha_fin: null }),
       ...(query.estado && { situacion_id: BigInt(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
     };
@@ -158,10 +162,11 @@ export class SubalternosService {
           primer_apellido: true,
           segundo_apellido: true,
           relaciones_laborales: {
-            where: { fecha_fin: null },
+            where: soloAbiertas ? { fecha_fin: null } : {},
             orderBy: { fecha_inicio: 'desc' },
             take: 1,
             select: {
+              estado: true,
               grados: { select: { denominacion: true } },
               situaciones: { select: { denominacion: true } },
             },
@@ -194,6 +199,7 @@ export class SubalternosService {
           rango: rel?.grados?.denominacion ?? null,
           destino: p.destinos[0]?.unidades?.denominacion ?? null,
           estado: rel?.situaciones?.denominacion ?? null,
+          relacion_estado: rel?.estado ?? null,
         };
       }),
       total,
@@ -252,6 +258,14 @@ export class SubalternosService {
             ? BigInt(dto.sub_unidad_id)
             : undefined,
           observaciones: dto.observaciones,
+        },
+      });
+
+      await tx.destinos.create({
+        data: {
+          persona_id: persona.id,
+          unidad_id: BigInt(dto.unidad_id),
+          fecha_inicio: new Date(dto.fecha_inicio),
         },
       });
 
@@ -482,6 +496,14 @@ export class SubalternosService {
           });
         }
 
+        await tx.destinos.create({
+          data: {
+            persona_id: persona.id,
+            unidad_id: BigInt(dto.unidad_id!),
+            fecha_inicio: new Date(dto.fecha_inicio!),
+          },
+        });
+
         await guardarLegajoEnTransaccion(tx, persona.id, dto);
 
         return {
@@ -582,7 +604,6 @@ export class SubalternosService {
       where: { id: personaId },
       select: {
         id: true,
-        retiros: { select: { id: true } },
         _count: { select: SELECT_CONTEO_BLOQUEOS },
       },
     });
@@ -597,7 +618,6 @@ export class SubalternosService {
     const bloqueos = describirBloqueos({
       ...persona._count,
       relaciones_familiares: vinculosFamiliares,
-      retiros: persona.retiros ? 1 : 0,
     });
     if (bloqueos.length > 0) {
       throw new ConflictException({
@@ -609,6 +629,7 @@ export class SubalternosService {
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.relaciones_laborales.deleteMany({ where: { persona_id: personaId } });
+        await tx.destinos.deleteMany({ where: { persona_id: personaId } });
         await tx.legajo_militar.deleteMany({ where: { persona_id: personaId } });
         // Solo los de archivos ya borrados: un documento activo tiene que seguir bloqueando.
         await tx.personas_documentos.deleteMany({

@@ -321,13 +321,6 @@ export class UsuariosService {
     return this.findOne(id);
   }
 
-  /**
-   * @deprecated Usa `asignarUnidades` en su lugar. Mantenido para compatibilidad de API.
-   */
-  async asignarUnidad(id: string, unidadId: string | null) {
-    return this.asignarUnidades(id, unidadId ? [unidadId] : []);
-  }
-
   async resetPassword(id: string, dto: ResetPasswordDto) {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },

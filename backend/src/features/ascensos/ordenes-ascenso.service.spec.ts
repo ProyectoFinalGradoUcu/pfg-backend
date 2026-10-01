@@ -101,7 +101,7 @@ const makePrismaMock = () => {
       update: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
     },
-    ascensos: { findUnique: jest.fn() },
+    ascensos: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   };
   mock.$transaction.mockImplementation((arg: any) =>
@@ -407,10 +407,43 @@ describe('OrdenesAscensoService', () => {
         }),
       );
 
+      prisma.ascensos.findMany.mockResolvedValue([makeAscensoFila()]);
+
       const res = await service.obtener(70);
 
       expect(res.ascensos[0]).toHaveProperty('evaluacion');
       expect(res.cantidad_funcionarios).toBe(1);
+    });
+
+    it('pagina los funcionarios de la orden', async () => {
+      await service.obtener(70, { page: 3, pageSize: 5 });
+
+      const args = prisma.ascensos_ordenes.findUnique.mock.calls[0][0];
+      expect(args.include.ascensos.skip).toBe(10);
+      expect(args.include.ascensos.take).toBe(5);
+    });
+
+    it('los contadores y los vigentes son de la orden entera, no de la página', async () => {
+      prisma.ascensos.findMany.mockResolvedValue([
+        makeAscensoFila({ id: 900n }),
+        makeAscensoFila({ id: 901n, cumplia_requisitos: false }),
+        makeAscensoFila({ id: 902n, anulado_en: new Date() }),
+      ]);
+
+      const res = await service.obtener(70, { page: 1, pageSize: 1 });
+
+      expect(res.ascensos).toHaveLength(1);
+      expect(res.page).toBe(1);
+      expect(res.pageSize).toBe(1);
+      expect(res.cantidad_funcionarios).toBe(3);
+      expect(res.cantidad_vigentes).toBe(2);
+      expect(res.cantidad_por_excepcion).toBe(1);
+      expect(res.vigentes.map((v) => v.id)).toEqual([900n, 901n]);
+      expect(res.vigentes[0]).toEqual({
+        id: 900n,
+        nombre_completo: 'José Pérez',
+        grado_anterior: { id: 3n, codigo: 'CBO_2DA', denominacion: 'Cbo. 2ª' },
+      });
     });
 
     it('devuelve 404 si la orden no existe', async () => {

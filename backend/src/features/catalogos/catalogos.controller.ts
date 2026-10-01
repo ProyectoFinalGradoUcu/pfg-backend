@@ -65,6 +65,15 @@ export class CatalogosController {
     return this.catalogosService.findSituaciones();
   }
 
+  @ApiOperation({
+    summary: 'Listar motivos de baja vigentes',
+    description: 'Alimenta el motivo_baja_id obligatorio al registrar un retiro.',
+  })
+  @Get('motivos-baja')
+  findMotivosBaja() {
+    return this.catalogosService.findMotivosBaja();
+  }
+
   @ApiOperation({ summary: 'Listar escalafones' })
   @Get('escalafones')
   findEscalafones() {

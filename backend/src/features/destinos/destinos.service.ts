@@ -271,12 +271,31 @@ export class DestinosService {
         orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: this.includeDestino,
+        include: {
+          ...this.includeDestino,
+          personas: {
+            select: {
+              id: true,
+              cedula: true,
+              primer_nombre: true,
+              primer_apellido: true,
+              relaciones_laborales: {
+                orderBy: { fecha_inicio: 'desc' },
+                take: 1,
+                select: { estado: true },
+              },
+            },
+          },
+        },
       }),
     ]);
 
     return {
-      items: asignaciones.map((a) => this.mapDestino(a)),
+      items: asignaciones.map((a) => ({
+        ...this.mapDestino(a),
+        // Un retirado cuyo destino quedó abierto sigue apareciendo acá
+        relacion_estado: a.personas?.relaciones_laborales?.[0]?.estado ?? null,
+      })),
       total,
       page,
       pageSize,

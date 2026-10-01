@@ -1,16 +1,15 @@
-import { IsNumberString, IsOptional, ValidateIf } from 'class-validator';
+import { IsArray, IsNumberString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
-export class AsignarUnidadDto {
+export class AsignarUnidadesDto {
   @ApiProperty({
-    example: '1',
-    nullable: true,
+    type: [String],
+    example: ['1', '2'],
     description:
-      'Id de la unidad del usuario del sistema, o null para dejarlo sin unidad. ' +
-      'Es la unidad de la cuenta: define qué personal ve y de qué unidad hereda roles.',
+      'Ids de las unidades del usuario del sistema, o array vacío para dejarlo sin unidades. ' +
+      'Son las unidades de la cuenta: definen qué personal ve este usuario y de qué unidades hereda roles.',
   })
-  @IsOptional()
-  @ValidateIf((_, value) => value !== null)
-  @IsNumberString()
-  unidadId: string | null;
+  @IsArray()
+  @IsNumberString({}, { each: true })
+  unidadIds: string[];
 }

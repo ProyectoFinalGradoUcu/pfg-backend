@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PersonalPerfilService } from './personal-perfil.service';
 import { PrismaService } from '../../lib/prisma.service';
+import { CierreCarreraService } from '../retiros/cierre-carrera.service';
 
 const makeAsignacion = (overrides: Partial<any> = {}) => ({
   id: 200n,
@@ -46,7 +47,8 @@ const makeRelacion = (overrides: Partial<any> = {}) => ({
 });
 
 const makePrismaMock = () => ({
-  personas: { findUnique: jest.fn() },
+  personas: { findUnique: jest.fn(), update: jest.fn() },
+  motivos_baja: { findFirst: jest.fn() },
   destinos: { findMany: jest.fn() },
   relaciones_familiares: {
     findMany: jest.fn(),
@@ -54,17 +56,28 @@ const makePrismaMock = () => ({
     create: jest.fn(),
     deleteMany: jest.fn(),
   },
+  ascensos: { findMany: jest.fn() },
+  relaciones_laborales: { findFirst: jest.fn(), update: jest.fn() },
+  retiros: { findMany: jest.fn() },
+  legajo_militar: { findUnique: jest.fn(), upsert: jest.fn() },
+  $transaction: jest.fn(),
 });
 
 describe('PersonalPerfilService', () => {
   let service: PersonalPerfilService;
   let prisma: ReturnType<typeof makePrismaMock>;
+  let cierre: { cerrar: jest.Mock };
 
   beforeAll(async () => {
     prisma = makePrismaMock();
+    cierre = { cerrar: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [PersonalPerfilService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        PersonalPerfilService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: CierreCarreraService, useValue: cierre },
+      ],
     }).compile();
 
     service = module.get<PersonalPerfilService>(PersonalPerfilService);
@@ -72,6 +85,11 @@ describe('PersonalPerfilService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    // update() guarda datos personales, relacion laboral y legajo en una sola
+    // transaccion, asi que el mock tiene que ejecutar el callback.
+    prisma.$transaction.mockImplementation((arg: any) =>
+      typeof arg === 'function' ? arg(prisma) : Promise.all(arg),
+    );
   });
 
   describe('findDestinos', () => {
@@ -310,6 +328,145 @@ describe('PersonalPerfilService', () => {
       expect(prisma.relaciones_familiares.deleteMany).toHaveBeenCalledWith({
         where: { OR: [{ persona_id: 31n, familiar_id: 16n }, { persona_id: 16n, familiar_id: 31n }] },
       });
+    });
+  });
+
+  // ─── findHistorialMilitar: retiros pasa de 1:1 a historial ─────────────────
+
+  describe('findHistorialMilitar — retiros', () => {
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue({ id: 100n });
+      prisma.ascensos.findMany.mockResolvedValue([]);
+      prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+    });
+
+    it('devuelve un array de retiros, mas reciente primero, sin anulados', async () => {
+      prisma.retiros.findMany.mockResolvedValue([
+        {
+          id: 2n,
+          fecha_retiro: new Date('2026-08-31'),
+          hora_retiro: null,
+          motivo: 'Segundo retiro',
+          motivos_baja: { codigo: 'RETIRO_VOL', denominacion: 'Baja por retiro voluntario.' },
+          relaciones_laborales: { estado: 'inactivo' },
+        },
+      ]);
+
+      const result = await service.findHistorialMilitar(100);
+
+      expect(prisma.retiros.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { persona_id: 100n, anulado: false },
+          orderBy: { fecha_retiro: 'desc' },
+        }),
+      );
+      expect(result.retiros).toHaveLength(1);
+      expect(result.retiros[0]).toMatchObject({
+        id: '2',
+        fecha_retiro: '2026-08-31',
+        motivo_baja: { codigo: 'RETIRO_VOL' },
+      });
+      expect(result).not.toHaveProperty('retiro');
+    });
+
+    const retiroSimple = (id: bigint, fecha: string) => ({
+      id,
+      fecha_retiro: new Date(fecha),
+      hora_retiro: null,
+      motivo: null,
+      motivos_baja: null,
+    });
+
+    it('marca vigente el retiro si la persona no volvio al servicio', async () => {
+      prisma.retiros.findMany.mockResolvedValue([retiroSimple(2n, '2026-08-31')]);
+      prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+
+      const result = await service.findHistorialMilitar(100);
+
+      expect(result.retiros[0].vigente).toBe(true);
+    });
+
+    it('marca NO vigente el retiro de alguien que se reincorporo', async () => {
+      prisma.retiros.findMany.mockResolvedValue([retiroSimple(1n, '2020-01-01')]);
+      // findFirst se usa para la primera relación y para la activa de hoy.
+      prisma.relaciones_laborales.findFirst.mockResolvedValue({ id: 46n });
+
+      const result = await service.findHistorialMilitar(100);
+
+      expect(result.retiros[0].vigente).toBe(false);
+    });
+
+    it('con varios retiros solo el mas reciente puede estar vigente', async () => {
+      prisma.retiros.findMany.mockResolvedValue([
+        retiroSimple(2n, '2026-08-31'),
+        retiroSimple(1n, '2020-01-01'),
+      ]);
+      prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+
+      const result = await service.findHistorialMilitar(100);
+
+      expect(result.retiros.map((r: any) => r.vigente)).toEqual([true, false]);
+    });
+
+    it('devuelve un array vacio si la persona nunca se retiro', async () => {
+      prisma.retiros.findMany.mockResolvedValue([]);
+
+      const result = await service.findHistorialMilitar(100);
+
+      expect(result.retiros).toEqual([]);
+    });
+  });
+  // ─── PATCH /personas/:id: el fallecimiento cierra la carrera ───────────────
+
+  describe('update — fallecimiento', () => {
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n,
+        fecha_nacimiento: new Date('1980-01-01'),
+        relaciones_laborales: [{ id: 45n, fecha_inicio: new Date('2010-03-01') }],
+      });
+      prisma.personas.update.mockResolvedValue({ id: 100n });
+      prisma.relaciones_laborales.update.mockResolvedValue({ id: 45n });
+      prisma.relaciones_laborales.findFirst.mockResolvedValue({ id: 45n });
+      prisma.motivos_baja.findFirst.mockResolvedValue({ id: 4n });
+      cierre.cerrar.mockResolvedValue({ retiroId: 90n, cerrado: {} });
+    });
+
+    it('al setear fecha_fallecimiento cierra la carrera con cascada forzada', async () => {
+      await service.update(100, { fecha_fallecimiento: '2026-08-30' } as any, 7n);
+
+      expect(cierre.cerrar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          personaId: 100,
+          fechaRetiro: new Date('2026-08-30'),
+          motivoBajaId: 4,
+          autorId: 7n,
+          forzarCascada: true,
+        }),
+      );
+    });
+
+    it('escribe fecha_fallecimiento en la persona', async () => {
+      await service.update(100, { fecha_fallecimiento: '2026-08-30' } as any, 7n);
+
+      expect(prisma.personas.update.mock.calls[0][0].data).toMatchObject({
+        fecha_fallecimiento: new Date('2026-08-30'),
+      });
+    });
+
+    it('si la persona ya estaba retirada solo setea el campo', async () => {
+      prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+
+      await service.update(100, { fecha_fallecimiento: '2026-08-30' } as any, 7n);
+
+      expect(cierre.cerrar).not.toHaveBeenCalled();
+      expect(prisma.personas.update).toHaveBeenCalled();
+    });
+
+    it('no dispara nada si el PATCH no trae fecha_fallecimiento', async () => {
+      await service.update(100, { telefono: '099123456' } as any, 7n);
+
+      expect(cierre.cerrar).not.toHaveBeenCalled();
     });
   });
 });

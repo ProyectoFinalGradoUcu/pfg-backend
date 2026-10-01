@@ -34,6 +34,10 @@ describe('SubalternosService', () => {
         }),
         deleteMany: jest.fn(),
       },
+      destinos: {
+        create: jest.fn(),
+        deleteMany: jest.fn(),
+      },
       legajo_militar: { deleteMany: jest.fn() },
       relaciones_familiares: { count: jest.fn().mockResolvedValue(0) },
       personas_documentos: { deleteMany: jest.fn() },
@@ -192,6 +196,14 @@ describe('SubalternosService', () => {
       expect(r.relacion_laboral.tipo_funcionario).toBe('subalterno');
     });
 
+    it('Crea también el destino en la unidad de alta, para que aparezca en el listado por unidad', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      await service.create(dto);
+      expect(prisma.destinos.create).toHaveBeenCalledWith({
+        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dto.fecha_inicio) },
+      });
+    });
+
     it('Falla si la cédula ya existe', async () => {
       prisma.personas.findUnique.mockResolvedValue({ id: 99n });
       await expect(service.create(dto)).rejects.toThrow(ConflictException);
@@ -294,6 +306,14 @@ describe('SubalternosService', () => {
 
       expect(prisma.relaciones_familiares.createMany).not.toHaveBeenCalled();
     });
+
+    it('Crea también el destino en la unidad de alta, para que aparezca en el listado por unidad', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      await service.createPersonal(dtoMilitar);
+      expect(prisma.destinos.create).toHaveBeenCalledWith({
+        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
+      });
+    });
   });
 
   describe('update', () => {
@@ -314,11 +334,7 @@ describe('SubalternosService', () => {
   });
 
   describe('remove', () => {
-    const sinRegistros = (conteos: Record<string, number> = {}, retiros: unknown = null) => ({
-      id: 1n,
-      retiros,
-      _count: conteos,
-    });
+    const sinRegistros = (conteos: Record<string, number> = {}) => ({ id: 1n, _count: conteos });
 
     it('Borra relaciones laborales y persona', async () => {
       prisma.personas.findUnique.mockResolvedValue(sinRegistros());
@@ -369,14 +385,24 @@ describe('SubalternosService', () => {
       ]);
     });
 
-    it('un retiro registrado también bloquea', async () => {
-      prisma.personas.findUnique.mockResolvedValue(sinRegistros({}, { id: 5n }));
+    it('los retiros (historial, incluidos los anulados) también bloquean', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros({ retiros: 2 }));
 
       const error = await service.remove(1).catch((e) => e);
 
       expect(error.getResponse().data.registros).toEqual([
-        { tipo: 'retiro', etiqueta: 'Retiro', cantidad: 1 },
+        { tipo: 'retiro', etiqueta: 'Retiros', cantidad: 2 },
       ]);
+    });
+
+    it('los destinos no bloquean: el alta crea uno y se van con la persona', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+
+      await service.remove(1);
+
+      const { select } = prisma.personas.findUnique.mock.calls[0][0];
+      expect(select._count.select).not.toHaveProperty('destinos');
+      expect(prisma.destinos.deleteMany).toHaveBeenCalledWith({ where: { persona_id: 1n } });
     });
 
     it('solo cuentan los documentos activos', async () => {

@@ -21,7 +21,7 @@ describe('describirBloqueos', () => {
     ).toEqual([
       { tipo: 'documentos', etiqueta: 'Documentos', cantidad: 3 },
       { tipo: 'cursos', etiqueta: 'Cursos', cantidad: 2 },
-      { tipo: 'retiro', etiqueta: 'Retiro', cantidad: 1 },
+      { tipo: 'retiro', etiqueta: 'Retiros', cantidad: 1 },
       { tipo: 'liquidaciones', etiqueta: 'Registros de liquidaciones', cantidad: 14 },
     ]);
   });
@@ -54,6 +54,11 @@ describe('mensajeDeBloqueo', () => {
 });
 
 describe('SELECT_CONTEO_BLOQUEOS', () => {
+  it('cuenta los retiros como lista y no cuenta los destinos', () => {
+    expect(SELECT_CONTEO_BLOQUEOS).toHaveProperty('retiros', true);
+    expect(SELECT_CONTEO_BLOQUEOS).not.toHaveProperty('destinos');
+  });
+
   // Prisma arma el alias `_aggr_count_<relación>` y Postgres corta los identificadores a
   // 63 caracteres: con un nombre más largo, el alias llega truncado y la consulta falla.
   it('ningún alias de _count pasa los 63 caracteres de Postgres', () => {

@@ -12,6 +12,7 @@ import { AscensoRegistroService } from './ascenso-registro.service.js';
 import { ElegibilidadService } from './elegibilidad.service.js';
 import { CreateOrdenDto } from './dto/create-orden.dto.js';
 import { ListOrdenesQueryDto } from './dto/list-ordenes-query.dto.js';
+import { DetalleOrdenQueryDto } from './dto/detalle-orden-query.dto.js';
 import { ResultadoElegibilidad } from './elegibilidad.evaluador.js';
 
 const soloFecha = (fecha: Date | null | undefined) =>
@@ -233,17 +234,55 @@ export class OrdenesAscensoService {
     };
   }
 
-  async obtener(id: number) {
+  /**
+   * Los funcionarios vienen paginados; los contadores y la lista de vigentes
+   * (la que nombra la confirmación de anular la orden) son de la orden entera.
+   */
+  async obtener(id: number, query: DetalleOrdenQueryDto = {}) {
+    const page = query.page ?? 1;
+    const pageSize = Math.min(query.pageSize ?? 10, 200);
+
     const orden = await this.prisma.ascensos_ordenes.findUnique({
       where: { id: BigInt(id) },
       include: {
         usuario_creacion: { select: { id: true, username: true } },
         usuario_anulacion: { select: { id: true, username: true } },
-        ascensos: { include: includeAscenso, orderBy: { id: 'asc' } },
+        ascensos: {
+          include: includeAscenso,
+          orderBy: { id: 'asc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        },
       },
     });
     if (!orden) throw new NotFoundException(`No existe la orden de ascenso ${id}`);
-    return this.mapOrden(orden, true);
+
+    const todos = await this.prisma.ascensos.findMany({
+      where: { orden_ascenso_id: orden.id },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        anulado_en: true,
+        cumplia_requisitos: true,
+        personas: { select: { primer_nombre: true, primer_apellido: true } },
+        grados_grado_anterior: { select: { id: true, codigo: true, denominacion: true } },
+      },
+    });
+
+    return {
+      ...this.mapOrden(orden, true, todos),
+      page,
+      pageSize,
+      vigentes: todos
+        .filter((a) => a.anulado_en == null)
+        .map((a) => ({
+          id: a.id,
+          nombre_completo: a.personas
+            ? `${a.personas.primer_nombre} ${a.personas.primer_apellido}`.trim()
+            : null,
+          grado_anterior: a.grados_grado_anterior,
+        })),
+    };
   }
 
   // ─── Anulación ────────────────────────────────────────────────────────────
@@ -323,8 +362,10 @@ export class OrdenesAscensoService {
       ascensos: AscensoConTodo[];
     },
     conEvaluacion = false,
+    // Con los ascensos paginados, los contadores salen de la orden entera.
+    todos: { anulado_en: Date | null; cumplia_requisitos: boolean | null }[] = orden.ascensos,
   ) {
-    const vigentes = orden.ascensos.filter((a) => a.anulado_en == null);
+    const vigentes = todos.filter((a) => a.anulado_en == null);
     return {
       id: orden.id,
       numero_orden: orden.numero_orden,
@@ -337,9 +378,9 @@ export class OrdenesAscensoService {
       creada_en: orden.creada_en,
       creada_por: orden.usuario_creacion,
       anulada_por: orden.usuario_anulacion,
-      cantidad_funcionarios: orden.ascensos.length,
+      cantidad_funcionarios: todos.length,
       cantidad_vigentes: vigentes.length,
-      cantidad_por_excepcion: orden.ascensos.filter((a) => a.cumplia_requisitos === false).length,
+      cantidad_por_excepcion: todos.filter((a) => a.cumplia_requisitos === false).length,
       ascensos: orden.ascensos.map((a) => this.mapAscenso(a, conEvaluacion)),
     };
   }

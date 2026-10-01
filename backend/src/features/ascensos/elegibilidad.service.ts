@@ -338,7 +338,7 @@ export class ElegibilidadService {
         select: { persona_id: true, nivel_educativo: true, fecha_egreso_eta: true },
       }),
       this.prisma.retiros.findMany({
-        where: { persona_id: { in: idsDePersonas } },
+        where: { persona_id: { in: idsDePersonas }, anulado: false },
         select: { persona_id: true, fecha_retiro: true },
       }),
     ]);
@@ -432,7 +432,7 @@ export class ElegibilidadService {
       descripcion: r.descripcion,
       modo: r.modo ?? 'TODOS',
       aplica_si: r.aplica_si ?? ['SIEMPRE'],
-      parametros: (r.parametros as Record<string, unknown>) ?? null,
+      anios_antiguedad: r.anios_antiguedad ?? null,
       orden: r.orden ?? i + 1,
       cursos: (r.cursos_ids ?? []).map((id) => ({
         id: String(id),
@@ -485,7 +485,7 @@ export class ElegibilidadService {
       descripcion: string;
       modo: string;
       aplica_si: string[];
-      parametros: unknown;
+      anios_antiguedad: number | null;
       orden: number;
       cursos: { curso: { id: bigint; nombre_curso: string | null } }[];
     }[];
@@ -507,7 +507,7 @@ export class ElegibilidadService {
         descripcion: req.descripcion,
         modo: req.modo,
         aplica_si: req.aplica_si,
-        parametros: (req.parametros as Record<string, unknown>) ?? null,
+        anios_antiguedad: req.anios_antiguedad,
         orden: req.orden,
         cursos: req.cursos.map((c) => ({
           id: c.curso.id.toString(),

@@ -69,7 +69,7 @@ export interface RequisitoDeRegla {
   descripcion: string;
   modo: string;
   aplica_si: string[];
-  parametros: Record<string, unknown> | null;
+  anios_antiguedad: number | null;
   orden: number;
   cursos: { id: string; nombre: string }[];
 }
@@ -284,7 +284,7 @@ function evaluarRequisitoDeRegla(
   }
 
   if (req.tipo === 'ANTIGUEDAD_SERVICIO') {
-    const aniosMinimos = Number(req.parametros?.['anios_minimos'] ?? 0);
+    const aniosMinimos = req.anios_antiguedad ?? 0;
     const dias = diasEntre(datos.relacion.fecha_inicio, fechaRef);
     const anios = Math.floor(dias / 365) + (datos.relacion.anios_servicio_anterior ?? 0);
     return {

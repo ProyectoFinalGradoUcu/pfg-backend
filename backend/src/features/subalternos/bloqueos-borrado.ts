@@ -1,16 +1,11 @@
 import type { Prisma } from '@prisma/client';
 
-/**
- * Qué le impide al admin borrar un funcionario. Las relaciones propias van con nombre; las
- * del sistema de liquidaciones, que no se tocan desde acá, se suman en una sola línea.
- */
 export interface RegistroQueBloquea {
   tipo: string;
   etiqueta: string;
   cantidad: number;
 }
 
-/** Conteos por relación de `personas`, como los devuelve `_count`, más `retiros` (0 o 1). */
 export type ConteosPersona = Partial<Record<string, number>>;
 
 const PROPIOS: { tipo: string; etiqueta: string; campos: string[] }[] = [
@@ -18,9 +13,8 @@ const PROPIOS: { tipo: string; etiqueta: string; campos: string[] }[] = [
   { tipo: 'cursos', etiqueta: 'Cursos', campos: ['funcionarios_cursos'] },
   { tipo: 'misiones', etiqueta: 'Misiones', campos: ['funcionarios_misiones'] },
   { tipo: 'convocatorias', etiqueta: 'Convocatorias', campos: ['funcionarios_convocatorias'] },
-  { tipo: 'destinos', etiqueta: 'Destinos', campos: ['destinos'] },
   { tipo: 'ascensos', etiqueta: 'Ascensos', campos: ['ascensos'] },
-  { tipo: 'retiro', etiqueta: 'Retiro', campos: ['retiros'] },
+  { tipo: 'retiro', etiqueta: 'Retiros', campos: ['retiros'] },
   { tipo: 'familiares', etiqueta: 'Vínculos familiares', campos: ['relaciones_familiares'] },
   { tipo: 'usuarios', etiqueta: 'Usuarios del sistema', campos: ['usuarios'] },
   { tipo: 'invitaciones', etiqueta: 'Invitaciones', campos: ['invitaciones'] },
@@ -49,22 +43,15 @@ const DE_LIQUIDACIONES = [
   'retroactividades',
 ] as const;
 
-/**
- * `select` de `_count` con todo lo que bloquea. `relaciones_laborales` y `legajo_militar`
- * no están: se borran junto con la persona. De los documentos cuentan solo los activos;
- * los borrados son historial y se limpian con ella.
- *
- * Los vínculos familiares se cuentan aparte: Prisma arma el alias `_aggr_count_<relación>`
- * y Postgres corta los identificadores a 63 caracteres, así que con los nombres de esas
- * dos relaciones el alias llega truncado y la consulta entera falla.
- */
+// Sin relaciones_laborales, destinos ni legajo_militar: se borran con la persona.
+// relaciones_familiares se cuenta aparte: su alias de _count pasa los 63 caracteres de Postgres.
 export const SELECT_CONTEO_BLOQUEOS = {
   personas_documentos: { where: { archivos: { eliminado_en: null } } },
   funcionarios_cursos: true,
   funcionarios_misiones: true,
   funcionarios_convocatorias: true,
-  destinos: true,
   ascensos: true,
+  retiros: true,
   usuarios: true,
   invitaciones: true,
   ...Object.fromEntries(DE_LIQUIDACIONES.map((campo) => [campo, true])),
