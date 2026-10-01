@@ -36,7 +36,11 @@ describe('SubalternosService', () => {
       },
       destinos: {
         create: jest.fn(),
+        deleteMany: jest.fn(),
       },
+      legajo_militar: { deleteMany: jest.fn() },
+      relaciones_familiares: { count: jest.fn().mockResolvedValue(0) },
+      personas_documentos: { deleteMany: jest.fn() },
       $transaction: jest.fn((cb) => cb(prisma)),
     };
     service = new SubalternosService(prisma);
@@ -330,8 +334,10 @@ describe('SubalternosService', () => {
   });
 
   describe('remove', () => {
+    const sinRegistros = (conteos: Record<string, number> = {}) => ({ id: 1n, _count: conteos });
+
     it('Borra relaciones laborales y persona', async () => {
-      prisma.personas.findUnique.mockResolvedValue({ id: 1n });
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
       const r = await service.remove(1);
       expect(r).toEqual({ id: 1, eliminado: true });
       expect(prisma.relaciones_laborales.deleteMany).toHaveBeenCalled();
@@ -341,6 +347,97 @@ describe('SubalternosService', () => {
     it('Error porque no existe', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await expect(service.remove(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('con registros asociados no borra nada y responde 409 con lo que bloquea', async () => {
+      prisma.personas.findUnique.mockResolvedValue(
+        sinRegistros({ funcionarios_cursos: 2, aguinaldos: 4, items_liquidacion: 10 }),
+      );
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.getResponse()).toEqual({
+        message:
+          'No se puede eliminar: el funcionario tiene cursos (2) y registros de liquidaciones (14)',
+        data: {
+          motivo: 'tiene_registros',
+          registros: [
+            { tipo: 'cursos', etiqueta: 'Cursos', cantidad: 2 },
+            { tipo: 'liquidaciones', etiqueta: 'Registros de liquidaciones', cantidad: 14 },
+          ],
+        },
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('cuenta los vínculos familiares aparte, en las dos direcciones', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.relaciones_familiares.count.mockResolvedValue(2);
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(prisma.relaciones_familiares.count).toHaveBeenCalledWith({
+        where: { OR: [{ persona_id: 1n }, { familiar_id: 1n }] },
+      });
+      expect(error.getResponse().data.registros).toEqual([
+        { tipo: 'familiares', etiqueta: 'Vínculos familiares', cantidad: 2 },
+      ]);
+    });
+
+    it('los retiros (historial, incluidos los anulados) también bloquean', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros({ retiros: 2 }));
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(error.getResponse().data.registros).toEqual([
+        { tipo: 'retiro', etiqueta: 'Retiros', cantidad: 2 },
+      ]);
+    });
+
+    it('los destinos no bloquean: el alta crea uno y se van con la persona', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+
+      await service.remove(1);
+
+      const { select } = prisma.personas.findUnique.mock.calls[0][0];
+      expect(select._count.select).not.toHaveProperty('destinos');
+      expect(prisma.destinos.deleteMany).toHaveBeenCalledWith({ where: { persona_id: 1n } });
+    });
+
+    it('solo cuentan los documentos activos', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+
+      await service.remove(1);
+
+      const { select } = prisma.personas.findUnique.mock.calls[0][0];
+      expect(select._count.select.personas_documentos).toEqual({
+        where: { archivos: { eliminado_en: null } },
+      });
+    });
+
+    it('el legajo y los vínculos con documentos ya borrados se van con la persona', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+
+      await service.remove(1);
+
+      expect(prisma.legajo_militar.deleteMany).toHaveBeenCalledWith({ where: { persona_id: 1n } });
+      expect(prisma.personas_documentos.deleteMany).toHaveBeenCalledWith({
+        where: { persona_id: 1n, archivos: { eliminado_en: { not: null } } },
+      });
+    });
+
+    it('si igual salta una FK que no se contó, 409 genérico y no 500', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.$transaction.mockRejectedValueOnce(Object.assign(new Error('fk'), { code: 'P2003' }));
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.getResponse()).toEqual({
+        message: 'No se puede eliminar: el funcionario tiene registros asociados',
+        data: { motivo: 'tiene_registros', registros: [] },
+      });
     });
   });
 

@@ -79,6 +79,29 @@ model aguinaldos {
   @@unique([persona_id, anio, semestre])
 }
 
+/// Registro central de los objetos guardados en MinIO. Tabla NUESTRA: la crea
+/// migration_archivos.sql. `documentos` (de liquidación) guarda rutas de disco y
+/// queda sin tocar.
+model archivos {
+  id                                        BigInt     @id @default(autoincrement())
+  bucket                                    String     @db.VarChar(63)
+  object_key                                String     @db.VarChar(500)
+  nombre_original                           String     @db.VarChar(255)
+  content_type                              String     @db.VarChar(100)
+  tamanio_bytes                             BigInt
+  sha256                                    String     @db.Char(64)
+  subido_por                                BigInt?
+  subido_en                                 DateTime   @default(now()) @db.Timestamp(6)
+  eliminado_en                              DateTime?  @db.Timestamp(6)
+  eliminado_por                             BigInt?
+  usuarios_archivos_subido_porTousuarios    usuarios?  @relation("archivos_subido_porTousuarios", fields: [subido_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_archivos_eliminado_porTousuarios usuarios?  @relation("archivos_eliminado_porTousuarios", fields: [eliminado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas_documentos                       personas_documentos?
+
+  @@unique([bucket, object_key], map: "ux_archivos_object_key")
+  @@index([sha256], map: "ix_archivos_sha256")
+}
+
 /// Historial de ascensos. Tabla NUESTRA: liquidación no la lee.
 /// Las columnas a partir de `orden_ascenso_id` las agrega migration_ascensos.sql.
 model ascensos {
@@ -898,6 +921,7 @@ model personas {
   items_lote_compensacion                                           items_lote_compensacion[]
   novedades_periodo                                                 novedades_periodo[]
   ocupaciones_vivienda                                              ocupaciones_vivienda[]
+  personas_documentos                                               personas_documentos[]
   relaciones_familiares_relaciones_familiares_familiar_idTopersonas relaciones_familiares[]             @relation("relaciones_familiares_familiar_idTopersonas")
   relaciones_familiares_relaciones_familiares_persona_idTopersonas  relaciones_familiares[]             @relation("relaciones_familiares_persona_idTopersonas")
   relaciones_laborales                                              relaciones_laborales[]
@@ -906,6 +930,19 @@ model personas {
   retroactividades                                                  retroactividades[]
   invitaciones                                                      invitaciones[]
   usuarios                                                          usuarios[]
+}
+
+/// Documentación libre de un funcionario (cédula, escaneos). Tabla NUESTRA: la crea
+/// migration_archivos.sql. Activo = su archivo no tiene `eliminado_en`.
+model personas_documentos {
+  id          BigInt   @id @default(autoincrement())
+  persona_id  BigInt
+  archivo_id  BigInt   @unique
+  descripcion String?  @db.VarChar(200)
+  personas    personas @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivos    archivos @relation(fields: [archivo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id], map: "ix_personas_documentos_persona")
 }
 
 model programas {
@@ -1246,6 +1283,8 @@ model usuarios {
   fecha_actualizacion                                                        DateTime                         @default(now()) @db.Timestamp(6)
   aplicacion                                                                 String                           @default("liquidacion") @db.VarChar(20)
   sesiones_invalidas_desde                                                   DateTime?                        @db.Timestamp(6)
+  archivos_archivos_subido_porTousuarios                                     archivos[]                       @relation("archivos_subido_porTousuarios")
+  archivos_archivos_eliminado_porTousuarios                                  archivos[]                       @relation("archivos_eliminado_porTousuarios")
   beneficio_social_beneficiarios                                             beneficio_social_beneficiarios[]
   beneficios_sociales                                                        beneficios_sociales[]
   bitacora_auditoria                                                         bitacora_auditoria[]
