@@ -264,7 +264,7 @@ export class ElegibilidadService {
 
   /** Una sola pasada por la nómina vigente y sus datos asociados. */
   private async cargarFuncionarios(
-    query: Pick<ListPasiblesQueryDto, 'escalafon_id' | 'grado_id' | 'unidad_id' | 'query'>,
+    query: Pick<ListPasiblesQueryDto, 'escalafon_id' | 'grado_id' | 'unidad_id' | 'query' | 'categoria'>,
     alcance?: AlcanceResuelto,
     personaIds?: bigint[],
   ): Promise<DatosFuncionario[]> {
@@ -278,6 +278,7 @@ export class ElegibilidadService {
     if (query.escalafon_id) where['escalafon_id'] = BigInt(query.escalafon_id);
     if (query.grado_id) where['grado_id'] = BigInt(query.grado_id);
     if (query.unidad_id) where['unidad_id'] = BigInt(query.unidad_id);
+    if (query.categoria) where['tipo_funcionario'] = query.categoria;
 
     if (alcance?.tipo === 'unidad') {
       where['unidad_id'] = { in: alcance.unidadIds.map((id) => BigInt(id)) };

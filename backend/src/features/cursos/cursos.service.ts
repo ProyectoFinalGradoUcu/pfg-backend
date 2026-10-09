@@ -21,6 +21,7 @@ import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 
 @Injectable()
 export class CursosService {
@@ -197,7 +198,14 @@ export class CursosService {
     const pageSize = Math.min(query.pageSize ?? 10, 100);
     const cursosFilter = whereCursosVisiblesPorAlcance(alcance);
     const where = {
-      ...(query.cedula ? { personas: { cedula: query.cedula } } : {}),
+      ...(query.cedula || query.categoria
+        ? {
+            personas: {
+              ...(query.cedula ? { cedula: query.cedula } : {}),
+              ...wherePersonaPorCategoria(query.categoria),
+            },
+          }
+        : {}),
       ...(query.incluir_bajas ? {} : { dado_de_baja: false }),
       ...(Object.keys(cursosFilter).length > 0 ? { cursos: cursosFilter } : {}),
     };

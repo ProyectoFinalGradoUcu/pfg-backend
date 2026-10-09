@@ -4,7 +4,7 @@ import {
   DefinicionReporte,
   ResultadoReporte,
 } from '../reportes.types';
-import { clasificarGenero } from './_helpers';
+import { categoriaDeFiltros, clasificarGenero, PARAMETRO_CATEGORIA } from './_helpers';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'grado', etiqueta: 'Grado', tipo: 'texto' },
@@ -31,11 +31,12 @@ export const resumenFuerzaEfectivaReporte: DefinicionReporte = {
 
    
 
-  parametros: [],
+  parametros: [PARAMETRO_CATEGORIA],
 
-  async ejecutar({ prisma }: ContextoEjecucion): Promise<ResultadoReporte> {
+  async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
+    const categoria = categoriaDeFiltros(filtros);
     const relaciones = await prisma.relaciones_laborales.findMany({
-      where: { estado: 'activo' },
+      where: { estado: 'activo', ...(categoria ? { tipo_funcionario: categoria } : {}), },
       select: {
         grado_reincorporacion_id: true,
         personas: { select: { genero: true } },

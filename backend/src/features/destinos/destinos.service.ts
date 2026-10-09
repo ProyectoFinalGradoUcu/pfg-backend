@@ -10,6 +10,7 @@ import { UpdateDestinoDto } from './dto/update-destino.dto';
 import { ListDestinosQueryDto } from './dto/list-destinos-query.dto';
 import { ListUnidadesQueryDto } from './dto/list-unidades-query.dto';
 import { ListFuncionariosUnidadQueryDto } from './dto/list-funcionarios-unidad-query.dto';
+import { CategoriaPersonal, wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 
 // Un destino está vigente mientras no tenga fecha de fin.
 const esActivo = (fechaFin: Date | null) => fechaFin == null;
@@ -35,13 +36,16 @@ export class DestinosService {
   };
 
   /** Filtro de personas compartido por los listados (cédula, nombre o apellido). */
-  private filtroPersona(texto: string) {
+  private filtroPersona(texto?: string, categoria?: CategoriaPersonal) {
     return {
-      OR: [
-        { cedula: { contains: texto, mode: 'insensitive' as const } },
-        { primer_nombre: { contains: texto, mode: 'insensitive' as const } },
-        { primer_apellido: { contains: texto, mode: 'insensitive' as const } },
-      ],
+      ...(texto && {
+        OR: [
+          { cedula: { contains: texto, mode: 'insensitive' as const } },
+          { primer_nombre: { contains: texto, mode: 'insensitive' as const } },
+          { primer_apellido: { contains: texto, mode: 'insensitive' as const } },
+        ],
+      }),
+      ...(categoria && { AND: [wherePersonaPorCategoria(categoria)] }),
     };
   }
 
@@ -167,7 +171,9 @@ export class DestinosService {
     if (query.unidad_id) where.unidad_id = BigInt(query.unidad_id);
     if (query.activo === true) where.fecha_fin = null;
     else if (query.activo === false) where.fecha_fin = { not: null };
-    if (query.query) where.personas = this.filtroPersona(query.query);
+    if (query.query || query.categoria) {
+      where.personas = this.filtroPersona(query.query, query.categoria);
+    }
 
     const [total, destinosActivos, asignaciones, unidadesActivas] =
       await this.prisma.$transaction([
@@ -262,7 +268,9 @@ export class DestinosService {
     const where: any = { unidad_id: BigInt(unidadId) };
     if (query.activo === true) where.fecha_fin = null;
     else if (query.activo === false) where.fecha_fin = { not: null };
-    if (query.query) where.personas = this.filtroPersona(query.query);
+    if (query.query || query.categoria) {
+      where.personas = this.filtroPersona(query.query, query.categoria);
+    }
 
     const [total, asignaciones] = await this.prisma.$transaction([
       this.prisma.destinos.count({ where }),

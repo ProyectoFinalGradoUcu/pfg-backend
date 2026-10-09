@@ -1,4 +1,4 @@
-import { fmtFecha, unir } from '../definiciones/_helpers';
+import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from '../definiciones/_helpers';
 import { FuenteCustom } from './fuentes.types';
 
 export const personalFuente: FuenteCustom = {
@@ -25,13 +25,16 @@ export const personalFuente: FuenteCustom = {
       { valor: 'inactivo', etiqueta: 'Inactivo' },
     ] },
     { clave: 'unidad_id', etiqueta: 'Unidad', tipo: 'select', fuenteOpciones: 'unidades' },
+    PARAMETRO_CATEGORIA,
   ],
 
   async consultar(prisma, filtros) {
+    const categoria = categoriaDeFiltros(filtros);
     const rels = await prisma.relaciones_laborales.findMany({
       where: {
         ...(filtros.estado ? { estado: filtros.estado } : {}),
         ...(filtros.unidad_id ? { unidad_id: BigInt(filtros.unidad_id) } : {}),
+        ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       include: {
         personas: true,

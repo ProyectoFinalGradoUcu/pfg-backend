@@ -1,6 +1,8 @@
 import { IsOptional, IsString, MaxLength, IsInt, Min, Max, IsBoolean } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal';
+import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal';
 
 export class CursosPorFuncionarioQueryDto {
   @ApiPropertyOptional({ example: '12345678', description: 'Cédula del funcionario para filtrar sus cursos' })
@@ -32,4 +34,7 @@ export class CursosPorFuncionarioQueryDto {
   @Min(1)
   @Max(100)
   pageSize?: number;
+
+  @FiltroCategoriaPersonal()
+  categoria?: CategoriaPersonal;
 }

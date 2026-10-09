@@ -6,6 +6,7 @@ import {
 } from '../reportes.types';
 import { ElegibilidadService } from '../../ascensos/elegibilidad.service';
 import { ESTADOS_ELEGIBILIDAD } from '../../ascensos/dto/list-pasibles-query.dto';
+import { categoriaDeFiltros, PARAMETRO_CATEGORIA } from './_helpers';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'C.I.', tipo: 'texto' },
@@ -75,6 +76,7 @@ export const pasiblesAscensoReporte: DefinicionReporte = {
       tipo: 'select',
       fuenteOpciones: 'unidades',
     },
+    PARAMETRO_CATEGORIA,
     {
       clave: 'fecha_referencia',
       etiqueta: 'Evaluar al',
@@ -103,6 +105,7 @@ export const pasiblesAscensoReporte: DefinicionReporte = {
     const resultado = await elegibilidad.listarPasibles({
       estado: estados,
       unidad_id: filtros.unidad_id ? Number(filtros.unidad_id) : undefined,
+      categoria: categoriaDeFiltros(filtros),
       fecha_referencia: filtros.fecha_referencia || undefined,
       horizonte_meses: filtros.horizonte_meses ? Number(filtros.horizonte_meses) : 120,
       pageSize: 500,

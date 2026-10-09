@@ -1,4 +1,5 @@
-import { fmtFecha, unir } from '../definiciones/_helpers';
+import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
+import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from '../definiciones/_helpers';
 import { FuenteCustom } from './fuentes.types';
 
 export const misionesFuente: FuenteCustom = {
@@ -19,13 +20,16 @@ export const misionesFuente: FuenteCustom = {
   filtros: [
     { clave: 'persona_id', etiqueta: 'Funcionario', tipo: 'select', fuenteOpciones: 'personas' },
     { clave: 'pais', etiqueta: 'País', tipo: 'texto' },
+    PARAMETRO_CATEGORIA,
   ],
 
   async consultar(prisma, filtros) {
+    const categoria = categoriaDeFiltros(filtros);
     const registros = await prisma.funcionarios_misiones.findMany({
       where: {
         ...(filtros.persona_id ? { persona_id: BigInt(filtros.persona_id) } : {}),
         ...(filtros.pais ? { misiones: { pais: { contains: filtros.pais, mode: 'insensitive' } } } : {}),
+        ...(categoria ? { personas: wherePersonaPorCategoria(categoria) } : {}),
       },
       include: {
         misiones: true,

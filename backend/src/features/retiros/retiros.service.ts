@@ -110,6 +110,7 @@ export class RetirosService {
 
     const relacionWhere: Record<string, unknown> = {};
     if (query.unidad_id) relacionWhere.unidad_id = BigInt(query.unidad_id);
+    if (query.categoria) relacionWhere.tipo_funcionario = query.categoria;
 
     // "Los retirados" son las personas sin relación activa. Filtrar por el
     // estado de la relación cerrada dejaría dentro a los reincorporados.

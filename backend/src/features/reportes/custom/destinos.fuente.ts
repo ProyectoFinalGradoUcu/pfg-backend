@@ -1,4 +1,5 @@
-import { fmtFecha, unir } from '../definiciones/_helpers';
+import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
+import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from '../definiciones/_helpers';
 import { FuenteCustom } from './fuentes.types';
 
 export const destinosFuente: FuenteCustom = {
@@ -18,12 +19,15 @@ export const destinosFuente: FuenteCustom = {
   ],
   filtros: [
     { clave: 'persona_id', etiqueta: 'Funcionario', tipo: 'select', fuenteOpciones: 'personas' },
+    PARAMETRO_CATEGORIA,
   ],
 
   async consultar(prisma, filtros) {
+    const categoria = categoriaDeFiltros(filtros);
     const asignaciones = await prisma.destinos.findMany({
       where: {
         ...(filtros.persona_id ? { persona_id: BigInt(filtros.persona_id) } : {}),
+        ...(categoria ? { personas: wherePersonaPorCategoria(categoria) } : {}),
       },
       include: {
         unidades: true,

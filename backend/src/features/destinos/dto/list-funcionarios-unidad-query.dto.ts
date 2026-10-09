@@ -1,6 +1,8 @@
 import { IsOptional, IsString, IsInt, IsBoolean, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal';
+import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal';
 
 export class ListFuncionariosUnidadQueryDto {
   @ApiPropertyOptional({ example: 1 })
@@ -32,4 +34,7 @@ export class ListFuncionariosUnidadQueryDto {
   })
   @IsBoolean()
   activo?: boolean;
+
+  @FiltroCategoriaPersonal()
+  categoria?: CategoriaPersonal;
 }

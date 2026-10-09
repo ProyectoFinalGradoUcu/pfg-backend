@@ -5,7 +5,8 @@ import {
   ResultadoReporte,
   SeccionReporte,
 } from '../reportes.types';
-import { fmtFecha, unir } from './_helpers';
+import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
+import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from './_helpers';
 
 const COL_ALTAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'C.I.', tipo: 'texto' },
@@ -61,15 +62,18 @@ export const movimientosPersonalReporte: DefinicionReporte = {
   parametros: [
     { clave: 'desde', etiqueta: 'Desde', tipo: 'fecha', ayuda: 'Opcional.' },
     { clave: 'hasta', etiqueta: 'Hasta', tipo: 'fecha', ayuda: 'Opcional.' },
+    PARAMETRO_CATEGORIA,
   ],
 
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
     const rango = rangoFecha(filtros.desde, filtros.hasta);
+    const categoria = categoriaDeFiltros(filtros);
 
     const altasRaw = await prisma.movimientos_laborales.findMany({
       where: {
         tipos_movimiento: { es_alta: true },
         ...(rango ? { fecha_movimiento: rango } : {}),
+        ...(categoria ? { relaciones_laborales: { tipo_funcionario: categoria } } : {}),
       },
       include: {
         tipos_movimiento: true,
@@ -96,7 +100,11 @@ export const movimientosPersonalReporte: DefinicionReporte = {
 
     const ascRaw = await prisma.ascensos.findMany({
       // Un ascenso anulado no es una novedad del período: se revirtió.
-      where: { anulado_en: null, ...(rango ? { fecha_ascenso: rango } : {}) },
+      where: {
+        anulado_en: null,
+        ...(rango ? { fecha_ascenso: rango } : {}),
+        ...(categoria ? { personas: wherePersonaPorCategoria(categoria) } : {}),
+      },
       include: {
         grados: true,
         grados_grado_anterior: true,
@@ -138,6 +146,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       where: {
         motivo_baja_id: { not: null },
         ...(rango ? { fecha_fin: rango } : {}),
+        ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       include: {
         personas: true,
@@ -163,6 +172,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       where: {
         anulado: false,
         ...(rango ? { fecha_retiro: rango } : {}),
+        ...(categoria ? { relaciones_laborales: { tipo_funcionario: categoria } } : {}),
       },
       include: {
         personas: true,
