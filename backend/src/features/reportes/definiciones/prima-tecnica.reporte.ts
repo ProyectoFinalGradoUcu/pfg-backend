@@ -4,6 +4,7 @@ import {
   DefinicionReporte,
   ResultadoReporte,
 } from '../reportes.types';
+import { categoriaDeFiltros, PARAMETRO_CATEGORIA } from './_helpers';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'Cédula', tipo: 'texto' },
@@ -44,16 +45,19 @@ export const primaTecnicaReporte: DefinicionReporte = {
       tipo: 'select',
       fuenteOpciones: 'unidades',
     },
+    PARAMETRO_CATEGORIA,
   ],
 
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
     const unidadId = filtros.unidad_id ? BigInt(filtros.unidad_id) : undefined;
     const prima = filtros.prima?.trim().toUpperCase();
+    const categoria = categoriaDeFiltros(filtros);
 
     const relaciones = await prisma.relaciones_laborales.findMany({
       where: {
         estado: 'activo',
         ...(unidadId ? { unidad_id: unidadId } : {}),
+        ...(categoria ? { tipo_funcionario: categoria } : {}),
         ...(prima
           ? { prima_tecnica: prima }
           : { prima_tecnica: { notIn: ['VACIO'], not: null } }),

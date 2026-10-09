@@ -1,6 +1,8 @@
 import { IsOptional, IsString, IsInt, IsBoolean, IsDateString, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal';
+import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal';
 
 const aBooleano = ({ value }: { value: unknown }) => {
   if (value === 'true') return true;
@@ -66,4 +68,7 @@ export class ListRetirosQueryDto {
   @Transform(aBooleano)
   @IsBoolean()
   incluir_anulados?: boolean;
+
+  @FiltroCategoriaPersonal()
+  categoria?: CategoriaPersonal;
 }

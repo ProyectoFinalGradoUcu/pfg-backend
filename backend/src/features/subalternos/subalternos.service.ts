@@ -23,6 +23,7 @@ import {
   mensajeDeBloqueo,
   SELECT_CONTEO_BLOQUEOS,
 } from './bloqueos-borrado.js';
+import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal.js';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -109,6 +110,7 @@ export class SubalternosService {
 
     const where = {
       relaciones_laborales: { some: relacionWhere },
+      ...(query.categoria && { AND: [wherePersonaPorCategoria(query.categoria)] }),
       // Con alcance de unidad se fuerza el filtro por destino a las unidades del usuario.
       // Sin alcance, se puede filtrar por query.destino opcionalmente.
       ...(unidadesForzadas !== null

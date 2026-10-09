@@ -15,6 +15,7 @@ import { AddFuncionariosConvocatoriaDto, FuncionarioConvocatoriaItemDto } from '
 import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convocatoria.dto';
 import { ListFuncionariosConvocatoriaQueryDto } from './dto/list-funcionarios-convocatoria-query.dto';
 import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
+import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 
 // Computed: una convocatoria está finalizada cuando tiene fecha de llegada y ya pasó
 const esFinalizada = (fechaLlegada: Date | null) =>
@@ -363,6 +364,9 @@ export class MisionesService {
         ],
       };
     }
+    if (query.categoria) {
+      where.personas = { ...(where.personas ?? {}), AND: [wherePersonaPorCategoria(query.categoria)] };
+    }
 
     const [total, asignaciones] = await this.prisma.$transaction([
       this.prisma.funcionarios_convocatorias.count({ where }),
@@ -537,9 +541,14 @@ export class MisionesService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 200, 200);
 
+    const where = query.categoria
+      ? { personas: wherePersonaPorCategoria(query.categoria) }
+      : {};
+
     const [total, asignaciones] = await this.prisma.$transaction([
-      this.prisma.funcionarios_convocatorias.count(),
+      this.prisma.funcionarios_convocatorias.count({ where }),
       this.prisma.funcionarios_convocatorias.findMany({
+        where,
         orderBy: [{ convocatorias: { misiones: { nombre_mision: 'asc' } } }, { personas: { primer_apellido: 'asc' } }],
         skip: (page - 1) * pageSize,
         take: pageSize,

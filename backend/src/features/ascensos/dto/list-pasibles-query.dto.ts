@@ -9,6 +9,8 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal';
+import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal';
 
 export const ESTADOS_ELEGIBILIDAD = [
   'PASIBLE',
@@ -96,4 +98,7 @@ export class ListPasiblesQueryDto {
   @Min(1)
   @Max(120)
   horizonte_meses?: number;
+
+  @FiltroCategoriaPersonal()
+  categoria?: CategoriaPersonal;
 }

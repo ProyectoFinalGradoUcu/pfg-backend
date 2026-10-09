@@ -4,7 +4,8 @@ import {
   DefinicionReporte,
   ResultadoReporte,
 } from '../reportes.types';
-import { fmtFecha, unir } from './_helpers';
+import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
+import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from './_helpers';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'Cédula', tipo: 'texto' },
@@ -35,13 +36,19 @@ export const misionesOficialesReporte: DefinicionReporte = {
       fuenteOpciones: 'personas',
       ayuda: 'Opcional. Vacío = todas las misiones de todo el personal.',
     },
+    PARAMETRO_CATEGORIA,
   ],
 
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
     const personaId = filtros.persona_id ? BigInt(filtros.persona_id) : undefined;
 
+    const categoria = categoriaDeFiltros(filtros);
+
     const registros = await prisma.funcionarios_misiones.findMany({
-      where: personaId ? { persona_id: personaId } : {},
+      where: {
+        ...(personaId ? { persona_id: personaId } : {}),
+        ...(categoria ? { personas: wherePersonaPorCategoria(categoria) } : {}),
+      },
       include: {
         misiones: true,
         personas: {

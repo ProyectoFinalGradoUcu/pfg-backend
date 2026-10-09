@@ -1,4 +1,30 @@
-import { ColumnaReporte } from '../reportes.types';
+import {
+  CATEGORIAS_PERSONAL,
+  CategoriaPersonal,
+} from '../../../lib/personal/categoria-personal';
+import { ColumnaReporte, ParametroReporte } from '../reportes.types';
+
+/** Filtro común a los reportes que listan personal. Vacío = oficiales y subalternos. */
+export const PARAMETRO_CATEGORIA: ParametroReporte = {
+  clave: 'categoria',
+  etiqueta: 'Tipo de funcionario',
+  tipo: 'select',
+  opciones: [
+    { valor: 'oficial', etiqueta: 'Solo oficiales' },
+    { valor: 'subalterno', etiqueta: 'Solo subalternos' },
+  ],
+  ayuda: 'Opcional. Vacío = oficiales y subalternos.',
+};
+
+/** Lee `filtros.categoria`; cualquier otro valor equivale a no filtrar. */
+export function categoriaDeFiltros(
+  filtros: Record<string, string | undefined>,
+): CategoriaPersonal | undefined {
+  const valor = filtros.categoria?.trim();
+  return (CATEGORIAS_PERSONAL as readonly string[]).includes(valor ?? '')
+    ? (valor as CategoriaPersonal)
+    : undefined;
+}
 
 /** Columnas para reportes de ficha (una fila por par Campo/Valor). */
 export const COLUMNAS_CAMPO_VALOR: ColumnaReporte[] = [

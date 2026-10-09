@@ -1,6 +1,8 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal.js';
+import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal.js';
 
 const toInt = ({ value }: { value: unknown }) =>
   value === undefined ? undefined : Number(value);
@@ -62,4 +64,7 @@ export class ListPersonasQueryDto {
   @Transform(toBool)
   @IsBoolean()
   incluir_inactivos?: boolean;
+
+  @FiltroCategoriaPersonal()
+  categoria?: CategoriaPersonal;
 }

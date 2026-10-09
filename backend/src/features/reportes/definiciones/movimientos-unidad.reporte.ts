@@ -4,7 +4,7 @@ import {
   DefinicionReporte,
   ResultadoReporte,
 } from '../reportes.types';
-import { unir } from './_helpers';
+import { categoriaDeFiltros, PARAMETRO_CATEGORIA, unir } from './_helpers';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'C.I.', tipo: 'texto' },
@@ -33,13 +33,24 @@ export const movimientosUnidadReporte: DefinicionReporte = {
       fuenteOpciones: 'unidades',
       ayuda: 'Opcional. Vacío = todas las unidades.',
     },
+    PARAMETRO_CATEGORIA,
   ],
 
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
     const unidadId = filtros.unidad_id ? BigInt(filtros.unidad_id) : undefined;
 
+    const categoria = categoriaDeFiltros(filtros);
+
     const movimientos = await prisma.movimientos_laborales.findMany({
-      where: unidadId ? { relaciones_laborales: { unidad_id: unidadId } } : {},
+      where:
+        unidadId || categoria
+          ? {
+              relaciones_laborales: {
+                ...(unidadId ? { unidad_id: unidadId } : {}),
+                ...(categoria ? { tipo_funcionario: categoria } : {}),
+              },
+            }
+          : {},
       include: {
         tipos_movimiento: true,
         relaciones_laborales: {
