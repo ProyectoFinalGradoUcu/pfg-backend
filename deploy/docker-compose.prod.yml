@@ -55,6 +55,24 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Crea el bucket y el usuario del backend; el root queda solo para administrar.
+  minio-init:
+    image: minio/minio:latest
+    container_name: minio-init
+    entrypoint: ["/bin/sh", "/init.sh"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_APP_USER: ${MINIO_APP_USER:?falta MINIO_APP_USER en el .env}
+      MINIO_APP_PASSWORD: ${MINIO_APP_PASSWORD:?falta MINIO_APP_PASSWORD en el .env}
+      MINIO_BUCKET: ${MINIO_BUCKET:-pfg-documents}
+    volumes:
+      - ./src/deploy/minio/init.sh:/init.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build:
       context: ./src/backend
@@ -69,14 +87,18 @@ services:
       PORT: "3000"
       MINIO_ENDPOINT: minio
       MINIO_PORT: "9000"
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_ACCESS_KEY: ${MINIO_APP_USER:?falta MINIO_APP_USER en el .env}
+      MINIO_SECRET_KEY: ${MINIO_APP_PASSWORD:?falta MINIO_APP_PASSWORD en el .env}
+      MINIO_BUCKET: ${MINIO_BUCKET:-pfg-documents}
       MINIO_USE_SSL: "false"
+      # El env_file trae el root de MinIO: se vacía para que el backend no lo tenga.
+      MINIO_ROOT_USER: ""
+      MINIO_ROOT_PASSWORD: ""
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   caddy:
