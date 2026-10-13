@@ -476,6 +476,8 @@ export class SubalternosService {
             tiene_mando: dto.tiene_mando,
             observaciones: dto.observaciones,
             mutaciones: dto.mutaciones ?? undefined,
+            fecha_ultimo_ascenso: dto.fecha_ultimo_ascenso ? new Date(dto.fecha_ultimo_ascenso) : undefined,
+            anios_servicio_anterior: dto.anios_servicio_anterior ?? undefined,
           },
           include: {
             grados: { select: { denominacion: true } },
