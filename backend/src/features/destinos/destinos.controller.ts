@@ -10,9 +10,17 @@ import {
   ParseIntPipe,
   HttpCode,
   HttpStatus,
+  Res,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiCookieAuth } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiCookieAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { DestinosService } from './destinos.service';
+import { DestinosCargaService } from './destinos-carga.service';
+import { archivoExcelPipe, enviarExcel } from '../../lib/carga-masiva';
+import type { ArchivoSubido } from '../../lib/carga-masiva';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 import { CreateDestinoDto } from './dto/create-destino.dto';
@@ -26,7 +34,10 @@ import { ListFuncionariosUnidadQueryDto } from './dto/list-funcionarios-unidad-q
 @Auditar({ contexto: 'Destinos', entidad: 'Destino' })
 @Controller('destinos')
 export class DestinosController {
-  constructor(private readonly destinosService: DestinosService) {}
+  constructor(
+    private readonly destinosService: DestinosService,
+    private readonly cargaService: DestinosCargaService,
+  ) {}
 
   // ─── Unidades ──────────────────────────────────────────────────────────────
   // DEBEN ir antes de /:destinoId para que Express no las tome como un id.
@@ -46,6 +57,26 @@ export class DestinosController {
     @Query() query: ListFuncionariosUnidadQueryDto,
   ) {
     return this.destinosService.listarFuncionariosUnidad(unidadId, query);
+  }
+
+  // ─── Carga masiva (antes de /:destinoId) ──────────────────────────────────
+
+  @Get('carga-masiva/plantilla')
+  @ApiOperation({ summary: 'Descargar plantilla Excel de destinos (con las unidades como lista desplegable)' })
+  @RequirePermissions('destinos.gestionar')
+  async descargarPlantilla(@Res() res: Response) {
+    enviarExcel(res, await this.cargaService.generarPlantilla(), 'plantilla_destinos.xlsx');
+  }
+
+  @Post('carga-masiva')
+  @ApiOperation({ summary: 'Carga masiva de destinos actuales e históricos desde Excel' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { archivo: { type: 'string', format: 'binary' } } } })
+  @RequirePermissions('destinos.gestionar')
+  @Auditar({ contexto: 'Destinos', entidad: 'Carga masiva de destinos', incluirRespuesta: true })
+  @UseInterceptors(FileInterceptor('archivo'))
+  cargaMasiva(@UploadedFile(archivoExcelPipe()) archivo: ArchivoSubido) {
+    return this.cargaService.procesarCarga(archivo.buffer);
   }
 
   // ─── Destinos (asignaciones) ───────────────────────────────────────────────

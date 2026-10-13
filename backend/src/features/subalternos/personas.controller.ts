@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Put, Delete, Query, Body, Param, ParseIntPipe, Res,
-  UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,
+  UseInterceptors, UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth, ApiConsumes, ApiBody, ApiParam } from '@nestjs/swagger';
@@ -20,6 +20,8 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
 import type { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
+import { archivoExcelPipe, enviarExcel } from '../../lib/carga-masiva/index.js';
+import type { ArchivoSubido } from '../../lib/carga-masiva/index.js';
 
 @ApiTags('Personas')
 @ApiCookieAuth('auth_token')
@@ -47,32 +49,22 @@ export class PersonasController {
 
   // ─── Carga masiva ─────────────────────────────────────────────────────────
 
-  @ApiOperation({ summary: 'Descargar plantilla Excel para carga masiva' })
+  @ApiOperation({ summary: 'Descargar plantilla Excel para carga masiva (con listas desplegables de catálogos)' })
   @RequireAlcance('personas.crear')
   @Get('plantilla')
-  descargarPlantilla(@Res() res: Response) {
-    const buffer = this.cargaService.generarPlantilla();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename="plantilla_carga_personal.xlsx"');
-    res.send(buffer);
+  async descargarPlantilla(@Res() res: Response, @Alcance() alcance: AlcanceResuelto) {
+    enviarExcel(res, await this.cargaService.generarPlantilla(alcance), 'plantilla_carga_personal.xlsx');
   }
 
   @ApiOperation({ summary: 'Carga masiva de personal desde Excel' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { archivo: { type: 'string', format: 'binary' } } } })
   @RequireAlcance('personas.crear')
+  @Auditar({ contexto: 'Personas', entidad: 'Carga masiva de personal', incluirRespuesta: true })
   @Post('carga-masiva')
   @UseInterceptors(FileInterceptor('archivo'))
   cargaMasiva(
-    @UploadedFile(
-      new ParseFilePipe({
-        validators: [
-          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
-          new FileTypeValidator({ fileType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
-        ],
-      }),
-    )
-    archivo: { buffer: Buffer; mimetype: string; originalname: string },
+    @UploadedFile(archivoExcelPipe()) archivo: ArchivoSubido,
     @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.cargaService.procesarCarga(archivo.buffer, alcance);
