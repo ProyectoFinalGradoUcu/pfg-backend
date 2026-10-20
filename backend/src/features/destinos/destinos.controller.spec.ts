@@ -3,6 +3,7 @@ import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
 import { RequestMethod } from '@nestjs/common';
 import { DestinosController } from './destinos.controller';
 import { DestinosService } from './destinos.service';
+import { DestinosCargaService } from './destinos-carga.service';
 import { PERMISSIONS_KEY } from '../auth/decorators/permissions.decorator';
 import { AUDITAR_KEY } from '../auditoria/decorators/auditar.decorator';
 
@@ -44,13 +45,24 @@ describe('DestinosController · rutas', () => {
     expect(idxUnidadFuncionarios).toBeLessThan(idxPorId);
   });
 
-  it('expone exactamente las siete rutas del módulo', () => {
+  it('declara la plantilla de carga masiva antes que la ruta con :destinoId', () => {
+    const rutas = handlersEnOrden();
+    const idxPlantilla = rutas.findIndex((r) => r.path === 'carga-masiva/plantilla');
+    const idxPorId = rutas.findIndex((r) => r.path === ':destinoId' && r.method === RequestMethod.GET);
+
+    expect(idxPlantilla).toBeGreaterThanOrEqual(0);
+    expect(idxPlantilla).toBeLessThan(idxPorId);
+  });
+
+  it('expone exactamente las nueve rutas del módulo', () => {
     const rutas = handlersEnOrden().map((r) => `${RequestMethod[r.method]} ${r.path}`);
 
     expect(rutas.sort()).toEqual(
       [
         'GET unidades',
         'GET unidades/:unidadId/funcionarios',
+        'GET carga-masiva/plantilla',
+        'POST carga-masiva',
         'GET /',
         'GET :destinoId',
         'POST /',
@@ -78,6 +90,8 @@ describe('DestinosController · permisos', () => {
     ['crearDestino', 'destinos.gestionar'],
     ['editarDestino', 'destinos.gestionar'],
     ['eliminarDestino', 'destinos.gestionar'],
+    ['descargarPlantilla', 'destinos.gestionar'],
+    ['cargaMasiva', 'destinos.gestionar'],
   ])('%s exige %s', (handler, permiso) => {
     expect(permisoDe(handler)).toEqual([permiso]);
   });
@@ -99,8 +113,10 @@ describe('DestinosController · permisos', () => {
 describe('DestinosController · delegación', () => {
   let controller: DestinosController;
   let service: jest.Mocked<Partial<DestinosService>>;
+  let carga: jest.Mocked<Partial<DestinosCargaService>>;
 
   beforeEach(async () => {
+    carga = { generarPlantilla: jest.fn(), procesarCarga: jest.fn() };
     service = {
       listarDestinos: jest.fn(),
       obtenerDestino: jest.fn(),
@@ -113,10 +129,21 @@ describe('DestinosController · delegación', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DestinosController],
-      providers: [{ provide: DestinosService, useValue: service }],
+      providers: [
+        { provide: DestinosService, useValue: service },
+        { provide: DestinosCargaService, useValue: carga },
+      ],
     }).compile();
 
     controller = module.get<DestinosController>(DestinosController);
+  });
+
+  it('pasa el contenido del archivo a la carga masiva', () => {
+    const buffer = Buffer.from('xlsx');
+
+    controller.cargaMasiva({ buffer, mimetype: 'x', originalname: 'destinos.xlsx' });
+
+    expect(carga.procesarCarga).toHaveBeenCalledWith(buffer);
   });
 
   it('pasa el query al listar destinos', () => {

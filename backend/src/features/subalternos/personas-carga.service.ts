@@ -1,425 +1,327 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import * as XLSX from 'xlsx';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
+import { AlcanceResuelto, unidadIdsDeAlcance } from '../../lib/alcance/alcance.types.js';
 import {
-  AlcanceResuelto,
-  unidadIdDeAlcance,
-} from '../../lib/alcance/alcance.types.js';
-import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
-import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
-import { NIVELES_EDUCATIVOS } from './legajo-militar.constants.js';
-import { DerechaService } from '../derecha/derecha.service.js';
+  Catalogo,
+  ColumnaPlantilla,
+  DefinicionPlantilla,
+  FilaLeida,
+  ResultadoCarga,
+  construirPlantilla,
+  elegirOpcion,
+  leerHoja,
+  normalizarCedula,
+  parsearEntero,
+  parsearFecha,
+  parsearSiNo,
+  procesarEnSerie,
+  resumir,
+  separarRepetidas,
+} from '../../lib/carga-masiva/index.js';
+import { SubalternosService } from './subalternos.service.js';
+import { CreatePersonalDto } from './dto/create-personal.dto.js';
+import { ETIQUETAS_NIVEL_EDUCATIVO, NIVELES_EDUCATIVOS } from './legajo-militar.constants.js';
 
-interface FilaCarga {
-  // Personales
-  cedula: string;
-  primer_nombre: string;
-  primer_apellido: string;
-  segundo_nombre?: string;
-  segundo_apellido?: string;
-  fecha_nacimiento?: string;
-  email?: string;
-  telefono?: string;
-  direccion?: string;
-  genero?: string;
-  estado_civil?: string;
-  lugar_nacimiento?: string;
-  es_civil: boolean;
-  observaciones?: string;
-  // Militar
-  tipo_funcionario?: string;
-  regimen_id?: number;
-  unidad_id?: number;
-  programa_id?: number;
-  situacion_id?: number;
-  escalafon_id?: number;
-  grado_id?: number;
-  fecha_inicio?: string;
-  sub_unidad_id?: number;
-  // Civil: "cedula1:tipo_relacion1|cedula2:tipo_relacion2"
-  familiares?: string;
-  // Legajo militar (solo militares)
-  nivel_educativo?: string;
-  fecha_ingreso_eta?: string;
-  fecha_egreso_eta?: string;
-  numero_orden_egreso_eta?: string;
-  mutaciones?: string;
-}
+const TIPOS_PERSONAL = { Oficial: 'oficial', Subalterno: 'subalterno', Civil: 'civil' } as const;
+const GENEROS = { Masculino: 'M', Femenino: 'F', Otro: 'O', M: 'M', F: 'F', O: 'O' } as const;
+const ESTADOS_CIVILES = ['Soltero', 'Casado', 'Divorciado', 'Viudo', 'Unión libre'];
+const TIPOS_RELACION = ['Cónyuge', 'Padre', 'Madre', 'Hijo/a', 'Hermano/a', 'Otro'];
+const SI_NO = ['SI', 'NO'];
 
-export interface ResultadoFila {
-  fila: number;
-  cedula: string;
-  estado: 'ok' | 'error';
-  id?: number;
-  mensaje?: string;
-}
+/** Etiqueta legible, código guardado. También acepta el código tal cual (en caso que tengan una plantilla vieja). */
+const NIVELES_POR_ETIQUETA: Record<string, string> = Object.fromEntries([
+  ...NIVELES_EDUCATIVOS.map((n) => [ETIQUETAS_NIVEL_EDUCATIVO[n], n]),
+  ...NIVELES_EDUCATIVOS.map((n) => [n, n]),
+]);
 
-const COLUMNAS = [
-  'cedula',
-  'primer_nombre',
-  'primer_apellido',
-  'segundo_nombre',
-  'segundo_apellido',
-  'fecha_nacimiento',
-  'email',
-  'telefono',
-  'direccion',
-  'genero',
-  'estado_civil',
-  'lugar_nacimiento',
-  'es_civil',
-  'observaciones',
-  'tipo_funcionario',
-  'regimen_id',
-  'unidad_id',
-  'programa_id',
-  'situacion_id',
-  'escalafon_id',
-  'grado_id',
-  'fecha_inicio',
-  'sub_unidad_id',
-  'familiares',
-  // Al final para no correr las columnas de las plantillas ya distribuidas: el
-  // parseo mapea por posición.
-  'nivel_educativo',
-  'fecha_ingreso_eta',
-  'fecha_egreso_eta',
-  'numero_orden_egreso_eta',
-  'mutaciones',
+const COLUMNAS: ColumnaPlantilla[] = [
+  { clave: 'cedula', titulo: 'Cédula', requerida: true, ayuda: 'Sin puntos ni guión. Ej: 12345678' },
+  { clave: 'primer_nombre', titulo: 'Primer nombre', requerida: true },
+  { clave: 'segundo_nombre', titulo: 'Segundo nombre' },
+  { clave: 'primer_apellido', titulo: 'Primer apellido', requerida: true },
+  { clave: 'segundo_apellido', titulo: 'Segundo apellido' },
+  { clave: 'tipo_personal', titulo: 'Tipo de personal', requerida: true, tipo: 'lista', lista: 'tipos',
+    ayuda: 'Oficial y Subalterno requieren los datos militares. Civil requiere al menos un familiar militar.' },
+  { clave: 'fecha_nacimiento', titulo: 'Fecha de nacimiento', tipo: 'fecha' },
+  { clave: 'genero', titulo: 'Género', tipo: 'lista', lista: 'generos' },
+  { clave: 'estado_civil', titulo: 'Estado civil', tipo: 'lista', lista: 'estados_civiles' },
+  { clave: 'lugar_nacimiento', titulo: 'Lugar de nacimiento' },
+  { clave: 'email', titulo: 'Email' },
+  { clave: 'telefono', titulo: 'Teléfono' },
+  { clave: 'direccion', titulo: 'Dirección' },
+  { clave: 'codigo_postal', titulo: 'Código postal' },
+  { clave: 'seccional', titulo: 'Seccional' },
+  { clave: 'etnia', titulo: 'Etnia' },
+  // Datos militares
+  { clave: 'regimen', titulo: 'Régimen', tipo: 'lista', lista: 'regimenes', ayuda: 'Obligatorio para oficiales y subalternos.' },
+  { clave: 'unidad', titulo: 'Unidad', tipo: 'lista', lista: 'unidades', ayuda: 'Unidad donde revista hoy. Se registra como su destino actual.' },
+  { clave: 'sub_unidad', titulo: 'Sub-unidad', tipo: 'lista', lista: 'sub_unidades', ayuda: 'Opcional. Tiene que pertenecer a la unidad elegida.' },
+  { clave: 'programa', titulo: 'Programa', tipo: 'lista', lista: 'programas', ayuda: 'Obligatorio para oficiales y subalternos.' },
+  { clave: 'situacion', titulo: 'Situación', tipo: 'lista', lista: 'situaciones', ayuda: 'Obligatorio para oficiales y subalternos.' },
+  { clave: 'escalafon', titulo: 'Escalafón', tipo: 'lista', lista: 'escalafones', ayuda: 'Obligatorio para oficiales y subalternos.' },
+  { clave: 'grado', titulo: 'Grado', tipo: 'lista', lista: 'grados', ayuda: 'Grado actual. Obligatorio para oficiales y subalternos.' },
+  { clave: 'fecha_inicio', titulo: 'Fecha de ingreso', tipo: 'fecha',
+    ayuda: 'Inicio de la relación laboral. Se usa para la antigüedad total. Obligatoria para oficiales y subalternos.' },
+  { clave: 'fecha_ultimo_ascenso', titulo: 'Fecha del último ascenso', tipo: 'fecha',
+    ayuda: 'Las reglas de ascenso cuentan la permanencia en el grado desde esta fecha. Si se deja vacía, cuentan desde la fecha de ingreso.' },
+  { clave: 'anios_servicio_anterior', titulo: 'Años de servicio anteriores', tipo: 'numero',
+    ayuda: 'Años de servicio previos al ingreso que suman a la antigüedad. Vacío = 0.' },
+  { clave: 'tiene_mando', titulo: 'Tiene mando', tipo: 'lista', lista: 'si_no' },
+  { clave: 'prima_tecnica', titulo: 'Prima técnica', ayuda: 'Hasta 10 caracteres. Ej: A' },
+  // Legajo militar
+  { clave: 'nivel_educativo', titulo: 'Nivel educativo', tipo: 'lista', lista: 'niveles', ayuda: 'Lo usan las reglas de ascenso.' },
+  { clave: 'fecha_ingreso_eta', titulo: 'Fecha de ingreso a la ETA', tipo: 'fecha' },
+  { clave: 'fecha_egreso_eta', titulo: 'Fecha de egreso de la ETA', tipo: 'fecha' },
+  { clave: 'numero_orden_egreso_eta', titulo: 'N.º de orden de egreso de la ETA' },
+  { clave: 'mutaciones', titulo: 'Mutaciones', ayuda: 'Texto libre del cambio de escalafón, si lo hubo.' },
+  // Civiles
+  { clave: 'familiares', titulo: 'Familiares',
+    ayuda: 'Cédulas de militares ya registrados (o que estén en este mismo archivo), con el vínculo después de dos puntos. ' +
+      'Varios se separan con |. Ej: 12345678:Cónyuge|87654321:Padre. Obligatorio para civiles.' },
+  { clave: 'observaciones', titulo: 'Observaciones', ancho: 40 },
 ];
+
+interface Catalogos {
+  regimenes: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
+  unidades: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
+  subUnidades: Catalogo<{ id: bigint; codigo: string; nombre: string; unidad_id: bigint }>;
+  programas: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
+  situaciones: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
+  escalafones: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
+  grados: Catalogo<{ id: bigint; codigo: string; nombre: string; es_oficial: boolean; es_subalterno: boolean }>;
+}
 
 @Injectable()
 export class PersonasCargaService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly derecha: DerechaService,
+    private readonly subalternosService: SubalternosService,
   ) {}
 
-  generarPlantilla(): Buffer {
-    const wb = XLSX.utils.book_new();
-
-    // Hoja de datos
-    const encabezados = [
-      'cedula *',
-      'primer_nombre *',
-      'primer_apellido *',
-      'segundo_nombre',
-      'segundo_apellido',
-      'fecha_nacimiento (AAAA-MM-DD)',
-      'email',
-      'telefono',
-      'direccion',
-      'genero',
-      'estado_civil',
-      'lugar_nacimiento',
-      'es_civil * (SI/NO)',
-      'observaciones',
-      'tipo_funcionario (oficial/subalterno) — solo si NO civil',
-      'regimen_id — solo si NO civil',
-      'unidad_id — solo si NO civil',
-      'programa_id — solo si NO civil',
-      'situacion_id — solo si NO civil',
-      'escalafon_id — solo si NO civil',
-      'grado_id — solo si NO civil',
-      'fecha_inicio (AAAA-MM-DD) — solo si NO civil',
-      'sub_unidad_id — solo si NO civil (opcional)',
-      'familiares — solo si civil (cedula1:tipo_relacion|cedula2:tipo_relacion)',
-      `nivel_educativo (${NIVELES_EDUCATIVOS.join(' / ')}) — opcional`,
-      'fecha_ingreso_eta (AAAA-MM-DD) — opcional',
-      'fecha_egreso_eta (AAAA-MM-DD) — opcional',
-      'numero_orden_egreso_eta — opcional',
-      'mutaciones (texto libre del cambio de escalafón) — opcional',
-    ];
-
-    const ejemploMilitar = [
-      '12345678', 'Juan', 'Pérez', 'Carlos', 'García',
-      '1990-05-15', 'juan@ejemplo.com', '099111222', 'Av. 18 de Julio 100',
-      'M', 'Soltero', 'Montevideo', 'NO', '',
-      'oficial', '1', '2', '1', '3', '1', '4', '2024-01-01', '', '',
-      'BACHILLERATO_TECNOLOGICO', '2018-03-01', '2020-12-15', 'O.C.G.F.A. N.º 12.345', '',
-    ];
-
-    const ejemploCivil = [
-      '98765432', 'Ana', 'López', '', '',
-      '1995-03-20', 'ana@ejemplo.com', '099333444', '',
-      'F', 'Casado', 'Montevideo', 'SI', 'Cónyuge de oficial',
-      '', '', '', '', '', '', '', '', '',
-      '12345678:Cónyuge|11223344:Padre',
-      '', '', '', '', '',
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet([encabezados, ejemploMilitar, ejemploCivil]);
-    ws['!cols'] = encabezados.map(() => ({ wch: 30 }));
-    XLSX.utils.book_append_sheet(wb, ws, 'Personal');
-
-    // Hoja de instrucciones
-    const instrucciones = [
-      ['INSTRUCCIONES DE CARGA MASIVA'],
-      [''],
-      ['1. Complete una fila por persona.'],
-      ['2. Los campos marcados con * son obligatorios para todos.'],
-      ['3. Si es_civil = NO: complete los campos militares (tipo_funcionario, regimen_id, unidad_id, etc.)'],
-      ['4. Si es_civil = SI: deje los campos militares en blanco y complete "familiares".'],
-      ['5. Columna "familiares": una o más cédulas de militares ya registrados.'],
-      ['   Formato: cedula1:tipo_relacion|cedula2:tipo_relacion'],
-      ['   Ejemplo: 12345678:Cónyuge|87654321:Padre'],
-      ['   Si no conoce el tipo de relación puede omitirlo: 12345678|87654321'],
-      ['6. Los IDs (regimen_id, unidad_id, etc.) deben corresponder a registros existentes en el sistema.'],
-      ['   Consulte al administrador si no conoce los IDs.'],
-      ['7. Formato de fechas: AAAA-MM-DD (ej: 1990-05-15)'],
-      ['8. No modifique los nombres de columnas de la hoja "Personal".'],
-      ['9. Legajo militar (opcional, solo para militares): nivel_educativo, fecha_ingreso_eta,'],
-      ['   fecha_egreso_eta, numero_orden_egreso_eta y mutaciones. Los usan las reglas de ascenso.'],
-      [`   nivel_educativo admite: ${NIVELES_EDUCATIVOS.join(', ')}`],
-    ];
-
-    const wsInstrucciones = XLSX.utils.aoa_to_sheet(instrucciones);
-    wsInstrucciones['!cols'] = [{ wch: 80 }];
-    XLSX.utils.book_append_sheet(wb, wsInstrucciones, 'Instrucciones');
-
-    return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+  async generarPlantilla(alcance?: AlcanceResuelto): Promise<Buffer> {
+    const cat = await this.cargarCatalogos(alcance);
+    return construirPlantilla(this.definicion(cat));
   }
 
   /**
-   * Con alcance de unidad, TODAS las filas se cargan en la unidad del usuario y se ignora la
-   * columna `unidad_id` del archivo. El resumen devuelve `unidadForzada` para que la interfaz
-   * pueda avisarlo: si no, parece que el dato del archivo se respetó (spec 002 §3).
+   * Con alcance de unidad, la lista de unidades trae solo las del usuario y la fila sin unidad
+   * cae en la suya (si tiene una sola). El alta valida lo mismo que el formulario manual.
    */
-  async procesarCarga(buffer: Buffer, alcance?: AlcanceResuelto): Promise<{
-    total: number;
-    exitosos: number;
-    errores: number;
-    unidadForzada: string | null;
-    resultados: ResultadoFila[];
-  }> {
-    const unidadForzada = alcance ? unidadIdDeAlcance(alcance) : null;
-    const wb = XLSX.read(buffer, { type: 'buffer' });
-    const ws = wb.Sheets['Personal'];
-    if (!ws) {
-      throw new BadRequestException('El archivo no contiene la hoja "Personal". Usá la plantilla oficial.');
-    }
+  async procesarCarga(buffer: Buffer, alcance?: AlcanceResuelto): Promise<ResultadoCarga> {
+    const cat = await this.cargarCatalogos(alcance);
+    const filas = await leerHoja(buffer, this.definicion(cat));
+    for (const f of filas) f.valores['cedula'] = normalizarCedula(f.valores['cedula'] ?? '');
 
-    const filas: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-    if (filas.length < 2) {
-      throw new BadRequestException('El archivo no tiene datos. Completá al menos una fila debajo del encabezado.');
-    }
-
-    // Ignorar encabezado (fila 1), procesar desde fila 2
-    const datos = filas.slice(1).filter((fila) => fila.some((celda) => String(celda).trim() !== ''));
-
-    const settled = await Promise.allSettled(
-      datos.map(async (fila, i) => {
-        const numeroFila = i + 2;
-        const cedula = String(fila[0] ?? '').trim();
-        const parsed = this.parsearFila(fila, numeroFila);
-        if (unidadForzada !== null) {
-          parsed.unidad_id = Number(unidadForzada);
-        }
-        const id = parsed.es_civil ? await this.crearCivil(parsed) : await this.crearMilitar(parsed);
-        return { fila: numeroFila, cedula, id };
-      }),
+    const { unicas, repetidas } = separarRepetidas(
+      filas,
+      (f) => f.valores['cedula'],
+      (previa) => `La cédula está repetida en el archivo (ya aparece en la fila ${previa}).`,
     );
 
-    const resultados: ResultadoFila[] = settled.map((r, i) => {
-      const numeroFila = i + 2;
-      const cedula = String(datos[i][0] ?? '').trim();
-      if (r.status === 'fulfilled') {
-        return { fila: r.value.fila, cedula: r.value.cedula, estado: 'ok' as const, id: r.value.id };
+    // Primero los militares: así un civil puede tener de familiar a alguien del mismo archivo.
+    const esCivil = (f: FilaLeida) => f.valores['tipo_personal'] && /civil/i.test(f.valores['tipo_personal']);
+    const ordenadas = [...unicas.filter((f) => !esCivil(f)), ...unicas.filter(esCivil)];
+
+    const resultados = await procesarEnSerie(ordenadas, async (fila) => {
+      const dto = this.armarDto(fila, cat);
+      const creado = (await this.subalternosService.createPersonal(dto, alcance)) as { id: number };
+      return { id: creado.id };
+    });
+
+    return resumir([...resultados, ...repetidas]);
+  }
+
+  private armarDto(fila: FilaLeida, cat: Catalogos): CreatePersonalDto {
+    const v = fila.valores;
+    const t = (clave: string) => COLUMNAS.find((c) => c.clave === clave)!.titulo;
+
+    if (!v['cedula']) throw new Error('Falta la cédula.');
+    if (!/^\d{6,9}$/.test(v['cedula'])) throw new Error(`La cédula "${v['cedula']}" no es válida: tienen que ser entre 6 y 9 dígitos.`);
+    if (!v['primer_nombre']) throw new Error('Falta el primer nombre.');
+    if (!v['primer_apellido']) throw new Error('Falta el primer apellido.');
+    const tipo = elegirOpcion(v['tipo_personal'], t('tipo_personal'), TIPOS_PERSONAL);
+    if (!tipo) throw new Error('Falta el tipo de personal (Oficial, Subalterno o Civil).');
+
+    const nivel = elegirOpcion(v['nivel_educativo'], t('nivel_educativo'), NIVELES_POR_ETIQUETA);
+
+    const dto: CreatePersonalDto = {
+      cedula: v['cedula'],
+      primer_nombre: v['primer_nombre'],
+      primer_apellido: v['primer_apellido'],
+      segundo_nombre: v['segundo_nombre'] || undefined,
+      segundo_apellido: v['segundo_apellido'] || undefined,
+      fecha_nacimiento: parsearFecha(v['fecha_nacimiento'], t('fecha_nacimiento')),
+      genero: elegirOpcion(v['genero'], t('genero'), GENEROS),
+      estado_civil: elegirOpcion(v['estado_civil'], t('estado_civil'), Object.fromEntries(ESTADOS_CIVILES.map((e) => [e, e]))),
+      lugar_nacimiento: v['lugar_nacimiento'] || undefined,
+      email: v['email'] || undefined,
+      telefono: v['telefono'] || undefined,
+      direccion: v['direccion'] || undefined,
+      codigo_postal: v['codigo_postal'] || undefined,
+      seccional: v['seccional'] || undefined,
+      etnia: v['etnia'] || undefined,
+      es_civil: tipo === 'civil',
+      observaciones: v['observaciones'] || undefined,
+      familiares: this.parsearFamiliares(v['familiares']),
+    };
+
+    if (tipo === 'civil') {
+      if (!dto.familiares?.length) {
+        throw new Error('Un civil necesita al menos un familiar militar en la columna "Familiares".');
       }
-      const mensaje = r.reason instanceof Error ? r.reason.message : 'Error desconocido';
-      return { fila: numeroFila, cedula, estado: 'error' as const, mensaje };
-    });
-
-    const exitosos = resultados.filter((r) => r.estado === 'ok').length;
-    return {
-      total: resultados.length,
-      exitosos,
-      errores: resultados.length - exitosos,
-      unidadForzada: unidadForzada === null ? null : unidadForzada.toString(),
-      resultados,
-    };
-  }
-
-  private parsearFila(fila: string[], numeroFila: number): FilaCarga {
-    const col = (field: (typeof COLUMNAS)[number]) => String(fila[COLUMNAS.indexOf(field)] ?? '').trim();
-
-    const cedula = col('cedula');
-    const primer_nombre = col('primer_nombre');
-    const primer_apellido = col('primer_apellido');
-
-    if (!cedula) throw new Error('Cédula vacía');
-    if (!primer_nombre) throw new Error('Primer nombre vacío');
-    if (!primer_apellido) throw new Error('Primer apellido vacío');
-
-    const esCivilRaw = col('es_civil').toUpperCase();
-    if (!['SI', 'NO'].includes(esCivilRaw)) {
-      throw new Error(`Columna "es_civil" inválida (fila ${numeroFila}): debe ser SI o NO`);
+      return dto;
     }
-    const es_civil = esCivilRaw === 'SI';
 
-    const numCol = (field: (typeof COLUMNAS)[number]) => { const v = col(field); return v ? Number(v) : undefined; };
+    const faltantes = (['regimen', 'unidad', 'programa', 'situacion', 'escalafon', 'grado', 'fecha_inicio'] as const)
+      .filter((c) => !v[c] && !(c === 'unidad' && cat.unidades.items.length === 1))
+      .map(t);
+    if (faltantes.length) throw new Error(`Faltan datos militares: ${faltantes.join(', ')}.`);
 
-    const nivelEducativo = col('nivel_educativo').toUpperCase() || undefined;
-    if (nivelEducativo && !NIVELES_EDUCATIVOS.includes(nivelEducativo as never)) {
-      throw new Error(
-        `Columna "nivel_educativo" inválida (fila ${numeroFila}): "${nivelEducativo}". ` +
-          `Valores admitidos: ${NIVELES_EDUCATIVOS.join(', ')}`,
-      );
+    const unidad = v['unidad'] ? cat.unidades.resolver(v['unidad']) : cat.unidades.items[0];
+    const subUnidad = cat.subUnidades.resolverOpcional(v['sub_unidad']);
+    if (subUnidad && subUnidad.unidad_id !== unidad.id) {
+      throw new Error(`La sub-unidad "${v['sub_unidad']}" no pertenece a la unidad "${cat.unidades.etiquetaDe(unidad)}".`);
+    }
+    const grado = cat.grados.resolver(v['grado']);
+    if (tipo === 'oficial' && grado.es_subalterno) {
+      throw new Error(`El grado "${v['grado']}" es de personal subalterno y la fila dice Oficial.`);
+    }
+    if (tipo === 'subalterno' && grado.es_oficial) {
+      throw new Error(`El grado "${v['grado']}" es de oficiales y la fila dice Subalterno.`);
+    }
+
+    const fechaInicio = parsearFecha(v['fecha_inicio'], t('fecha_inicio'))!;
+    const fechaUltimoAscenso = parsearFecha(v['fecha_ultimo_ascenso'], t('fecha_ultimo_ascenso'));
+    if (fechaUltimoAscenso && fechaUltimoAscenso < fechaInicio) {
+      throw new Error('La fecha del último ascenso es anterior a la fecha de ingreso.');
     }
 
     return {
-      cedula,
-      primer_nombre,
-      primer_apellido,
-      segundo_nombre: col('segundo_nombre') || undefined,
-      segundo_apellido: col('segundo_apellido') || undefined,
-      fecha_nacimiento: col('fecha_nacimiento') || undefined,
-      email: col('email') || undefined,
-      telefono: col('telefono') || undefined,
-      direccion: col('direccion') || undefined,
-      genero: col('genero') || undefined,
-      estado_civil: col('estado_civil') || undefined,
-      lugar_nacimiento: col('lugar_nacimiento') || undefined,
-      es_civil,
-      observaciones: col('observaciones') || undefined,
-      tipo_funcionario: col('tipo_funcionario') || undefined,
-      regimen_id: numCol('regimen_id'),
-      unidad_id: numCol('unidad_id'),
-      programa_id: numCol('programa_id'),
-      situacion_id: numCol('situacion_id'),
-      escalafon_id: numCol('escalafon_id'),
-      grado_id: numCol('grado_id'),
-      fecha_inicio: col('fecha_inicio') || undefined,
-      sub_unidad_id: numCol('sub_unidad_id'),
-      familiares: col('familiares') || undefined,
-      nivel_educativo: nivelEducativo,
-      fecha_ingreso_eta: col('fecha_ingreso_eta') || undefined,
-      fecha_egreso_eta: col('fecha_egreso_eta') || undefined,
-      numero_orden_egreso_eta: col('numero_orden_egreso_eta') || undefined,
-      mutaciones: col('mutaciones') || undefined,
+      ...dto,
+      tipo_funcionario: tipo,
+      regimen_id: Number(cat.regimenes.resolver(v['regimen']).id),
+      unidad_id: Number(unidad.id),
+      sub_unidad_id: subUnidad ? Number(subUnidad.id) : undefined,
+      programa_id: Number(cat.programas.resolver(v['programa']).id),
+      situacion_id: Number(cat.situaciones.resolver(v['situacion']).id),
+      escalafon_id: Number(cat.escalafones.resolver(v['escalafon']).id),
+      grado_id: Number(grado.id),
+      fecha_inicio: fechaInicio,
+      fecha_ultimo_ascenso: fechaUltimoAscenso,
+      anios_servicio_anterior: parsearEntero(v['anios_servicio_anterior'], t('anios_servicio_anterior')),
+      tiene_mando: parsearSiNo(v['tiene_mando'], t('tiene_mando')),
+      prima_tecnica: v['prima_tecnica'] || undefined,
+      nivel_educativo: nivel,
+      fecha_ingreso_eta: parsearFecha(v['fecha_ingreso_eta'], t('fecha_ingreso_eta')),
+      fecha_egreso_eta: parsearFecha(v['fecha_egreso_eta'], t('fecha_egreso_eta')),
+      numero_orden_egreso_eta: v['numero_orden_egreso_eta'] || undefined,
+      mutaciones: v['mutaciones'] || undefined,
     };
   }
 
-  private async crearCivil(datos: FilaCarga): Promise<number> {
-    if (!datos.familiares) {
-      throw new Error('El civil debe tener al menos un familiar (columna "familiares" vacía)');
-    }
-
-    const familiaresParseados = datos.familiares.split('|').map((parte) => {
-      const [cedula, tipo_relacion] = parte.split(':');
-      return { cedula: cedula.trim(), tipo_relacion: tipo_relacion?.trim() || undefined };
-    });
-
-    const existente = await this.prisma.personas.findUnique({ where: { cedula: datos.cedula } });
-    if (existente) throw new Error(`Ya existe una persona con cédula ${datos.cedula}`);
-
-    type PersonaFamiliar = { id: bigint; cedula: string; es_civil: boolean | null };
-    const cedulasFamiliares = familiaresParseados.map((f) => f.cedula);
-    const personasEncontradas = (await this.prisma.personas.findMany({
-      where: { cedula: { in: cedulasFamiliares } },
-      select: { id: true, cedula: true, es_civil: true },
-    })) as unknown as PersonaFamiliar[];
-    const porCedula = new Map(personasEncontradas.map((p) => [p.cedula, p]));
-    for (const f of familiaresParseados) {
-      const persona = porCedula.get(f.cedula);
-      if (!persona) throw new Error(`Familiar con cédula ${f.cedula} no encontrado en el sistema`);
-      if (persona.es_civil) throw new Error(`El familiar con cédula ${f.cedula} es civil, debe ser militar`);
-    }
-    const familiaresResueltos = familiaresParseados.map((f) => ({
-      id: porCedula.get(f.cedula)!.id,
-      tipo_relacion: f.tipo_relacion,
-    }));
-
-    return this.prisma.$transaction(async (tx) => {
-      const persona = await tx.personas.create({
-        data: {
-          cedula: datos.cedula,
-          primer_nombre: datos.primer_nombre,
-          primer_apellido: datos.primer_apellido,
-          segundo_nombre: datos.segundo_nombre,
-          segundo_apellido: datos.segundo_apellido,
-          fecha_nacimiento: datos.fecha_nacimiento ? new Date(datos.fecha_nacimiento) : undefined,
-          email: datos.email,
-          telefono: datos.telefono,
-          direccion: datos.direccion,
-          genero: datos.genero,
-          estado_civil: datos.estado_civil,
-          lugar_nacimiento: datos.lugar_nacimiento,
-          es_civil: true,
-        },
+  private parsearFamiliares(valor: string): CreatePersonalDto['familiares'] {
+    if (!valor) return undefined;
+    const familiares = valor
+      .split(/[|;\n]/)
+      .map((parte) => parte.trim())
+      .filter(Boolean)
+      .map((parte) => {
+        const [cedula, relacion] = parte.split(':');
+        const tipoRelacion = relacion?.trim()
+          ? elegirOpcion(relacion.trim(), 'Familiares', Object.fromEntries(TIPOS_RELACION.map((r) => [r, r])))
+          : undefined;
+        return { cedula: normalizarCedula(cedula ?? ''), tipo_relacion: tipoRelacion };
       });
+    const invalida = familiares.find((f) => !/^\d{6,9}$/.test(f.cedula));
+    if (invalida) throw new Error(`"Familiares": "${invalida.cedula}" no es una cédula válida. Formato: 12345678:Cónyuge|87654321:Padre`);
+    return familiares;
+  }
 
-      await tx.relaciones_familiares.createMany({
-        data: familiaresResueltos.map((f) => ({
-          persona_id: persona.id,
-          familiar_id: f.id,
-          tipo_relacion: f.tipo_relacion ?? null,
+  private async cargarCatalogos(alcance?: AlcanceResuelto): Promise<Catalogos> {
+    const unidadesAlcance = alcance ? unidadIdsDeAlcance(alcance) : null;
+    const filtroUnidad = unidadesAlcance ? { id: { in: unidadesAlcance } } : {};
+    const [regimenes, unidades, subUnidades, programas, situaciones, escalafones, grados] = await Promise.all([
+      this.prisma.regimenes.findMany({ where: { vigente: true }, orderBy: { numero_ley: 'asc' } }),
+      this.prisma.unidades.findMany({ where: { vigente: true, ...filtroUnidad }, orderBy: { denominacion: 'asc' } }),
+      this.prisma.sub_unidades.findMany({
+        where: { vigente: true, ...(unidadesAlcance ? { unidad_id: { in: unidadesAlcance } } : {}) },
+        orderBy: { codigo: 'asc' },
+      }),
+      this.prisma.programas.findMany({ where: { vigente: true }, orderBy: { codigo: 'asc' } }),
+      this.prisma.situaciones.findMany({ where: { vigente: true }, orderBy: { codigo: 'asc' } }),
+      this.prisma.escalafones.findMany({ where: { vigente: true }, orderBy: { codigo: 'asc' } }),
+      this.prisma.grados.findMany({ where: { vigente: true }, orderBy: { orden: 'asc' } }),
+    ]);
+
+    return {
+      regimenes: new Catalogo('Régimen', regimenes.map((r) => ({ id: r.id, codigo: r.numero_ley, nombre: r.denominacion }))),
+      unidades: new Catalogo('Unidad', unidades.map((u) => ({ id: u.id, codigo: u.codigo, nombre: u.denominacion }))),
+      subUnidades: new Catalogo(
+        'Sub-unidad',
+        subUnidades.map((s) => ({ id: s.id, codigo: s.codigo, nombre: s.denominacion, unidad_id: s.unidad_id })),
+      ),
+      programas: new Catalogo('Programa', programas.map((p) => ({ id: p.id, codigo: p.codigo, nombre: p.denominacion }))),
+      situaciones: new Catalogo('Situación', situaciones.map((s) => ({ id: s.id, codigo: s.codigo, nombre: s.denominacion }))),
+      escalafones: new Catalogo('Escalafón', escalafones.map((e) => ({ id: e.id, codigo: e.codigo, nombre: e.denominacion }))),
+      grados: new Catalogo(
+        'Grado',
+        grados.map((g) => ({
+          id: g.id,
+          codigo: g.codigo,
+          nombre: g.denominacion,
+          es_oficial: g.es_oficial,
+          es_subalterno: g.es_subalterno,
         })),
-      });
-
-      return Number(persona.id);
-    });
+      ),
+    };
   }
 
-  private async crearMilitar(datos: FilaCarga): Promise<number> {
-    const requeridos = ['tipo_funcionario', 'regimen_id', 'unidad_id', 'programa_id', 'situacion_id', 'escalafon_id', 'grado_id', 'fecha_inicio'] as const;
-    const faltantes = requeridos.filter((c) => datos[c] == null || datos[c] === '');
-    if (faltantes.length > 0) {
-      throw new Error(`Campos militares faltantes: ${faltantes.join(', ')}`);
-    }
-
-    assertFechaInicioPosteriorANacimiento(datos.fecha_inicio, datos.fecha_nacimiento);
-
-    if (!['oficial', 'subalterno'].includes(datos.tipo_funcionario!)) {
-      throw new Error(`tipo_funcionario inválido: "${datos.tipo_funcionario}". Debe ser "oficial" o "subalterno"`);
-    }
-
-    const existente = await this.prisma.personas.findUnique({ where: { cedula: datos.cedula } });
-    if (existente) throw new Error(`Ya existe una persona con cédula ${datos.cedula}`);
-
-    return this.prisma.$transaction(async (tx) => {
-      const persona = await tx.personas.create({
-        data: {
-          cedula: datos.cedula,
-          primer_nombre: datos.primer_nombre,
-          primer_apellido: datos.primer_apellido,
-          segundo_nombre: datos.segundo_nombre,
-          segundo_apellido: datos.segundo_apellido,
-          fecha_nacimiento: datos.fecha_nacimiento ? new Date(datos.fecha_nacimiento) : undefined,
-          email: datos.email,
-          telefono: datos.telefono,
-          direccion: datos.direccion,
-          genero: datos.genero,
-          estado_civil: datos.estado_civil,
-          lugar_nacimiento: datos.lugar_nacimiento,
-          es_civil: false,
+  private definicion(cat: Catalogos): DefinicionPlantilla {
+    return {
+      hoja: 'Personal',
+      titulo: 'Carga masiva de personal',
+      columnas: COLUMNAS,
+      listas: [
+        { nombre: 'tipos', titulo: 'Tipo de personal', valores: Object.keys(TIPOS_PERSONAL) },
+        { nombre: 'generos', titulo: 'Género', valores: ['Masculino', 'Femenino', 'Otro'] },
+        { nombre: 'estados_civiles', titulo: 'Estado civil', valores: ESTADOS_CIVILES },
+        { nombre: 'regimenes', titulo: 'Régimen', valores: cat.regimenes.etiquetas },
+        { nombre: 'unidades', titulo: 'Unidad', valores: cat.unidades.etiquetas },
+        { nombre: 'sub_unidades', titulo: 'Sub-unidad', valores: cat.subUnidades.etiquetas },
+        { nombre: 'programas', titulo: 'Programa', valores: cat.programas.etiquetas },
+        { nombre: 'situaciones', titulo: 'Situación', valores: cat.situaciones.etiquetas },
+        { nombre: 'escalafones', titulo: 'Escalafón', valores: cat.escalafones.etiquetas },
+        { nombre: 'grados', titulo: 'Grado', valores: cat.grados.etiquetas },
+        { nombre: 'si_no', titulo: 'Sí / No', valores: SI_NO },
+        { nombre: 'niveles', titulo: 'Nivel educativo', valores: NIVELES_EDUCATIVOS.map((n) => ETIQUETAS_NIVEL_EDUCATIVO[n]) },
+        { nombre: 'relaciones', titulo: 'Tipo de relación (para Familiares)', valores: TIPOS_RELACION },
+      ],
+      instrucciones: [
+        'Si el tipo de personal es Oficial o Subalterno, completá los datos militares (Régimen a Fecha de ingreso). ' +
+          'Si es Civil, dejalos vacíos y completá "Familiares".',
+        'Los militares de este archivo se cargan antes que los civiles: un civil puede tener de familiar a alguien del mismo archivo.',
+        'Cada persona queda con su destino actual en la unidad indicada. El historial de destinos se carga aparte, desde Destinos.',
+      ],
+      ejemplos: [
+        {
+          cedula: '12345678', primer_nombre: 'Juan', segundo_nombre: 'Carlos', primer_apellido: 'Pérez', segundo_apellido: 'García',
+          tipo_personal: 'Oficial', fecha_nacimiento: fechaEjemplo('1990-05-15'), genero: 'Masculino', estado_civil: 'Soltero',
+          lugar_nacimiento: 'Montevideo', email: 'juan@ejemplo.com', telefono: '099111222',
+          regimen: cat.regimenes.etiquetas[0] ?? '', unidad: cat.unidades.etiquetas[0] ?? '',
+          programa: cat.programas.etiquetas[0] ?? '', situacion: cat.situaciones.etiquetas[0] ?? '',
+          escalafon: cat.escalafones.etiquetas[0] ?? '',
+          grado: cat.grados.etiquetas.find((g) => g.startsWith('TTE_1RO')) ?? cat.grados.etiquetas[0] ?? '',
+          fecha_inicio: fechaEjemplo('2012-03-01'), fecha_ultimo_ascenso: fechaEjemplo('2021-02-01'),
+          anios_servicio_anterior: 0, tiene_mando: 'NO', nivel_educativo: ETIQUETAS_NIVEL_EDUCATIVO.BACHILLERATO,
         },
-      });
-
-      await tx.relaciones_laborales.create({
-        data: {
-          persona_id: persona.id,
-          regimen_id: BigInt(datos.regimen_id!),
-          unidad_id: BigInt(datos.unidad_id!),
-          programa_id: BigInt(datos.programa_id!),
-          situacion_id: BigInt(datos.situacion_id!),
-          escalafon_id: BigInt(datos.escalafon_id!),
-          grado_id: BigInt(datos.grado_id!),
-          fecha_inicio: new Date(datos.fecha_inicio!),
-          estado: 'activo',
-          tipo_funcionario: datos.tipo_funcionario,
-          sub_unidad_id: datos.sub_unidad_id ? BigInt(datos.sub_unidad_id) : undefined,
-          observaciones: datos.observaciones,
-          mutaciones: datos.mutaciones,
+        {
+          cedula: '98765432', primer_nombre: 'Ana', primer_apellido: 'López', tipo_personal: 'Civil',
+          fecha_nacimiento: fechaEjemplo('1995-03-20'), genero: 'Femenino', estado_civil: 'Casado',
+          familiares: '12345678:Cónyuge', observaciones: 'Cónyuge de oficial',
         },
-      });
-
-      await guardarLegajoEnTransaccion(tx, persona.id, datos);
-
-      await this.derecha.asignarEnAltaEnTransaccion(tx, persona.id);
-
-      return Number(persona.id);
-    });
+      ],
+    };
   }
 }
+
+const fechaEjemplo = (iso: string) => new Date(`${iso}T00:00:00Z`);

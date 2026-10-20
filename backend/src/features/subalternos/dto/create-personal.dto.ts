@@ -191,6 +191,20 @@ export class CreatePersonalDto {
   @Min(1)
   posicion_numor?: number;
 
+  @ApiPropertyOptional({
+    example: '2022-02-01',
+    description: 'Fecha del último ascenso. Las reglas de ascenso cuentan la permanencia en el grado desde acá; si falta, usan `fecha_inicio`.',
+  })
+  @IsOptional()
+  @IsDateString()
+  fecha_ultimo_ascenso?: string;
+
+  @ApiPropertyOptional({ example: 0, description: 'Años de servicio previos que suman a la antigüedad total' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  anios_servicio_anterior?: number;
+
   // --- Legajo militar (opcional) ---
 
   @ApiPropertyOptional({
