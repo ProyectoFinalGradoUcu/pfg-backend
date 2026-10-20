@@ -1,11 +1,13 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { SubalternosService } from './subalternos.service';
 
 describe('SubalternosService', () => {
   let service: SubalternosService;
   let prisma: any;
+  let derecha: { asignarEnAltaEnTransaccion: jest.Mock };
 
   beforeEach(() => {
+    derecha = { asignarEnAltaEnTransaccion: jest.fn() };
     prisma = {
       personas: {
         findUnique: jest.fn(),
@@ -33,6 +35,8 @@ describe('SubalternosService', () => {
           sub_unidades: null,
         }),
         deleteMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue({ derecha: 7, numor: 2 }),
       },
       destinos: {
         create: jest.fn(),
@@ -43,7 +47,7 @@ describe('SubalternosService', () => {
       personas_documentos: { deleteMany: jest.fn() },
       $transaction: jest.fn((cb) => cb(prisma)),
     };
-    service = new SubalternosService(prisma);
+    service = new SubalternosService(prisma, derecha as any);
   });
 
   const dto = {
@@ -123,7 +127,7 @@ describe('SubalternosService', () => {
     it('pide solo el destino vigente y el más reciente', async () => {
       await service.findAllPersonas({});
 
-      const { select } = prisma.personas.findMany.mock.calls[0][0];
+      const { select } = prisma.personas.findMany.mock.calls.at(-1)[0];
 
       expect(select.destinos).toEqual(
         expect.objectContaining({
@@ -139,6 +143,84 @@ describe('SubalternosService', () => {
 
       expect(result.items[0].rango).toBe('Sargento');
       expect(result.items[0].estado).toBe('Actividad');
+    });
+  });
+
+  describe('findAllPersonas · derecha y numor', () => {
+    const persona = (id: bigint, derecha: number | null) => ({
+      id,
+      cedula: String(id),
+      primer_nombre: 'N',
+      segundo_nombre: null,
+      primer_apellido: `A${id}`,
+      segundo_apellido: null,
+      relaciones_laborales: [{ estado: 'activo', derecha, numor: 1, escala_derecha: 'OFICIALES', escalafones: { codigo: 'AV' } }],
+      destinos: [],
+    });
+
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(3);
+      prisma.personas.findMany = jest.fn(({ where }: any) =>
+        Promise.resolve(where?.id?.in ? where.id.in.map((id: bigint) => persona(id, Number(id))) : [{ id: 3n }, { id: 1n }, { id: 2n }]),
+      );
+      prisma.relaciones_laborales.findMany = jest.fn().mockResolvedValue([
+        { persona_id: 1n },
+        { persona_id: 2n },
+        { persona_id: 3n },
+      ]);
+    });
+
+    it('por defecto ordena por derecha y pagina después de ordenar', async () => {
+      const result = await service.findAllPersonas({ page: 1, pageSize: 2 });
+
+      expect(result.items.map((i: any) => i.id)).toEqual(['1', '2']);
+      expect(result.items[0]).toMatchObject({ derecha: 1, numor: 1, escalafon: 'AV' });
+      expect(prisma.relaciones_laborales.findMany.mock.calls[0][0].orderBy).toEqual([
+        { escala_derecha: { sort: 'asc', nulls: 'last' } },
+        { derecha: { sort: 'asc', nulls: 'last' } },
+        { persona_id: 'asc' },
+      ]);
+    });
+
+    it('por numor ordena antes por jerarquía de grado y escalafón', async () => {
+      await service.findAllPersonas({ ordenarPor: 'numor', direccion: 'DESC' });
+
+      expect(prisma.relaciones_laborales.findMany.mock.calls[0][0].orderBy).toEqual([
+        { escala_derecha: { sort: 'desc', nulls: 'last' } },
+        { grados: { derecha_jerarquia: { posicion: 'desc' } } },
+        { escalafones: { codigo: 'desc' } },
+        { numor: { sort: 'desc', nulls: 'last' } },
+        { persona_id: 'asc' },
+      ]);
+    });
+
+    it('filtra por rango de derecha y numor sobre la relación vigente', async () => {
+      await service.findAllPersonas({ derechaDesde: 1, derechaHasta: 10, numorDesde: 1, numorHasta: 1, escala: 'OFICIALES' });
+
+      expect(prisma.personas.count.mock.calls[0][0].where.relaciones_laborales.some).toEqual(
+        expect.objectContaining({
+          fecha_fin: null,
+          derecha: { gte: 1, lte: 10 },
+          numor: { gte: 1, lte: 1 },
+          escala_derecha: 'OFICIALES',
+        }),
+      );
+    });
+
+    it('rechaza un rango invertido', async () => {
+      await expect(service.findAllPersonas({ derechaDesde: 5, derechaHasta: 2 })).rejects.toThrow(BadRequestException);
+    });
+
+    it('por apellido usa el orden nativo con la dirección pedida', async () => {
+      prisma.personas.findMany = jest.fn().mockResolvedValue([persona(2n, 2), persona(1n, 1)]);
+
+      await service.findAllPersonas({ ordenarPor: 'apellido', direccion: 'DESC' });
+
+      expect(prisma.personas.findMany.mock.calls[0][0].orderBy).toEqual([
+        { primer_apellido: 'desc' },
+        { primer_nombre: 'desc' },
+      ]);
+      expect(prisma.relaciones_laborales.findMany).not.toHaveBeenCalled();
     });
   });
 
@@ -230,6 +312,31 @@ describe('SubalternosService', () => {
       es_civil: false,
       tipo_funcionario: 'subalterno',
     };
+
+    it('asigna derecha y numor al final cuando no se indica posición', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      const r: any = await service.createPersonal(dtoMilitar as any, undefined, { id: 5n, permisos: [] });
+
+      expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(prisma, 1n, undefined, undefined, {
+        usuarioId: 5n,
+      });
+      expect(r.relacion_laboral).toMatchObject({ derecha: 7, numor: 2 });
+    });
+
+    it('con posición elegida exige el permiso derecha.gestionar', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createPersonal({ ...dtoMilitar, posicion_derecha: 1 } as any, undefined, { id: 5n, permisos: [] }),
+      ).rejects.toThrow(ForbiddenException);
+
+      await service.createPersonal({ ...dtoMilitar, posicion_derecha: 1, posicion_numor: 2 } as any, undefined, {
+        id: 5n,
+        permisos: ['derecha.gestionar'],
+      });
+      expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(prisma, 1n, 1, 2, { usuarioId: 5n });
+    });
 
     it('Falla si la fecha de inicio es anterior a la de nacimiento', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);

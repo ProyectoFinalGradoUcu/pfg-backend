@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service.js';
+import { DerechaService } from '../derecha/derecha.service.js';
 import {
   CODIGO_GRADO_SIN_PRIMA_TECNICA,
   CODIGO_PRIMER_GRADO_OFICIAL,
@@ -30,6 +31,9 @@ export interface RegistrarAscensoParams {
   evaluacion?: Prisma.InputJsonValue | null;
   motivo_excepcion?: string | null;
   usuario_id?: bigint | null;
+  /** Posición en el grado destino. Sin valor: al final. */
+  posicion_derecha?: number | null;
+  posicion_numor?: number | null;
 }
 
 export interface AnularAscensoParams {
@@ -45,7 +49,10 @@ export interface AnularAscensoParams {
  */
 @Injectable()
 export class AscensoRegistroService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly derecha: DerechaService,
+  ) {}
 
   async registrar(params: RegistrarAscensoParams) {
     return this.prisma.$transaction((tx) => this.registrarEnTransaccion(tx, params));
@@ -166,6 +173,21 @@ export class AscensoRegistroService {
       },
     });
 
+    await this.derecha.ascenderEnTransaccion(
+      tx,
+      params.persona_id,
+      gradoDestino.id,
+      {
+        posicion: params.posicion_derecha,
+        posicionNumor: params.posicion_numor,
+        relacionDestinoId: relacionNueva.id,
+      },
+      {
+        motivo: params.numero_orden ? `Orden de ascenso ${params.numero_orden}` : 'Ascenso',
+        usuarioId: params.usuario_id ?? null,
+      },
+    );
+
     // El cierre va sobre la relación vieja y el alta sobre la nueva.
     await tx.movimientos_laborales.createMany({
       data: [
@@ -283,6 +305,25 @@ export class AscensoRegistroService {
         'El ascenso ya fue liquidado: la relación laboral que abrió tiene items de liquidación. Hay que coordinarlo con el equipo de liquidación.',
       );
     }
+
+    const relacionAnterior = await tx.relaciones_laborales.findUnique({
+      where: { id: ascenso.relacion_laboral_anterior_id },
+      select: { grado_id: true },
+    });
+    if (!relacionAnterior) {
+      throw new BadRequestException(
+        `La relación laboral anterior al ascenso ${ascensoId} ya no existe`,
+      );
+    }
+
+    // Vuelve al final de su grado anterior.
+    await this.derecha.ascenderEnTransaccion(
+      tx,
+      relacionNueva.persona_id,
+      relacionAnterior.grado_id,
+      { relacionDestinoId: ascenso.relacion_laboral_anterior_id },
+      { motivo: `Anulación de ascenso: ${params.motivo}`, usuarioId: params.usuario_id ?? null },
+    );
 
     await tx.movimientos_laborales.deleteMany({
       where: {

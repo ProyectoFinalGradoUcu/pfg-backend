@@ -22,6 +22,11 @@ import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
+import {
+  ordenarPersonasPorDerechaNumor,
+  tieneFiltroDerechaNumor,
+  whereRelacionPorDerechaNumor,
+} from '../../lib/personal/filtro-derecha-numor';
 
 @Injectable()
 export class CursosService {
@@ -197,12 +202,18 @@ export class CursosService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
     const cursosFilter = whereCursosVisiblesPorAlcance(alcance);
+    const filtroDerecha = tieneFiltroDerechaNumor(query);
     const where = {
-      ...(query.cedula || query.categoria
+      ...(query.cedula || query.categoria || filtroDerecha
         ? {
             personas: {
               ...(query.cedula ? { cedula: query.cedula } : {}),
               ...wherePersonaPorCategoria(query.categoria),
+              ...(filtroDerecha && {
+                relaciones_laborales: {
+                  some: { fecha_fin: null, ...whereRelacionPorDerechaNumor(query) },
+                },
+              }),
             },
           }
         : {}),
@@ -210,45 +221,72 @@ export class CursosService {
       ...(Object.keys(cursosFilter).length > 0 ? { cursos: cursosFilter } : {}),
     };
 
-    const [total, registros] = await this.prisma.$transaction([
-      this.prisma.funcionarios_cursos.count({ where }),
-      this.prisma.funcionarios_cursos.findMany({
-        where,
-        include: {
-          personas: {
-            select: {
-              id: true,
-              cedula: true,
-              primer_nombre: true,
-              segundo_nombre: true,
-              primer_apellido: true,
-              segundo_apellido: true,
-            },
-          },
-          cursos: {
-            select: {
-              id: true,
-              nombre_curso: true,
-              institucion: true,
-              es_obligatorio: true,
-            },
-          },
-          modulos: {
-            include: {
-              modulos_curso: {
-                select: { id: true, nombre_modulo: true, orden_modulo: true },
+    // Se ordena por la derecha (o numor, o apellido) de la persona y después por curso.
+    const todos = await this.prisma.funcionarios_cursos.findMany({
+      where,
+      select: { id: true, persona_id: true, curso_id: true },
+    });
+    const ordenPersonas = await ordenarPersonasPorDerechaNumor(
+      this.prisma,
+      [...new Set(todos.map((r) => r.persona_id))],
+      query,
+    );
+    const posicion = new Map(ordenPersonas.map((id, i) => [id.toString(), i]));
+    const pagina = todos
+      .sort(
+        (a, b) =>
+          posicion.get(a.persona_id.toString())! - posicion.get(b.persona_id.toString())! ||
+          (a.curso_id < b.curso_id ? -1 : a.curso_id > b.curso_id ? 1 : 0),
+      )
+      .slice((page - 1) * pageSize, page * pageSize)
+      .map((r) => r.id);
+    const total = todos.length;
+
+    const filas = await this.prisma.funcionarios_cursos.findMany({
+      where: { id: { in: pagina } },
+      include: {
+        personas: {
+          select: {
+            id: true,
+            cedula: true,
+            primer_nombre: true,
+            segundo_nombre: true,
+            primer_apellido: true,
+            segundo_apellido: true,
+            relaciones_laborales: {
+              where: { fecha_fin: null },
+              take: 1,
+              select: {
+                derecha: true,
+                numor: true,
+                grados: { select: { denominacion: true } },
+                escalafones: { select: { codigo: true } },
               },
             },
           },
-          usuarios: {
-            select: { id: true, username: true },
+        },
+        cursos: {
+          select: {
+            id: true,
+            nombre_curso: true,
+            institucion: true,
+            es_obligatorio: true,
           },
         },
-        orderBy: [{ persona_id: 'asc' }, { curso_id: 'asc' }],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-    ]);
+        modulos: {
+          include: {
+            modulos_curso: {
+              select: { id: true, nombre_modulo: true, orden_modulo: true },
+            },
+          },
+        },
+        usuarios: {
+          select: { id: true, username: true },
+        },
+      },
+    });
+    const porId = new Map(filas.map((r) => [r.id.toString(), r]));
+    const registros = pagina.flatMap((id) => porId.get(id.toString()) ?? []);
 
     return {
       items: registros.map((r) => ({
@@ -260,6 +298,10 @@ export class CursosService {
         segundo_nombre: r.personas.segundo_nombre,
         primer_apellido: r.personas.primer_apellido,
         segundo_apellido: r.personas.segundo_apellido,
+        grado: r.personas.relaciones_laborales[0]?.grados.denominacion ?? null,
+        escalafon: r.personas.relaciones_laborales[0]?.escalafones.codigo ?? null,
+        derecha: r.personas.relaciones_laborales[0]?.derecha ?? null,
+        numor: r.personas.relaciones_laborales[0]?.numor ?? null,
       },
       curso: {
         id: r.cursos.id.toString(),

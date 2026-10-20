@@ -8,6 +8,7 @@ import {
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
 import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
 import { NIVELES_EDUCATIVOS } from './legajo-militar.constants.js';
+import { DerechaService } from '../derecha/derecha.service.js';
 
 interface FilaCarga {
   // Personales
@@ -89,7 +90,10 @@ const COLUMNAS = [
 
 @Injectable()
 export class PersonasCargaService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly derecha: DerechaService,
+  ) {}
 
   generarPlantilla(): Buffer {
     const wb = XLSX.utils.book_new();
@@ -412,6 +416,8 @@ export class PersonasCargaService {
       });
 
       await guardarLegajoEnTransaccion(tx, persona.id, datos);
+
+      await this.derecha.asignarEnAltaEnTransaccion(tx, persona.id);
 
       return Number(persona.id);
     });

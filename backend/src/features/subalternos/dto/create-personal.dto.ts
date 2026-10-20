@@ -9,6 +9,7 @@ import {
   ArrayMinSize,
   MaxLength,
   IsIn,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -171,6 +172,24 @@ export class CreatePersonalDto {
   @IsOptional()
   @IsInt()
   sub_unidad_id?: number;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: 'Posición en la derecha de su grado. Si se omite, al final. Exige el permiso derecha.gestionar.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  posicion_derecha?: number;
+
+  @ApiPropertyOptional({
+    example: 2,
+    description: 'Posición en el numor de su grado y escalafón. Si se omite, al final. Exige el permiso derecha.gestionar.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  posicion_numor?: number;
 
   // --- Legajo militar (opcional) ---
 

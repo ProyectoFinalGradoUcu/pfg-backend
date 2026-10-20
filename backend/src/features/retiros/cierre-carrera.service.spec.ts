@@ -4,6 +4,7 @@ import { CierreCarreraService } from './cierre-carrera.service';
 import { RetirosService } from './retiros.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
+import { DerechaService } from '../derecha/derecha.service';
 import {
   makeMotivoBaja,
   makePersonaMin,
@@ -16,6 +17,7 @@ describe('CierreCarreraService', () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let sesiones: { invalidarUsuario: jest.Mock };
   let retiros: { calcularImpacto: jest.Mock };
+  let derecha: { quitarPorInactividadEnTransaccion: jest.Mock };
 
   const impactoBase = () => ({
     persona: makePersonaMin(),
@@ -48,6 +50,7 @@ describe('CierreCarreraService', () => {
     prisma = makePrismaMock();
     sesiones = { invalidarUsuario: jest.fn() };
     retiros = { calcularImpacto: jest.fn() };
+    derecha = { quitarPorInactividadEnTransaccion: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -55,6 +58,7 @@ describe('CierreCarreraService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: SesionesService, useValue: sesiones },
         { provide: RetirosService, useValue: retiros },
+        { provide: DerechaService, useValue: derecha },
       ],
     }).compile();
 
@@ -91,6 +95,15 @@ describe('CierreCarreraService', () => {
     const data = prisma.relaciones_laborales.update.mock.calls[0][0].data;
     expect(data).not.toHaveProperty('situacion_id');
     expect(data).toHaveProperty('fecha_actualizacion');
+  });
+
+  it('quita la derecha y el numor en la misma transacción', async () => {
+    await service.cerrar(paramsBase());
+
+    expect(derecha.quitarPorInactividadEnTransaccion).toHaveBeenCalledWith(prisma, 100n, {
+      motivo: 'Retiro',
+      usuarioId: 7n,
+    });
   });
 
   it('inserta el movimiento con tipo Retiro cuando el motivo es RETIRO_OBL', async () => {

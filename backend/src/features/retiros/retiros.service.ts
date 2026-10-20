@@ -12,6 +12,7 @@ import { CreateRetiroDto } from './dto/create-retiro.dto';
 import { UpdateRetiroDto } from './dto/update-retiro.dto';
 import { AnularRetiroDto } from './dto/anular-retiro.dto';
 import { CierreCarreraService } from './cierre-carrera.service';
+import { DerechaService } from '../derecha/derecha.service';
 
 export type Impacto = {
   persona: any;
@@ -35,6 +36,7 @@ export class RetirosService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => CierreCarreraService))
     private readonly cierre: CierreCarreraService,
+    private readonly derecha: DerechaService,
   ) {}
 
   protected readonly includeFila = {
@@ -549,6 +551,12 @@ export class RetirosService {
           data: { estado: 'activo' },
         });
       }
+
+      // Reintegrar funciona como un alta: vuelve al final de su grado.
+      await this.derecha.asignarEnAltaEnTransaccion(tx, retiro.persona_id, null, null, {
+        motivo: `Anulación de retiro: ${dto.motivo_anulacion}`,
+        usuarioId: autorId,
+      });
 
       return {
         id: retiroId.toString(),

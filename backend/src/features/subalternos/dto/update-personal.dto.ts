@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsIn, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsIn, MaxLength, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { NIVELES_EDUCATIVOS } from '../legajo-militar.constants.js';
 
@@ -43,4 +43,8 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: '2020-12-15' }) @IsOptional() @IsDateString() fecha_egreso_eta?: string | null;
   @ApiPropertyOptional({ example: 'O.C.G.F.A. N.º 12.345' }) @IsOptional() @IsString() @MaxLength(50) numero_orden_egreso_eta?: string | null;
   @ApiPropertyOptional({ example: 'Mutado de Servicios Generales a Aerotécnicos, O.D. 8.221', description: 'Mutación de escalafón; va a la relación laboral vigente' }) @IsOptional() @IsString() mutaciones?: string | null;
+  // Derecha y numor (exigen derecha.gestionar)
+  @ApiPropertyOptional({ example: 7, description: 'Derecha nueva, dentro del bloque de su grado. Corre al resto del grado.' }) @IsOptional() @IsInt() @Min(1) derecha?: number;
+  @ApiPropertyOptional({ example: 2, description: 'Numor nuevo dentro de su grado y escalafón. Corre al resto del grupo.' }) @IsOptional() @IsInt() @Min(1) numor?: number;
+  @ApiPropertyOptional({ example: 'Corrección según Boletín 12/2026' }) @IsOptional() @IsString() @MaxLength(500) motivo_derecha?: string;
 }

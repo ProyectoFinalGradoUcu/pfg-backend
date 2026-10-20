@@ -605,6 +605,39 @@ model grados {
   relaciones_laborales_relaciones_laborales_grado_reincorporacion_idTogrados                 relaciones_laborales[]              @relation("relaciones_laborales_grado_reincorporacion_idTogrados")
   remuneraciones_grado                                                                       remuneraciones_grado[]
   tabla_permanencia                                                                          tabla_permanencia[]
+  derecha_jerarquia                                                                          derecha_jerarquia_grados?
+}
+
+/// Jerarquía de grados para la derecha. Tabla NUESTRA: `grados.orden` no sirve
+/// como jerarquía y el catálogo es de liquidación. Posición 1 = mayor grado de la escala.
+model derecha_jerarquia_grados {
+  grado_id BigInt @id
+  escala   String @db.VarChar(20)
+  posicion Int    @db.SmallInt
+
+  grados grados @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([escala, posicion], map: "uq_derecha_jerarquia_escala_posicion")
+}
+
+/// Auditoría de cada cambio de derecha o numor. `lote_id` agrupa los cambios de una operación.
+model historial_derecha_numor {
+  id             BigInt   @id @default(autoincrement())
+  persona_id     BigInt
+  tipo           String   @db.VarChar(10)
+  valor_anterior Int?
+  valor_nuevo    Int?
+  operacion      String   @db.VarChar(20)
+  motivo         String?
+  usuario_id     BigInt?
+  fecha          DateTime @default(now()) @db.Timestamp(6)
+  lote_id        String   @db.Uuid
+
+  personas personas  @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios usuarios? @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id, fecha(sort: Desc)], map: "ix_historial_derecha_numor_persona")
+  @@index([lote_id], map: "ix_historial_derecha_numor_lote")
 }
 
 model historico_liquidaciones {
@@ -930,6 +963,7 @@ model personas {
   retroactividades                                                  retroactividades[]
   invitaciones                                                      invitaciones[]
   usuarios                                                          usuarios[]
+  historial_derecha_numor                                           historial_derecha_numor[]
 }
 
 /// Documentación libre de un funcionario (cédula, escaneos). Tabla NUESTRA: la crea
@@ -1021,6 +1055,9 @@ model relaciones_laborales {
   anios_servicio_anterior                                      Int                                 @default(0) @db.SmallInt
   categoria_viatico                                            Int                                 @default(0) @db.SmallInt
   usa_fonasa                                                   Boolean                             @default(false)
+  derecha                                                      Int?
+  numor                                                        Int?
+  escala_derecha                                               String?                             @db.VarChar(20)
   compensaciones_diferencia_ascenso                            compensaciones_diferencia_ascenso[]
   ascensos_como_relacion_anterior                              ascensos[]                          @relation("ascensos_relacion_anterior")
   ascensos_como_relacion_nueva                                 ascensos[]                          @relation("ascensos_relacion_nueva")
@@ -1326,6 +1363,7 @@ model usuarios {
   usuarios_unidades                                                          usuarios_unidades[]
   retiros_registrados                                                        retiros[]                        @relation("retiros_registrado_por")
   retiros_anulados                                                           retiros[]                        @relation("retiros_anulado_por")
+  historial_derecha_numor                                                    historial_derecha_numor[]
 
   @@unique([username, aplicacion])
 }

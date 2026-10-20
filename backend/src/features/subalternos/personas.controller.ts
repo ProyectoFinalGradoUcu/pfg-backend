@@ -87,8 +87,15 @@ export class PersonasController {
   @RequireAlcance('personas.crear')
   @Auditar({ contexto: 'Personas', entidad: 'Persona', incluirRespuesta: true })
   @Post()
-  create(@Body() dto: CreatePersonalDto, @Alcance() alcance: AlcanceResuelto) {
-    return this.subalternosService.createPersonal(dto, alcance);
+  create(
+    @Body() dto: CreatePersonalDto,
+    @Alcance() alcance: AlcanceResuelto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.subalternosService.createPersonal(dto, alcance, {
+      id: user?.id != null ? BigInt(user.id) : null,
+      permisos: user?.permisos ?? [],
+    });
   }
 
   // ─── Familiares por cédula ────────────────────────────────────────────────
@@ -238,6 +245,6 @@ export class PersonasController {
     @Alcance() alcance: AlcanceResuelto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.perfilService.update(id, dto, BigInt(user.id), alcance);
+    return this.perfilService.update(id, dto, BigInt(user.id), alcance, user.permisos ?? []);
   }
 }

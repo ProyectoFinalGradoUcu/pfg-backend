@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../lib/prisma.module.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { DerechaModule } from '../derecha/derecha.module.js';
 import { AscensoRegistroService } from './ascenso-registro.service.js';
 import { ReglasAscensoService } from './reglas-ascenso.service.js';
 import { ReglasAscensoController } from './reglas-ascenso.controller.js';
@@ -14,7 +15,7 @@ import { EstadisticasAscensoService } from './estadisticas-ascenso.service.js';
  * sobre las tablas del sistema de liquidación.
  */
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, DerechaModule],
   controllers: [ReglasAscensoController, AscensosController],
   providers: [
     AscensoRegistroService,

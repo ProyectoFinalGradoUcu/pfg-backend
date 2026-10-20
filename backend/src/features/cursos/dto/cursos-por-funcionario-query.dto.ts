@@ -3,8 +3,9 @@ import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal';
 import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal';
+import { FiltroDerechaNumorDto } from '../../../lib/personal/filtro-derecha-numor';
 
-export class CursosPorFuncionarioQueryDto {
+export class CursosPorFuncionarioQueryDto extends FiltroDerechaNumorDto {
   @ApiPropertyOptional({ example: '12345678', description: 'Cédula del funcionario para filtrar sus cursos' })
   @IsOptional()
   @IsString()

@@ -7,6 +7,7 @@ import {
 import { RetirosService } from './retiros.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { CierreCarreraService } from './cierre-carrera.service';
+import { DerechaService } from '../derecha/derecha.service';
 
 import {
   makeMotivoBaja,
@@ -20,16 +21,19 @@ describe('RetirosService', () => {
   let service: RetirosService;
   let prisma: ReturnType<typeof makePrismaMock>;
   let cierre: { cerrar: jest.Mock };
+  let derecha: { asignarEnAltaEnTransaccion: jest.Mock };
 
   beforeAll(async () => {
     prisma = makePrismaMock();
     cierre = { cerrar: jest.fn() };
+    derecha = { asignarEnAltaEnTransaccion: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         RetirosService,
         { provide: PrismaService, useValue: prisma },
         { provide: CierreCarreraService, useValue: cierre },
+        { provide: DerechaService, useValue: derecha },
       ],
     }).compile();
 
@@ -537,6 +541,18 @@ describe('RetirosService', () => {
       });
       expect(prisma.relaciones_laborales.update.mock.calls[0][0].data).not.toHaveProperty(
         'situacion_id',
+      );
+    });
+
+    it('lo reintegra a la derecha al final de su grado, como un alta', async () => {
+      await service.anular(88, { motivo_anulacion: 'Error de carga' }, 9n);
+
+      expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(
+        prisma,
+        retiroConCierres().persona_id,
+        null,
+        null,
+        { motivo: 'Anulación de retiro: Error de carga', usuarioId: 9n },
       );
     });
 

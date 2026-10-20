@@ -161,6 +161,30 @@ describe('OrdenesAscensoService', () => {
       expect(params.cumplia_requisitos).toBe(true);
     });
 
+    it('pasa la posición en la derecha y el numor de cada funcionario', async () => {
+      await service.crear(
+        dtoBase({ funcionarios: [{ persona_id: 100, posicion_derecha: 2, posicion_numor: 1 }] }),
+        8n,
+        ['ascensos.registrar', 'derecha.gestionar'],
+      );
+
+      const params = registro.registrarEnTransaccion.mock.calls[0][1];
+      expect(params.posicion_derecha).toBe(2);
+      expect(params.posicion_numor).toBe(1);
+    });
+
+    it('elegir la posición en la derecha exige derecha.gestionar', async () => {
+      await expect(
+        service.crear(
+          dtoBase({ funcionarios: [{ persona_id: 100, posicion_derecha: 2 }] }),
+          8n,
+          ['ascensos.registrar'],
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
+    });
+
     it('sin número de orden ni boletín no crea nada', async () => {
       await expect(
         service.crear(

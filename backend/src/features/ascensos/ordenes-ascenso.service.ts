@@ -69,6 +69,15 @@ export class OrdenesAscensoService {
     const evaluaciones = await this.evaluarFuncionarios(dto);
 
     const puedeExcepcion = permisos.includes('ascensos.excepcion');
+
+    const eligePosicion = dto.funcionarios.some(
+      (f) => f.posicion_derecha != null || f.posicion_numor != null,
+    );
+    if (eligePosicion && !permisos.includes('derecha.gestionar')) {
+      throw new ForbiddenException(
+        'No tenés el permiso para elegir la posición en la derecha o el numor: sin él, los ascendidos van al final de su grado.',
+      );
+    }
     const preparados = dto.funcionarios.map((f) => {
       const evaluacion = evaluaciones.get(String(f.persona_id)) ?? null;
       const gradoDestinoId =
@@ -105,6 +114,8 @@ export class OrdenesAscensoService {
         cumplia_requisitos: cumplia,
         evaluacion: (evaluacion as unknown as Prisma.InputJsonValue) ?? null,
         motivo_excepcion: cumplia === false ? (f.motivo_excepcion ?? null) : null,
+        posicion_derecha: f.posicion_derecha ?? null,
+        posicion_numor: f.posicion_numor ?? null,
       };
     });
 
@@ -132,6 +143,8 @@ export class OrdenesAscensoService {
           evaluacion: p.evaluacion,
           motivo_excepcion: p.motivo_excepcion,
           usuario_id: usuarioId,
+          posicion_derecha: p.posicion_derecha,
+          posicion_numor: p.posicion_numor,
         });
       }
 

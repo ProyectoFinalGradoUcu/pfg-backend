@@ -10,9 +10,10 @@ import { PersonasDocumentosService } from './personas-documentos.service.js';
 import { AuthModule } from '../auth/auth.module';
 import { RetirosModule } from '../retiros/retiros.module.js';
 import { ArchivosModule } from '../archivos/archivos.module';
+import { DerechaModule } from '../derecha/derecha.module';
 
 @Module({
-  imports: [RetirosModule, AuthModule, ArchivosModule],
+  imports: [RetirosModule, AuthModule, ArchivosModule, DerechaModule],
   controllers: [SubalternosController, PersonasController, PersonasDocumentosController],
   providers: [
     SubalternosService,

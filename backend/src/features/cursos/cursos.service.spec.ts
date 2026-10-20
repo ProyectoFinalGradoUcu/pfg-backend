@@ -39,6 +39,9 @@ const makePersona = (overrides: Partial<any> = {}) => ({
   segundo_nombre: null,
   primer_apellido: 'Pérez',
   segundo_apellido: null,
+  relaciones_laborales: [
+    { derecha: 4, numor: 2, grados: { denominacion: 'Cap.' }, escalafones: { codigo: 'AV' } },
+  ],
   ...overrides,
 });
 
@@ -92,6 +95,8 @@ const makePrismaMock = () => ({
     count: jest.fn(),
     upsert: jest.fn(),
   },
+  relaciones_laborales: { findMany: jest.fn() },
+  personas: { findMany: jest.fn() },
   funcionarios_modulos_curso: {
     findFirst: jest.fn(),
     findMany: jest.fn(),
@@ -565,6 +570,40 @@ describe('CursosService', () => {
     beforeEach(() => {
       prisma.funcionarios_cursos.count.mockResolvedValue(0);
       prisma.funcionarios_cursos.findMany.mockResolvedValue([]);
+      prisma.relaciones_laborales.findMany.mockResolvedValue([]);
+    });
+
+    it('incluye la derecha y el numor del funcionario', async () => {
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([makeInscripcion()]);
+
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
+
+      expect(result.items[0].persona).toMatchObject({ grado: 'Cap.', escalafon: 'AV', derecha: 4, numor: 2 });
+    });
+
+    it('ordena por la derecha de la persona y después por curso, antes de paginar', async () => {
+      prisma.funcionarios_cursos.findMany.mockImplementation(({ where }: any) => {
+        const filas = [
+          makeInscripcion({ id: 1n, persona_id: 10n, curso_id: 2n }),
+          makeInscripcion({ id: 2n, persona_id: 20n, curso_id: 1n }),
+          makeInscripcion({ id: 3n, persona_id: 10n, curso_id: 1n }),
+        ];
+        return Promise.resolve(where.id?.in ? filas.filter((f) => where.id.in.includes(f.id)) : filas);
+      });
+      prisma.relaciones_laborales.findMany.mockResolvedValue([{ persona_id: 20n }, { persona_id: 10n }]);
+
+      const result = await service.getCursosPorFuncionario({ page: 1, pageSize: 2 }, GLOBAL);
+
+      expect(result.items.map((i: any) => i.id)).toEqual(['2', '3']);
+      expect(result.total).toBe(3);
+    });
+
+    it('filtra por rango de derecha sobre la relación vigente de la persona', async () => {
+      await service.getCursosPorFuncionario({ derechaDesde: 1, derechaHasta: 5 }, GLOBAL);
+
+      expect(prisma.funcionarios_cursos.findMany.mock.calls[0][0].where.personas).toEqual({
+        relaciones_laborales: { some: { fecha_fin: null, derecha: { gte: 1, lte: 5 } } },
+      });
     });
 
     it('lista inscripciones paginadas con datos de funcionario y curso', async () => {
