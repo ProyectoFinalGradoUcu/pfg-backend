@@ -672,6 +672,36 @@ export class DerechaService {
     return this.ejecutar(tx, this.planAlta(aIntegrante(relacion), posicion, posicionNumor), ctx);
   }
 
+  /**
+   * Alta de varios funcionarios en un solo cálculo, cada uno al final de su grado y de su grupo
+   * en el orden recibido. Es para la carga masiva: asignar fila por fila corre a toda la escala
+   * una vez por alta. Los que no están en actividad o ya tienen derecha se saltean.
+   */
+  asignarEnAltaLote(personaIds: bigint[], ctx: ContextoCambio = {}) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const filas = await tx.relaciones_laborales.findMany({
+          where: { persona_id: { in: personaIds }, fecha_fin: null, estado: 'activo' },
+          orderBy: { fecha_inicio: 'asc' },
+          select: SELECT_INTEGRANTE,
+        });
+        // Igual que relacionVigente: si hubiera dos vigentes, gana la más reciente.
+        const porPersona = new Map(filas.map((f) => [f.persona_id.toString(), aIntegrante(f)]));
+        const altas = personaIds
+          .map((id) => porPersona.get(id.toString()))
+          .filter((i): i is Integrante => i !== undefined && i.derecha === null)
+          .map((i) => this.planAlta(i));
+        return this.ejecutar(
+          tx,
+          { operacion: 'ALTA', conservar: [], aplicar: (p) => altas.forEach((a) => a.aplicar(p)) },
+          ctx,
+        );
+      },
+      // Con miles de altas el corrimiento actualiza miles de filas: el default de 5 s no alcanza.
+      { timeout: 120_000 },
+    );
+  }
+
   quitarPorInactividad(personaId: bigint, ctx: ContextoCambio = {}) {
     return this.prisma.$transaction((tx) => this.quitarPorInactividadEnTransaccion(tx, personaId, ctx));
   }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
 import { AlcanceResuelto, unidadIdsDeAlcance } from '../../lib/alcance/alcance.types.js';
 import {
@@ -7,9 +7,11 @@ import {
   DefinicionPlantilla,
   FilaLeida,
   ResultadoCarga,
+  ResultadoFila,
   construirPlantilla,
   elegirOpcion,
   leerHoja,
+  mensajeDeError,
   normalizarCedula,
   parsearEntero,
   parsearFecha,
@@ -19,6 +21,7 @@ import {
   separarRepetidas,
 } from '../../lib/carga-masiva/index.js';
 import { SubalternosService } from './subalternos.service.js';
+import { DerechaService } from '../derecha/derecha.service.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { ETIQUETAS_NIVEL_EDUCATIVO, NIVELES_EDUCATIVOS } from './legajo-militar.constants.js';
 
@@ -93,9 +96,12 @@ interface Catalogos {
 
 @Injectable()
 export class PersonasCargaService {
+  private readonly logger = new Logger(PersonasCargaService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly subalternosService: SubalternosService,
+    private readonly derecha: DerechaService,
   ) {}
 
   async generarPlantilla(alcance?: AlcanceResuelto): Promise<Buffer> {
@@ -124,11 +130,34 @@ export class PersonasCargaService {
 
     const resultados = await procesarEnSerie(ordenadas, async (fila) => {
       const dto = this.armarDto(fila, cat);
-      const creado = (await this.subalternosService.createPersonal(dto, alcance)) as { id: number };
+      const creado = (await this.subalternosService.createPersonal(dto, alcance, undefined, {
+        omitirDerecha: true,
+      })) as { id: number };
       return { id: creado.id };
     });
 
-    return resumir([...resultados, ...repetidas]);
+    const resumen = resumir([...resultados, ...repetidas]);
+    const avisos = await this.asignarDerecha(resultados);
+    return avisos.length ? { ...resumen, avisos } : resumen;
+  }
+
+  /**
+   * La derecha se asigna una sola vez para todo el archivo, al final de cada grado y en el orden
+   * de las filas. Las personas ya quedaron creadas: si esto falla se avisa y se ubican a mano.
+   */
+  private async asignarDerecha(resultados: ResultadoFila[]): Promise<string[]> {
+    const ids = resultados.filter((r) => r.estado === 'ok' && r.id !== undefined).map((r) => BigInt(r.id!));
+    if (ids.length === 0) return [];
+    try {
+      await this.derecha.asignarEnAltaLote(ids);
+      return [];
+    } catch (err) {
+      this.logger.error(`No se pudo asignar la derecha de la carga masiva: ${mensajeDeError(err)}`);
+      return [
+        'El personal se cargó, pero no se pudo asignar la derecha y el numor. ' +
+          'Ubicalos desde Configuración de derecha.',
+      ];
+    }
   }
 
   private armarDto(fila: FilaLeida, cat: Catalogos): CreatePersonalDto {
