@@ -92,6 +92,12 @@ const makePrismaMock = (filas = makeFilas()) => {
     escalafones: { findMany: jest.fn().mockResolvedValue(makeEscalafones()) },
     relaciones_laborales: {
       findMany: jest.fn(async ({ where }: any) => {
+        if (where?.persona_id?.in) {
+          const ids = where.persona_id.in.map(String);
+          return filas
+            .filter((r) => ids.includes(String(r.persona_id)) && r.fecha_fin === null && r.estado === 'activo')
+            .map(conPersona);
+        }
         if (where?.id?.in) {
           const ids = where.id.in.map(String);
           return filas.filter((r) => ids.includes(String(r.id))).map(conPersona);
@@ -242,6 +248,60 @@ describe('DerechaService', () => {
 
       expect(r.afectados).toBe(0);
       expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('asignarEnAltaLote', () => {
+    const nuevo = (id: bigint, grado: bigint, esc: bigint) =>
+      makeRelacion({ id, persona_id: id, grado_id: grado, escalafon_id: esc });
+
+    it('ubica a todos al final de su grado y grupo, con un solo lote de historial', async () => {
+      const filas = makeFilas();
+      filas.push(nuevo(11n, GRADOS.BRIG, ESC.AV), nuevo(12n, GRADOS.SGTO, ESC.ST));
+      await crear(filas);
+
+      await service.asignarEnAltaLote([12n, 10n, 11n]);
+
+      expect(valores(prisma.filas, 11n)).toEqual({ derecha: 5, numor: 3 });
+      expect(valores(prisma.filas, 5n)).toEqual({ derecha: 6, numor: 1 });
+      expect(valores(prisma.filas, 6n)).toEqual({ derecha: 7, numor: 1 });
+      expect(valores(prisma.filas, 10n)).toEqual({ derecha: 8, numor: 2 });
+      expect(valores(prisma.filas, 12n)).toEqual({ derecha: 4, numor: 3 });
+      verificarInvariantes(prisma.filas);
+
+      // Cada relación se actualiza una sola vez aunque la corran varias altas.
+      const actualizadas = prisma.relaciones_laborales.update.mock.calls.map((c: any) => String(c[0].where.id));
+      expect(new Set(actualizadas).size).toBe(actualizadas.length);
+      expect(prisma.historial_derecha_numor.createMany).toHaveBeenCalledTimes(1);
+      expect(new Set(prisma.historial.map((h: any) => h.lote_id)).size).toBe(1);
+    });
+
+    it('dentro del mismo grado respeta el orden recibido', async () => {
+      const filas = makeFilas();
+      filas.push(nuevo(13n, GRADOS.CNEL, ESC.AV));
+      await crear(filas);
+
+      await service.asignarEnAltaLote([13n, 10n]);
+
+      expect(valores(prisma.filas, 13n)).toEqual({ derecha: 7, numor: 2 });
+      expect(valores(prisma.filas, 10n)).toEqual({ derecha: 8, numor: 3 });
+      verificarInvariantes(prisma.filas);
+    });
+
+    it('saltea a quien ya tiene derecha, a quien no está en actividad y a los grados sin derecha', async () => {
+      const filas = makeFilas();
+      filas.push(
+        nuevo(11n, GRADOS.CADETE, ESC.ST),
+        makeRelacion({ id: 12n, persona_id: 12n, grado_id: GRADOS.SGTO, escalafon_id: ESC.ST, fecha_fin: new Date('2025-01-01'), estado: 'inactivo' }),
+      );
+      await crear(filas);
+
+      await service.asignarEnAltaLote([5n, 11n, 12n, 10n, 99n]);
+
+      expect(valores(prisma.filas, 5n)).toEqual({ derecha: 5, numor: 1 });
+      expect(valores(prisma.filas, 10n)).toEqual({ derecha: 7, numor: 2 });
+      expect(valores(prisma.filas, 11n)).toEqual({ derecha: null, numor: null });
+      verificarInvariantes(prisma.filas);
     });
   });
 

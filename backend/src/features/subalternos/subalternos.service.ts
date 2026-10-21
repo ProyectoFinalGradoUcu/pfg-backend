@@ -341,6 +341,7 @@ export class SubalternosService {
     dto: CreatePersonalDto,
     alcance?: AlcanceResuelto,
     usuario?: { id: bigint | null; permisos: string[] },
+    opciones: { omitirDerecha?: boolean } = {},
   ) {
     dto = this.aplicarUnidadDeAlcance(dto, alcance);
 
@@ -365,7 +366,7 @@ export class SubalternosService {
     if (dto.es_civil) {
       return this.createPersonalCivil(dto);
     }
-    return this.createPersonalMilitar(dto, usuario?.id ?? null);
+    return this.createPersonalMilitar(dto, usuario?.id ?? null, opciones.omitirDerecha ?? false);
   }
 
   /**
@@ -466,7 +467,8 @@ export class SubalternosService {
     }
   }
 
-  private async createPersonalMilitar(dto: CreatePersonalDto, usuarioId: bigint | null) {
+  /** Con `omitirDerecha` la derecha la asigna quien llama, como la carga masiva con todo el lote junto. */
+  private async createPersonalMilitar(dto: CreatePersonalDto, usuarioId: bigint | null, omitirDerecha = false) {
     const camposFaltantes = (
       ['tipo_funcionario', 'regimen_id', 'unidad_id', 'programa_id', 'situacion_id', 'escalafon_id', 'grado_id', 'fecha_inicio'] as const
     ).filter((campo) => dto[campo] == null);
@@ -559,13 +561,15 @@ export class SubalternosService {
 
         await guardarLegajoEnTransaccion(tx, persona.id, dto);
 
-        await this.derecha.asignarEnAltaEnTransaccion(
-          tx,
-          persona.id,
-          dto.posicion_derecha,
-          dto.posicion_numor,
-          { usuarioId },
-        );
+        if (!omitirDerecha) {
+          await this.derecha.asignarEnAltaEnTransaccion(
+            tx,
+            persona.id,
+            dto.posicion_derecha,
+            dto.posicion_numor,
+            { usuarioId },
+          );
+        }
         const ubicacion = await tx.relaciones_laborales.findUnique({
           where: { id: relacion.id },
           select: { derecha: true, numor: true },

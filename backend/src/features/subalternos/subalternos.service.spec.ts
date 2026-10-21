@@ -338,6 +338,15 @@ describe('SubalternosService', () => {
       expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(prisma, 1n, 1, 2, { usuarioId: 5n });
     });
 
+    it('con omitirDerecha crea al funcionario sin asignarle derecha', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      await service.createPersonal(dtoMilitar as any, undefined, undefined, { omitirDerecha: true });
+
+      expect(prisma.personas.create).toHaveBeenCalled();
+      expect(derecha.asignarEnAltaEnTransaccion).not.toHaveBeenCalled();
+    });
+
     it('Falla si la fecha de inicio es anterior a la de nacimiento', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await expect(

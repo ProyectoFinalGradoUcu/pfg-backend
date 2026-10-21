@@ -11,6 +11,7 @@ export interface ResultadoCarga {
   exitosos: number;
   errores: number;
   resultados: ResultadoFila[];
+  avisos?: string[];
 }
 
 export type TipoColumna = 'texto' | 'fecha' | 'numero' | 'lista';
