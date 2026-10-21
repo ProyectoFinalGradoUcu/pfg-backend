@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -22,12 +23,14 @@ import {
   esMutado,
 } from './legajo-militar.constants.js';
 import { CierreCarreraService } from '../retiros/cierre-carrera.service.js';
+import { DerechaService } from '../derecha/derecha.service.js';
 
 @Injectable()
 export class PersonalPerfilService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cierre: CierreCarreraService,
+    private readonly derecha: DerechaService,
   ) {}
 
   // ─── GET /personas/:id ────────────────────────────────────────────────────
@@ -73,6 +76,9 @@ export class PersonalPerfilService {
             fecha_ascenso_oficial: true,
             mutaciones: true,
             estado: true,
+            derecha: true,
+            numor: true,
+            escala_derecha: true,
             tipo_funcionario: true,
             prima_tecnica: true,
             prima_solidaria_familiar: true,
@@ -135,6 +141,9 @@ export class PersonalPerfilService {
         fecha_ascenso_oficial: rel.fecha_ascenso_oficial,
         mutaciones: rel.mutaciones,
         estado: rel.estado,
+        derecha: rel.derecha,
+        numor: rel.numor,
+        escala_derecha: rel.escala_derecha,
         tipo_funcionario: rel.tipo_funcionario,
         prima_tecnica: rel.prima_tecnica,
         prima_solidaria_familiar: rel.prima_solidaria_familiar,
@@ -546,6 +555,7 @@ export class PersonalPerfilService {
     dto: UpdatePersonalDto,
     autorId: bigint,
     alcance?: AlcanceResuelto,
+    permisos: string[] = [],
   ) {
     await this.assertAlcance(id, alcance);
 
@@ -554,12 +564,29 @@ export class PersonalPerfilService {
       select: {
         id: true,
         fecha_nacimiento: true,
-        relaciones_laborales: { where: { fecha_fin: null }, take: 1, select: { id: true, fecha_inicio: true } },
+        relaciones_laborales: {
+          where: { fecha_fin: null },
+          take: 1,
+          select: {
+            id: true,
+            fecha_inicio: true,
+            grado_id: true,
+            escalafon_id: true,
+            derecha: true,
+            numor: true,
+          },
+        },
       },
     });
     if (!persona) throw new NotFoundException(`No existe personal con id ${id}`);
 
     const relacionActiva = persona.relaciones_laborales[0];
+
+    const cambiaDerecha = dto.derecha !== undefined && dto.derecha !== relacionActiva?.derecha;
+    const cambiaNumor = dto.numor !== undefined && dto.numor !== relacionActiva?.numor;
+    if ((cambiaDerecha || cambiaNumor) && !permisos.includes('derecha.gestionar')) {
+      throw new ForbiddenException('No tenés el permiso para modificar la derecha ni el numor');
+    }
 
     // Con alcance de unidad no se puede mover personal fuera de la propia unidad: seria una via
     // para sacarse gente de encima o para apropiarse de personal ajeno.
@@ -622,6 +649,34 @@ export class PersonalPerfilService {
         dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined ||
         dto.observaciones_laborales !== undefined || dto.mutaciones !== undefined;
 
+      // La derecha se mueve antes de cambiar la relación: el servicio parte de su ubicación actual.
+      const cambiaGrado = relacionActiva && dto.grado_id && BigInt(dto.grado_id) !== relacionActiva.grado_id;
+      const cambiaEscalafon =
+        relacionActiva && dto.escalafon_id && BigInt(dto.escalafon_id) !== relacionActiva.escalafon_id;
+      const ctxDerecha = { motivo: 'Edición del legajo', usuarioId: autorId };
+      if (cambiaGrado) {
+        await this.derecha.ascenderEnTransaccion(
+          tx,
+          BigInt(id),
+          BigInt(dto.grado_id!),
+          { escalafonDestinoId: cambiaEscalafon ? BigInt(dto.escalafon_id!) : null },
+          ctxDerecha,
+        );
+      } else if (cambiaEscalafon) {
+        const conDerecha = await tx.relaciones_laborales.count({
+          where: { id: relacionActiva!.id, derecha: { not: null } },
+        });
+        if (conDerecha > 0) {
+          await this.derecha.cambiarEscalafonEnTransaccion(
+            tx,
+            BigInt(id),
+            BigInt(dto.escalafon_id!),
+            null,
+            ctxDerecha,
+          );
+        }
+      }
+
       if (relacionActiva && tocaRelacion) {
         await tx.relaciones_laborales.update({
           where: { id: relacionActiva.id },
@@ -640,6 +695,18 @@ export class PersonalPerfilService {
             ...(dto.mutaciones !== undefined && { mutaciones: dto.mutaciones ?? null }),
           },
         });
+      }
+
+      if (cambiaDerecha || cambiaNumor) {
+        await this.derecha.moverAValoresEnTransaccion(
+          tx,
+          BigInt(id),
+          {
+            derecha: cambiaDerecha ? dto.derecha : null,
+            numor: cambiaNumor ? dto.numor : null,
+          },
+          { motivo: dto.motivo_derecha, usuarioId: autorId },
+        );
       }
 
       await guardarLegajoEnTransaccion(tx, BigInt(id), dto);

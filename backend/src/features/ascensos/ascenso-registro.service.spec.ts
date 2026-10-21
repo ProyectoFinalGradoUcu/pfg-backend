@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { AscensoRegistroService } from './ascenso-registro.service';
 import { PrismaService } from '../../lib/prisma.service';
+import { DerechaService } from '../derecha/derecha.service';
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -127,13 +128,16 @@ const escenarioOk = (prisma: any, overrides: { relacion?: any; destino?: any } =
 describe('AscensoRegistroService', () => {
   let service: AscensoRegistroService;
   let prisma: ReturnType<typeof makePrismaMock>;
+  let derecha: { ascenderEnTransaccion: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
+    derecha = { ascenderEnTransaccion: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AscensoRegistroService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DerechaService, useValue: derecha },
       ],
     }).compile();
     service = module.get<AscensoRegistroService>(AscensoRegistroService);
@@ -317,6 +321,22 @@ describe('AscensoRegistroService', () => {
       expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
     });
 
+    it('mueve la derecha y el numor a la relación nueva en la posición elegida', async () => {
+      escenarioOk(prisma);
+
+      await service.registrar(
+        params({ numero_orden: 'O.C.G.F.A. 1', usuario_id: 8n, posicion_derecha: 2, posicion_numor: 1 }),
+      );
+
+      expect(derecha.ascenderEnTransaccion).toHaveBeenCalledWith(
+        prisma,
+        100n,
+        4n,
+        { posicion: 2, posicionNumor: 1, relacionDestinoId: 501n },
+        { motivo: 'Orden de ascenso O.C.G.F.A. 1', usuarioId: 8n },
+      );
+    });
+
     it('exige motivo cuando el ascenso es por excepción', async () => {
       escenarioOk(prisma);
 
@@ -373,6 +393,30 @@ describe('AscensoRegistroService', () => {
         anulado_por: 8n,
         motivo_anulacion: 'Orden dejada sin efecto',
       });
+    });
+
+    it('devuelve la derecha al final del grado anterior, sobre la relación reactivada', async () => {
+      prepararAnulacion(prisma);
+      prisma.relaciones_laborales.findUnique.mockImplementation(({ where }: any) =>
+        Promise.resolve(
+          where.id === 500n
+            ? { grado_id: 3n }
+            : { id: 501n, persona_id: 100n, fecha_fin: null },
+        ),
+      );
+
+      await service.anular(900n, { motivo: 'Error de carga', usuario_id: 8n });
+
+      expect(derecha.ascenderEnTransaccion).toHaveBeenCalledWith(
+        prisma,
+        100n,
+        3n,
+        { relacionDestinoId: 500n },
+        { motivo: 'Anulación de ascenso: Error de carga', usuarioId: 8n },
+      );
+      const ordenDerecha = derecha.ascenderEnTransaccion.mock.invocationCallOrder[0];
+      const ordenBorrado = prisma.relaciones_laborales.delete.mock.invocationCallOrder[0];
+      expect(ordenDerecha).toBeLessThan(ordenBorrado);
     });
 
     it('exige motivo', async () => {

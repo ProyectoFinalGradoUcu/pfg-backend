@@ -2,6 +2,7 @@ import { forwardRef, Inject, Injectable, UnprocessableEntityException } from '@n
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { RetirosService } from './retiros.service';
+import { DerechaService } from '../derecha/derecha.service';
 
 export type CierresElegidos = { destino: boolean; inscripciones: number[]; usuario: boolean };
 
@@ -34,6 +35,7 @@ export class CierreCarreraService {
     private readonly sesiones: SesionesService,
     @Inject(forwardRef(() => RetirosService))
     private readonly retiros: RetirosService,
+    private readonly derecha: DerechaService,
   ) {}
 
   async cerrar(params: ParamsCierre): Promise<ResultadoCierre> {
@@ -84,6 +86,11 @@ export class CierreCarreraService {
           motivo_baja_id: motivoBaja.id,
           fecha_actualizacion: new Date(),
         },
+      });
+
+      await this.derecha.quitarPorInactividadEnTransaccion(tx, BigInt(params.personaId), {
+        motivo: params.motivo ?? nombreTipo,
+        usuarioId: params.autorId,
       });
 
       const movimiento = await tx.movimientos_laborales.create({

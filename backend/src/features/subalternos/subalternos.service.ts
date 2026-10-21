@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
 import {
@@ -24,6 +25,12 @@ import {
   SELECT_CONTEO_BLOQUEOS,
 } from './bloqueos-borrado.js';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal.js';
+import {
+  ordenarPersonasPorDerechaNumor,
+  tieneFiltroDerechaNumor,
+  whereRelacionPorDerechaNumor,
+} from '../../lib/personal/filtro-derecha-numor.js';
+import { DerechaService } from '../derecha/derecha.service.js';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -52,7 +59,10 @@ function mensajeFK(err: unknown): string {
 
 @Injectable()
 export class SubalternosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly derecha: DerechaService,
+  ) {}
 
   /**
    * Con alcance de unidad, la persona se crea en alguna de las unidades del usuario.
@@ -102,10 +112,12 @@ export class SubalternosService {
     // `incluir_inactivos` lo trae de vuelta con relacion_estado = 'inactivo'.
     const soloAbiertas = query.incluir_inactivos !== true;
 
+    // Solo el personal en actividad tiene derecha y numor.
     const relacionWhere = {
-      ...(soloAbiertas && { fecha_fin: null }),
+      ...((soloAbiertas || tieneFiltroDerechaNumor(query)) && { fecha_fin: null }),
       ...(query.estado && { situacion_id: BigInt(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
+      ...whereRelacionPorDerechaNumor(query),
     };
 
     const where = {
@@ -149,39 +161,57 @@ export class SubalternosService {
       }),
     };
 
-    const [total, personas] = await Promise.all([
-      this.prisma.personas.count({ where }),
-      this.prisma.personas.findMany({
+    const select = {
+      id: true,
+      cedula: true,
+      primer_nombre: true,
+      segundo_nombre: true,
+      primer_apellido: true,
+      segundo_apellido: true,
+      relaciones_laborales: {
+        where: soloAbiertas ? { fecha_fin: null } : {},
+        orderBy: { fecha_inicio: 'desc' as const },
+        take: 1,
+        select: {
+          estado: true,
+          derecha: true,
+          numor: true,
+          escala_derecha: true,
+          grados: { select: { denominacion: true } },
+          escalafones: { select: { codigo: true } },
+          situaciones: { select: { denominacion: true } },
+        },
+      },
+      destinos: {
+        where: { fecha_fin: null },
+        orderBy: { fecha_inicio: 'desc' as const },
+        take: 1,
+        select: { unidades: { select: { denominacion: true } } },
+      },
+    };
+
+    const total = await this.prisma.personas.count({ where });
+    const dir = (query.direccion ?? 'ASC') === 'ASC' ? ('asc' as const) : ('desc' as const);
+
+    let personas;
+    if (query.ordenarPor === 'apellido') {
+      personas = await this.prisma.personas.findMany({
         where,
-        orderBy: [{ primer_apellido: 'asc' }, { primer_nombre: 'asc' }],
+        orderBy: [{ primer_apellido: dir }, { primer_nombre: dir }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: {
-          id: true,
-          cedula: true,
-          primer_nombre: true,
-          segundo_nombre: true,
-          primer_apellido: true,
-          segundo_apellido: true,
-          relaciones_laborales: {
-            where: soloAbiertas ? { fecha_fin: null } : {},
-            orderBy: { fecha_inicio: 'desc' },
-            take: 1,
-            select: {
-              estado: true,
-              grados: { select: { denominacion: true } },
-              situaciones: { select: { denominacion: true } },
-            },
-          },
-          destinos: {
-            where: { fecha_fin: null },
-            orderBy: { fecha_inicio: 'desc' },
-            take: 1,
-            select: { unidades: { select: { denominacion: true } } },
-          },
-        },
-      }),
-    ]);
+        select,
+      });
+    } else {
+      const ids = (await this.prisma.personas.findMany({ where, select: { id: true } })).map((p) => p.id);
+      const pagina = (await ordenarPersonasPorDerechaNumor(this.prisma, ids, query)).slice(
+        (page - 1) * pageSize,
+        page * pageSize,
+      );
+      const filas = await this.prisma.personas.findMany({ where: { id: { in: pagina } }, select });
+      const porId = new Map(filas.map((p) => [p.id.toString(), p]));
+      personas = pagina.flatMap((id) => porId.get(id.toString()) ?? []);
+    }
 
     return {
       items: personas.map((p) => {
@@ -202,6 +232,10 @@ export class SubalternosService {
           destino: p.destinos[0]?.unidades?.denominacion ?? null,
           estado: rel?.situaciones?.denominacion ?? null,
           relacion_estado: rel?.estado ?? null,
+          escalafon: rel?.escalafones?.codigo ?? null,
+          derecha: rel?.derecha ?? null,
+          numor: rel?.numor ?? null,
+          escala_derecha: rel?.escala_derecha ?? null,
         };
       }),
       total,
@@ -263,6 +297,8 @@ export class SubalternosService {
         },
       });
 
+      await this.derecha.asignarEnAltaEnTransaccion(tx, persona.id);
+
       await tx.destinos.create({
         data: {
           persona_id: persona.id,
@@ -301,8 +337,21 @@ export class SubalternosService {
     });
   }
 
-  async createPersonal(dto: CreatePersonalDto, alcance?: AlcanceResuelto) {
+  async createPersonal(
+    dto: CreatePersonalDto,
+    alcance?: AlcanceResuelto,
+    usuario?: { id: bigint | null; permisos: string[] },
+  ) {
     dto = this.aplicarUnidadDeAlcance(dto, alcance);
+
+    if (
+      (dto.posicion_derecha != null || dto.posicion_numor != null) &&
+      !usuario?.permisos.includes('derecha.gestionar')
+    ) {
+      throw new ForbiddenException(
+        'No tenés el permiso para elegir la posición en la derecha o el numor: sin él, el alta va al final de su grado.',
+      );
+    }
 
     const existe = await this.prisma.personas.findUnique({
       where: { cedula: dto.cedula },
@@ -316,7 +365,7 @@ export class SubalternosService {
     if (dto.es_civil) {
       return this.createPersonalCivil(dto);
     }
-    return this.createPersonalMilitar(dto);
+    return this.createPersonalMilitar(dto, usuario?.id ?? null);
   }
 
   /**
@@ -417,7 +466,7 @@ export class SubalternosService {
     }
   }
 
-  private async createPersonalMilitar(dto: CreatePersonalDto) {
+  private async createPersonalMilitar(dto: CreatePersonalDto, usuarioId: bigint | null) {
     const camposFaltantes = (
       ['tipo_funcionario', 'regimen_id', 'unidad_id', 'programa_id', 'situacion_id', 'escalafon_id', 'grado_id', 'fecha_inicio'] as const
     ).filter((campo) => dto[campo] == null);
@@ -510,6 +559,18 @@ export class SubalternosService {
 
         await guardarLegajoEnTransaccion(tx, persona.id, dto);
 
+        await this.derecha.asignarEnAltaEnTransaccion(
+          tx,
+          persona.id,
+          dto.posicion_derecha,
+          dto.posicion_numor,
+          { usuarioId },
+        );
+        const ubicacion = await tx.relaciones_laborales.findUnique({
+          where: { id: relacion.id },
+          select: { derecha: true, numor: true },
+        });
+
         return {
           id: Number(persona.id),
           cedula: persona.cedula,
@@ -556,6 +617,8 @@ export class SubalternosService {
             situacion: relacion.situaciones.denominacion,
             sub_unidad_id: relacion.sub_unidad_id ? Number(relacion.sub_unidad_id) : null,
             sub_unidad: relacion.sub_unidades?.denominacion ?? null,
+            derecha: ubicacion?.derecha ?? null,
+            numor: ubicacion?.numor ?? null,
           },
         };
       });

@@ -3,6 +3,7 @@ import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validato
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal.js';
 import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal.js';
+import { FiltroDerechaNumorDto } from '../../../lib/personal/filtro-derecha-numor.js';
 
 const toInt = ({ value }: { value: unknown }) =>
   value === undefined ? undefined : Number(value);
@@ -13,7 +14,7 @@ const toBool = ({ value }: { value: unknown }) => {
   return value;
 };
 
-export class ListPersonasQueryDto {
+export class ListPersonasQueryDto extends FiltroDerechaNumorDto {
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @Transform(toInt)

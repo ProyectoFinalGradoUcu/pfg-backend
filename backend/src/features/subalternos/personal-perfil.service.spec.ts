@@ -1,8 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PersonalPerfilService } from './personal-perfil.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { CierreCarreraService } from '../retiros/cierre-carrera.service';
+import { DerechaService } from '../derecha/derecha.service';
 
 const makeAsignacion = (overrides: Partial<any> = {}) => ({
   id: 200n,
@@ -57,7 +58,7 @@ const makePrismaMock = () => ({
     deleteMany: jest.fn(),
   },
   ascensos: { findMany: jest.fn() },
-  relaciones_laborales: { findFirst: jest.fn(), update: jest.fn() },
+  relaciones_laborales: { findFirst: jest.fn(), update: jest.fn(), count: jest.fn() },
   retiros: { findMany: jest.fn() },
   legajo_militar: { findUnique: jest.fn(), upsert: jest.fn() },
   $transaction: jest.fn(),
@@ -67,16 +68,27 @@ describe('PersonalPerfilService', () => {
   let service: PersonalPerfilService;
   let prisma: ReturnType<typeof makePrismaMock>;
   let cierre: { cerrar: jest.Mock };
+  let derecha: {
+    ascenderEnTransaccion: jest.Mock;
+    cambiarEscalafonEnTransaccion: jest.Mock;
+    moverAValoresEnTransaccion: jest.Mock;
+  };
 
   beforeAll(async () => {
     prisma = makePrismaMock();
     cierre = { cerrar: jest.fn() };
+    derecha = {
+      ascenderEnTransaccion: jest.fn(),
+      cambiarEscalafonEnTransaccion: jest.fn(),
+      moverAValoresEnTransaccion: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PersonalPerfilService,
         { provide: PrismaService, useValue: prisma },
         { provide: CierreCarreraService, useValue: cierre },
+        { provide: DerechaService, useValue: derecha },
       ],
     }).compile();
 
@@ -417,6 +429,115 @@ describe('PersonalPerfilService', () => {
     });
   });
   // ─── PATCH /personas/:id: el fallecimiento cierra la carrera ───────────────
+
+  describe('update — derecha y numor', () => {
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n,
+        fecha_nacimiento: new Date('1980-01-01'),
+        relaciones_laborales: [
+          { id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n },
+        ],
+      });
+      prisma.personas.update.mockResolvedValue({ id: 100n });
+      prisma.relaciones_laborales.update.mockResolvedValue({ id: 45n });
+      prisma.relaciones_laborales.count.mockResolvedValue(1);
+    });
+
+    it('un cambio de grado mueve la derecha al final del grado nuevo antes de tocar la relación', async () => {
+      await service.update(100, { grado_id: 5 } as any, 7n);
+
+      expect(derecha.ascenderEnTransaccion).toHaveBeenCalledWith(
+        prisma,
+        100n,
+        5n,
+        { escalafonDestinoId: null },
+        { motivo: 'Edición del legajo', usuarioId: 7n },
+      );
+      expect(derecha.ascenderEnTransaccion.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.relaciones_laborales.update.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si también cambia el escalafón, el numor entra en el grupo nuevo', async () => {
+      await service.update(100, { grado_id: 5, escalafon_id: 14 } as any, 7n);
+
+      expect(derecha.ascenderEnTransaccion.mock.calls[0][3]).toEqual({ escalafonDestinoId: 14n });
+      expect(derecha.cambiarEscalafonEnTransaccion).not.toHaveBeenCalled();
+    });
+
+    it('un cambio solo de escalafón mueve el numor y deja la derecha', async () => {
+      await service.update(100, { escalafon_id: 14 } as any, 7n);
+
+      expect(derecha.cambiarEscalafonEnTransaccion).toHaveBeenCalledWith(
+        prisma,
+        100n,
+        14n,
+        null,
+        { motivo: 'Edición del legajo', usuarioId: 7n },
+      );
+      expect(derecha.ascenderEnTransaccion).not.toHaveBeenCalled();
+    });
+
+    it('edita la derecha y el numor con el permiso, en la misma transacción', async () => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n,
+        fecha_nacimiento: new Date('1980-01-01'),
+        relaciones_laborales: [
+          { id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n, derecha: 8, numor: 3 },
+        ],
+      });
+
+      await service.update(
+        100,
+        { derecha: 6, numor: 3, motivo_derecha: 'Boletín 12' } as any,
+        7n,
+        undefined,
+        ['derecha.gestionar'],
+      );
+
+      expect(derecha.moverAValoresEnTransaccion).toHaveBeenCalledWith(
+        prisma,
+        100n,
+        { derecha: 6, numor: null },
+        { motivo: 'Boletín 12', usuarioId: 7n },
+      );
+    });
+
+    it('sin derecha.gestionar no deja cambiar la derecha', async () => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n,
+        fecha_nacimiento: new Date('1980-01-01'),
+        relaciones_laborales: [
+          { id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n, derecha: 8, numor: 3 },
+        ],
+      });
+
+      await expect(service.update(100, { derecha: 6 } as any, 7n)).rejects.toThrow(ForbiddenException);
+      expect(prisma.personas.update).not.toHaveBeenCalled();
+    });
+
+    it('mandar la misma derecha y numor no es un cambio ni pide permiso', async () => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n,
+        fecha_nacimiento: new Date('1980-01-01'),
+        relaciones_laborales: [
+          { id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n, derecha: 8, numor: 3 },
+        ],
+      });
+
+      await service.update(100, { derecha: 8, numor: 3, telefono: '099' } as any, 7n);
+
+      expect(derecha.moverAValoresEnTransaccion).not.toHaveBeenCalled();
+    });
+
+    it('sin cambio de grado ni escalafón no toca la derecha', async () => {
+      await service.update(100, { grado_id: 4, escalafon_id: 13, telefono: '099' } as any, 7n);
+
+      expect(derecha.ascenderEnTransaccion).not.toHaveBeenCalled();
+      expect(derecha.cambiarEscalafonEnTransaccion).not.toHaveBeenCalled();
+    });
+  });
 
   describe('update — fallecimiento', () => {
     beforeEach(() => {
