@@ -220,7 +220,8 @@ SELECT nombre, descripcion FROM (VALUES
   ('Retiros',             'Registro de retiros, anulaciones y reincorporaciones'),
   ('Destinos',            'Asignación de destinos y carga masiva de destinos'),
   ('Reportes',            'Generación y descarga de reportes'),
-  ('Derecha',             'Cambios en la derecha y el numor del personal')
+  ('Derecha',             'Cambios en la derecha y el numor del personal'),
+  ('Vuelos',              'Períodos, horas de vuelo y unidades de vuelo')
 ) AS t(nombre, descripcion)
 ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
 

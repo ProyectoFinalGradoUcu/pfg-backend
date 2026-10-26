@@ -20,3 +20,5 @@ database/scripts/migration_retiros_v2.sql
 database/scripts/migration_archivos.sql
 
 database/scripts/migration_derecha_numor.sql
+
+database/scripts/migration_vuelos.sql

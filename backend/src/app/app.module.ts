@@ -25,6 +25,7 @@ import { AuditoriaHttpModule } from '../features/auditoria/auditoria-http.module
 import { ReportesModule } from '../features/reportes/reportes.module';
 import { AscensosModule } from '../features/ascensos/ascensos.module';
 import { DerechaModule } from '../features/derecha/derecha.module';
+import { VuelosModule } from '../features/vuelos/vuelos.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { DerechaModule } from '../features/derecha/derecha.module';
     ReportesModule,
     AscensosModule,
     DerechaModule,
+    VuelosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

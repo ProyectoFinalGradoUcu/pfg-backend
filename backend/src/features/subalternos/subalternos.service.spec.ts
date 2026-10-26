@@ -43,6 +43,7 @@ describe('SubalternosService', () => {
         deleteMany: jest.fn(),
       },
       legajo_militar: { deleteMany: jest.fn() },
+      registros_vuelo: { deleteMany: jest.fn() },
       relaciones_familiares: { count: jest.fn().mockResolvedValue(0) },
       personas_documentos: { deleteMany: jest.fn() },
       $transaction: jest.fn((cb) => cb(prisma)),
@@ -519,6 +520,22 @@ describe('SubalternosService', () => {
       const { select } = prisma.personas.findUnique.mock.calls[0][0];
       expect(select._count.select).not.toHaveProperty('destinos');
       expect(prisma.destinos.deleteMany).toHaveBeenCalledWith({ where: { persona_id: 1n } });
+    });
+
+    it('las horas de vuelo cargadas bloquean; las filas generadas se van con la persona', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros({ registros_vuelo: 2 }));
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(error.getResponse().data.registros).toEqual([
+        { tipo: 'vuelos', etiqueta: 'Horas de vuelo cargadas', cantidad: 2 },
+      ]);
+      const { select } = prisma.personas.findUnique.mock.calls.at(-1)[0];
+      expect(select._count.select.registros_vuelo).toEqual({ where: { editado_en: { not: null } } });
+
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      await service.remove(1);
+      expect(prisma.registros_vuelo.deleteMany).toHaveBeenCalledWith({ where: { persona_id: 1n } });
     });
 
     it('solo cuentan los documentos activos', async () => {
