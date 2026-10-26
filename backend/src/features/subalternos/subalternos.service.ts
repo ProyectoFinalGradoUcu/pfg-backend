@@ -702,6 +702,8 @@ export class SubalternosService {
         await tx.relaciones_laborales.deleteMany({ where: { persona_id: personaId } });
         await tx.destinos.deleteMany({ where: { persona_id: personaId } });
         await tx.legajo_militar.deleteMany({ where: { persona_id: personaId } });
+        // Solo quedan los nunca editados: los cargados bloquean el borrado.
+        await tx.registros_vuelo.deleteMany({ where: { persona_id: personaId } });
         // Solo los de archivos ya borrados: un documento activo tiene que seguir bloqueando.
         await tx.personas_documentos.deleteMany({
           where: { persona_id: personaId, archivos: { eliminado_en: { not: null } } },

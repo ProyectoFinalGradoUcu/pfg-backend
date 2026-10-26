@@ -12,6 +12,7 @@ const PROPIOS: { tipo: string; etiqueta: string; campos: string[] }[] = [
   { tipo: 'documentos', etiqueta: 'Documentos', campos: ['personas_documentos'] },
   { tipo: 'cursos', etiqueta: 'Cursos', campos: ['funcionarios_cursos'] },
   { tipo: 'misiones', etiqueta: 'Misiones', campos: ['funcionarios_misiones'] },
+  { tipo: 'vuelos', etiqueta: 'Horas de vuelo cargadas', campos: ['registros_vuelo'] },
   { tipo: 'convocatorias', etiqueta: 'Convocatorias', campos: ['funcionarios_convocatorias'] },
   { tipo: 'ascensos', etiqueta: 'Ascensos', campos: ['ascensos'] },
   { tipo: 'retiro', etiqueta: 'Retiros', campos: ['retiros'] },
@@ -43,12 +44,14 @@ const DE_LIQUIDACIONES = [
   'retroactividades',
 ] as const;
 
-// Sin relaciones_laborales, destinos ni legajo_militar: se borran con la persona.
+// Sin relaciones_laborales, destinos ni legajo_militar: se borran con la persona. De vuelos
+// solo bloquean los registros editados; los generados al abrir un período se van con ella.
 // relaciones_familiares se cuenta aparte: su alias de _count pasa los 63 caracteres de Postgres.
 export const SELECT_CONTEO_BLOQUEOS = {
   personas_documentos: { where: { archivos: { eliminado_en: null } } },
   funcionarios_cursos: true,
   funcionarios_misiones: true,
+  registros_vuelo: { where: { editado_en: { not: null } } },
   funcionarios_convocatorias: true,
   ascensos: true,
   retiros: true,

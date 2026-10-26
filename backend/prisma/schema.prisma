@@ -478,6 +478,7 @@ model escalafones {
   grados                grados[]
   relaciones_laborales  relaciones_laborales[]
   tabla_permanencia     tabla_permanencia[]
+  registros_vuelo       registros_vuelo[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -606,6 +607,7 @@ model grados {
   remuneraciones_grado                                                                       remuneraciones_grado[]
   tabla_permanencia                                                                          tabla_permanencia[]
   derecha_jerarquia                                                                          derecha_jerarquia_grados?
+  registros_vuelo                                                                            registros_vuelo[]
 }
 
 /// Jerarquía de grados para la derecha. Tabla NUESTRA: `grados.orden` no sirve
@@ -964,6 +966,8 @@ model personas {
   invitaciones                                                      invitaciones[]
   usuarios                                                          usuarios[]
   historial_derecha_numor                                           historial_derecha_numor[]
+  registros_vuelo                                                   registros_vuelo[]
+  historial_unidad_vuelo                                            historial_unidad_vuelo[]
 }
 
 /// Documentación libre de un funcionario (cédula, escaneos). Tabla NUESTRA: la crea
@@ -1364,6 +1368,9 @@ model usuarios {
   retiros_registrados                                                        retiros[]                        @relation("retiros_registrado_por")
   retiros_anulados                                                           retiros[]                        @relation("retiros_anulado_por")
   historial_derecha_numor                                                    historial_derecha_numor[]
+  periodos_vuelo                                                             periodos_vuelo[]
+  registros_vuelo_editados                                                   registros_vuelo[]
+  historial_unidad_vuelo                                                     historial_unidad_vuelo[]
 
   @@unique([username, aplicacion])
 }
@@ -1780,4 +1787,80 @@ model tramos_sanidad_militar {
   vigente_hasta    DateTime? @db.Date
 
   @@unique([codigo_retencion, vigente_desde])
+}
+
+/// Unidades en las que vuela el personal (Esc. Aér. 5, E.V.B, …). Tabla NUESTRA: no son
+/// las `unidades` administrativas, que comparte liquidación. La crea migration_vuelos.sql.
+model unidades_vuelo {
+  id           BigInt  @id @default(autoincrement())
+  denominacion String  @db.VarChar(100)
+  vigente      Boolean @default(true)
+
+  registros_vuelo                 registros_vuelo[]
+  historial_unidad_vuelo_anterior historial_unidad_vuelo[] @relation("historial_unidad_vuelo_anterior")
+  historial_unidad_vuelo_nueva    historial_unidad_vuelo[] @relation("historial_unidad_vuelo_nueva")
+}
+
+/// Período de carga de horas de vuelo: 4 por año; el año militar es el año calendario.
+model periodos_vuelo {
+  id         BigInt   @id @default(autoincrement())
+  anio       Int      @db.SmallInt
+  numero     Int      @db.SmallInt
+  cerrado    Boolean  @default(false)
+  creado_en  DateTime @default(now()) @db.Timestamp(6)
+  usuario_id BigInt?
+
+  usuarios               usuarios?                @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  registros_vuelo        registros_vuelo[]
+  historial_unidad_vuelo historial_unidad_vuelo[]
+
+  @@unique([anio, numero], map: "uq_periodos_vuelo_anio_numero")
+}
+
+/// Horas de vuelo de una persona en un período. Grado, escalafón y categoría son los del
+/// momento en que se abrió el período. `editado_en` NULL = fila generada y nunca editada.
+model registros_vuelo {
+  id                 BigInt    @id @default(autoincrement())
+  periodo_id         BigInt
+  persona_id         BigInt
+  grado_id           BigInt?
+  escalafon_id       BigInt?
+  tipo_funcionario   String?   @db.VarChar(20)
+  unidad_vuelo_id    BigInt?
+  aeronaves          String?
+  hs_av_anio_militar Decimal   @default(0) @db.Decimal(10, 1)
+  hs_av_total        Decimal   @default(0) @db.Decimal(10, 1)
+  hs_ob_anio_militar Decimal   @default(0) @db.Decimal(10, 1)
+  hs_ob_total        Decimal   @default(0) @db.Decimal(10, 1)
+  editado_en         DateTime? @db.Timestamp(6)
+  editado_por        BigInt?
+
+  periodos_vuelo periodos_vuelo  @relation(fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas       personas        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grados         grados?         @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  escalafones    escalafones?    @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidades_vuelo unidades_vuelo? @relation(fields: [unidad_vuelo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios       usuarios?       @relation(fields: [editado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([periodo_id, persona_id], map: "uq_registros_vuelo_periodo_persona")
+  @@index([persona_id], map: "ix_registros_vuelo_persona")
+}
+
+/// Cada cambio de unidad de vuelo de una persona y el período en que se hizo.
+model historial_unidad_vuelo {
+  id                 BigInt   @id @default(autoincrement())
+  persona_id         BigInt
+  periodo_id         BigInt
+  unidad_anterior_id BigInt?
+  unidad_nueva_id    BigInt?
+  usuario_id         BigInt?
+  fecha              DateTime @default(now()) @db.Timestamp(6)
+
+  personas        personas        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  periodos_vuelo  periodos_vuelo  @relation(fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidad_anterior unidades_vuelo? @relation("historial_unidad_vuelo_anterior", fields: [unidad_anterior_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidad_nueva    unidades_vuelo? @relation("historial_unidad_vuelo_nueva", fields: [unidad_nueva_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios        usuarios?       @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id, fecha(sort: Desc)], map: "ix_historial_unidad_vuelo_persona")
 }
