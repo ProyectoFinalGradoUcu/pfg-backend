@@ -48,9 +48,11 @@ export class AuditoriaInterceptor implements NestInterceptor {
         Request & { user?: AuthenticatedUser; params: Record<string, string> }
       >();
 
-    // Sin metadata, método de solo lectura, o sin usuario autenticado: no se audita.
+    // Sin metadata, registro a cargo del service, método de solo lectura, o sin
+    // usuario autenticado: no se audita acá.
     if (
       !opciones ||
+      opciones.registroManual ||
       !METODOS_AUDITABLES.has(req.method) ||
       !req.user?.id
     ) {

@@ -7,6 +7,7 @@ import {
 import { UnidadesService } from './unidades.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -77,16 +78,22 @@ const makeSesionesMock = () => ({
   contarUsuariosDeUnidad: jest.fn().mockResolvedValue(14),
 });
 
+const makeAuditoriaMock = () => ({
+  registrar: jest.fn().mockResolvedValue(undefined),
+});
+
 // ─── Suite ────────────────────────────────────────────────────────────────────
 
 describe('UnidadesService', () => {
   let service: UnidadesService;
   let prisma: ReturnType<typeof makePrismaMock>;
   let sesiones: ReturnType<typeof makeSesionesMock>;
+  let auditoria: ReturnType<typeof makeAuditoriaMock>;
 
   beforeEach(async () => {
     prisma = makePrismaMock();
     sesiones = makeSesionesMock();
+    auditoria = makeAuditoriaMock();
     prisma.$transaction.mockImplementation((arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
       return Promise.all(arg);
@@ -97,6 +104,7 @@ describe('UnidadesService', () => {
         UnidadesService,
         { provide: PrismaService, useValue: prisma },
         { provide: SesionesService, useValue: sesiones },
+        { provide: AuditoriaService, useValue: auditoria },
       ],
     }).compile();
 
@@ -186,12 +194,13 @@ describe('UnidadesService', () => {
     it('asigna el rol e invalida las sesiones de todos los usuarios de la unidad', async () => {
       prisma.unidades.findUnique
         .mockResolvedValueOnce({ id: 1n })
+        .mockResolvedValueOnce(makeUnidadConRoles({ unidades_roles: [] }))
         .mockResolvedValueOnce(makeUnidadConRoles());
       prisma.roles.findFirst.mockResolvedValue({ id: 3n });
       prisma.unidades_roles.findUnique.mockResolvedValue(null);
       prisma.unidades_roles.create.mockResolvedValue({});
 
-      await service.asignarRol('1', '3');
+      await service.asignarRol('1', '3', '7');
 
       expect(prisma.unidades_roles.create).toHaveBeenCalledWith({
         data: { unidad_id: 1n, rol_id: 3n },
@@ -199,10 +208,39 @@ describe('UnidadesService', () => {
       expect(sesiones.invalidarPorUnidad).toHaveBeenCalledWith(1n);
     });
 
+    it('audita un único evento a nivel unidad, con nombres legibles', async () => {
+      prisma.unidades.findUnique
+        .mockResolvedValueOnce({ id: 1n })
+        .mockResolvedValueOnce(makeUnidadConRoles({ unidades_roles: [] }))
+        .mockResolvedValueOnce(makeUnidadConRoles());
+      prisma.roles.findFirst.mockResolvedValue({ id: 3n });
+      prisma.unidades_roles.findUnique.mockResolvedValue(null);
+
+      await service.asignarRol('1', '3', '7');
+
+      expect(auditoria.registrar).toHaveBeenCalledTimes(1);
+      expect(auditoria.registrar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          usuarioId: '7',
+          accion: 'unidad_rol.agregar',
+          contexto: 'Unidades',
+          entidad: 'Unidad',
+          entidadId: '1',
+          detalle: expect.objectContaining({
+            unidad: { codigo: 'CG', denominacion: 'Cuartel General' },
+            rol: expect.objectContaining({ nombre: 'Control de cursos' }),
+            rolesAnteriores: [],
+            rolesResultantes: ['Control de cursos'],
+            usuariosAfectados: 14,
+          }),
+        }),
+      );
+    });
+
     it('lanza NotFoundException si la unidad no existe', async () => {
       prisma.unidades.findUnique.mockResolvedValue(null);
 
-      await expect(service.asignarRol('99', '3')).rejects.toThrow(
+      await expect(service.asignarRol('99', '3', '7')).rejects.toThrow(
         NotFoundException,
       );
       expect(sesiones.invalidarPorUnidad).not.toHaveBeenCalled();
@@ -212,7 +250,7 @@ describe('UnidadesService', () => {
       prisma.unidades.findUnique.mockResolvedValue({ id: 1n });
       prisma.roles.findFirst.mockResolvedValue(null);
 
-      await expect(service.asignarRol('1', '99')).rejects.toThrow(
+      await expect(service.asignarRol('1', '99', '7')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -225,7 +263,7 @@ describe('UnidadesService', () => {
         rol_id: 3n,
       });
 
-      await expect(service.asignarRol('1', '3')).rejects.toThrow(
+      await expect(service.asignarRol('1', '3', '7')).rejects.toThrow(
         ConflictException,
       );
       expect(prisma.unidades_roles.create).not.toHaveBeenCalled();
@@ -239,6 +277,7 @@ describe('UnidadesService', () => {
     it('quita el rol e invalida las sesiones de la unidad', async () => {
       prisma.unidades.findUnique
         .mockResolvedValueOnce({ id: 1n })
+        .mockResolvedValueOnce(makeUnidadConRoles())
         .mockResolvedValueOnce(makeUnidadConRoles({ unidades_roles: [] }));
       prisma.unidades_roles.findUnique.mockResolvedValue({
         unidad_id: 1n,
@@ -246,7 +285,7 @@ describe('UnidadesService', () => {
       });
       prisma.unidades_roles.delete.mockResolvedValue({});
 
-      await service.quitarRol('1', '3');
+      await service.quitarRol('1', '3', '7');
 
       expect(prisma.unidades_roles.delete).toHaveBeenCalledWith({
         where: { unidad_id_rol_id: { unidad_id: 1n, rol_id: 3n } },
@@ -254,15 +293,41 @@ describe('UnidadesService', () => {
       expect(sesiones.invalidarPorUnidad).toHaveBeenCalledWith(1n);
     });
 
+    it('al quitar el último rol, el registro conserva sus permisos para reconstruir lo perdido', async () => {
+      prisma.unidades.findUnique
+        .mockResolvedValueOnce({ id: 1n })
+        .mockResolvedValueOnce(makeUnidadConRoles())
+        .mockResolvedValueOnce(makeUnidadConRoles({ unidades_roles: [] }));
+      prisma.unidades_roles.findUnique.mockResolvedValue({ unidad_id: 1n, rol_id: 3n });
+
+      await service.quitarRol('1', '3', '7');
+
+      expect(auditoria.registrar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accion: 'unidad_rol.quitar',
+          detalle: expect.objectContaining({
+            rolesAnteriores: [
+              expect.objectContaining({
+                nombre: 'Control de cursos',
+                permisos: [{ id: '9', nombre: 'cursos.gestionar.unidad' }],
+              }),
+            ],
+            rolesResultantes: [],
+          }),
+        }),
+      );
+    });
+
     it('lanza NotFoundException si el rol no estaba asignado a esa unidad', async () => {
       prisma.unidades.findUnique.mockResolvedValue({ id: 1n });
       prisma.unidades_roles.findUnique.mockResolvedValue(null);
 
-      await expect(service.quitarRol('1', '3')).rejects.toThrow(
+      await expect(service.quitarRol('1', '3', '7')).rejects.toThrow(
         NotFoundException,
       );
       expect(prisma.unidades_roles.delete).not.toHaveBeenCalled();
       expect(sesiones.invalidarPorUnidad).not.toHaveBeenCalled();
+      expect(auditoria.registrar).not.toHaveBeenCalled();
     });
   });
 
@@ -275,11 +340,11 @@ describe('UnidadesService', () => {
         { id: 10n },
         { id: 11n },
       ]);
-      prisma.usuarios_unidades.findMany.mockResolvedValue([
+      prisma.usuarios_unidades.findMany.mockResolvedValueOnce([
         { usuario_id: 11n },
       ]);
 
-      const result = await service.asignarUsuarios('1', ['10', '11']);
+      const result = await service.asignarUsuarios('1', ['10', '11'], '7');
 
       expect(prisma.usuarios_unidades.create).toHaveBeenCalledTimes(1);
       expect(prisma.usuarios_unidades.create).toHaveBeenCalledWith({
@@ -290,12 +355,41 @@ describe('UnidadesService', () => {
       expect(result).toEqual({ asignados: 1, yaEstaban: 1, noEncontrados: 0 });
     });
 
+    it('audita un evento por usuario movido, con sus unidades antes y después', async () => {
+      const ba1 = { unidades: { id: 2n, codigo: 'BA1', denominacion: 'Base Aérea N.º 1' } };
+      const cg = { unidades: { id: 1n, codigo: 'CG', denominacion: 'Cuartel General' } };
+      prisma.unidades.findUnique.mockResolvedValue({ id: 1n, vigente: true });
+      prisma.usuarios.findMany.mockResolvedValue([{ id: 10n, username: 'jefe@fau.mil.uy' }]);
+      prisma.usuarios_unidades.findMany
+        .mockResolvedValueOnce([]) // ya asignados
+        .mockResolvedValueOnce([ba1]) // antes
+        .mockResolvedValueOnce([ba1, cg]); // después
+
+      await service.asignarUsuarios('1', ['10'], '7');
+
+      expect(auditoria.registrar).toHaveBeenCalledWith({
+        usuarioId: '7',
+        accion: 'unidad.asignar',
+        contexto: 'Usuarios',
+        entidad: 'Usuario',
+        entidadId: 10n,
+        detalle: {
+          usuario: 'jefe@fau.mil.uy',
+          unidadesAnteriores: [{ id: '2', codigo: 'BA1', denominacion: 'Base Aérea N.º 1' }],
+          unidadesNuevas: [
+            { id: '2', codigo: 'BA1', denominacion: 'Base Aérea N.º 1' },
+            { id: '1', codigo: 'CG', denominacion: 'Cuartel General' },
+          ],
+        },
+      });
+    });
+
     it('no toca ninguna relación laboral', async () => {
       prisma.unidades.findUnique.mockResolvedValue({ id: 1n, vigente: true });
       prisma.usuarios.findMany.mockResolvedValue([{ id: 10n }]);
       prisma.usuarios_unidades.findMany.mockResolvedValue([]);
 
-      await service.asignarUsuarios('1', ['10']);
+      await service.asignarUsuarios('1', ['10'], '7');
 
       // El destino del personal se gestiona desde Personal, no desde acá.
       expect(prisma.relaciones_laborales).not.toHaveProperty('updateMany');
@@ -306,7 +400,7 @@ describe('UnidadesService', () => {
       prisma.usuarios.findMany.mockResolvedValue([{ id: 10n }]);
       prisma.usuarios_unidades.findMany.mockResolvedValue([]);
 
-      const result = await service.asignarUsuarios('1', ['10', '99']);
+      const result = await service.asignarUsuarios('1', ['10', '99'], '7');
 
       expect(result.noEncontrados).toBe(1);
     });
@@ -314,7 +408,7 @@ describe('UnidadesService', () => {
     it('no permite asignar usuarios a una unidad que no está vigente', async () => {
       prisma.unidades.findUnique.mockResolvedValue({ id: 1n, vigente: false });
 
-      await expect(service.asignarUsuarios('1', ['10'])).rejects.toThrow(
+      await expect(service.asignarUsuarios('1', ['10'], '7')).rejects.toThrow(
         ConflictException,
       );
     });
@@ -322,7 +416,7 @@ describe('UnidadesService', () => {
     it('lanza BadRequestException si no se indica ningún usuario', async () => {
       prisma.unidades.findUnique.mockResolvedValue({ id: 1n, vigente: true });
 
-      await expect(service.asignarUsuarios('1', [])).rejects.toThrow(
+      await expect(service.asignarUsuarios('1', [], '7')).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -332,20 +426,39 @@ describe('UnidadesService', () => {
 
   describe('quitarUsuario', () => {
     it('elimina la relación y le cierra la sesión', async () => {
-      prisma.usuarios_unidades.findFirst.mockResolvedValue({ usuario_id: 10n, unidad_id: 1n });
+      prisma.usuarios_unidades.findFirst.mockResolvedValue({
+        usuario_id: 10n,
+        unidad_id: 1n,
+        usuarios: { username: 'jefe@fau.mil.uy' },
+      });
+      prisma.usuarios_unidades.findMany.mockResolvedValue([
+        { unidades: { id: 1n, codigo: 'CG', denominacion: 'Cuartel General' } },
+      ]);
 
-      await service.quitarUsuario('1', '10');
+      await service.quitarUsuario('1', '10', '7');
 
       expect(prisma.usuarios_unidades.delete).toHaveBeenCalledWith({
         where: { usuario_id_unidad_id: { usuario_id: 10n, unidad_id: 1n } },
       });
       expect(sesiones.invalidarUsuario).toHaveBeenCalledWith(10n);
+      expect(auditoria.registrar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accion: 'unidad.quitar',
+          entidad: 'Usuario',
+          entidadId: '10',
+          detalle: {
+            usuario: 'jefe@fau.mil.uy',
+            unidadesAnteriores: [{ id: '1', codigo: 'CG', denominacion: 'Cuartel General' }],
+            unidadesNuevas: [],
+          },
+        }),
+      );
     });
 
     it('lanza NotFoundException si el usuario no pertenece a esa unidad', async () => {
       prisma.usuarios_unidades.findFirst.mockResolvedValue(null);
 
-      await expect(service.quitarUsuario('1', '10')).rejects.toThrow(
+      await expect(service.quitarUsuario('1', '10', '7')).rejects.toThrow(
         NotFoundException,
       );
       expect(prisma.usuarios_unidades.delete).not.toHaveBeenCalled();
