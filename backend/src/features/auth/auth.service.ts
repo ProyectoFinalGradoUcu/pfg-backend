@@ -187,7 +187,7 @@ export class AuthService {
     try {
       return jwt.verify(token, this.getSecret()) as AuthPayload;
     } catch {
-      throw new UnauthorizedException('Token inválido o expirado');
+      throw new UnauthorizedException('La sesión expiró. Volvé a iniciar sesión.');
     }
   }
 
