@@ -6,6 +6,7 @@ import {
 import { UsuariosService } from './usuarios.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ const makePrismaMock = () => ({
     findMany: jest.fn(),
   },
   usuarios_unidades: {
+    findMany: jest.fn().mockResolvedValue([]),
     deleteMany: jest.fn(),
     createMany: jest.fn(),
   },
@@ -74,10 +76,12 @@ describe('UsuariosService', () => {
   let service: UsuariosService;
   let prisma: ReturnType<typeof makePrismaMock>;
   let sesiones: ReturnType<typeof makeSesionesMock>;
+  let auditoria: { registrar: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
     sesiones = makeSesionesMock();
+    auditoria = { registrar: jest.fn() };
     prisma.$transaction.mockImplementation((arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
       return Promise.all(arg);
@@ -88,6 +92,7 @@ describe('UsuariosService', () => {
         UsuariosService,
         { provide: PrismaService, useValue: prisma },
         { provide: SesionesService, useValue: sesiones },
+        { provide: AuditoriaService, useValue: auditoria },
       ],
     }).compile();
 
@@ -217,6 +222,73 @@ describe('UsuariosService', () => {
       await expect(
         service.update('99', { estado: 'activo' }, '1'),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── asignarUnidades ────────────────────────────────────────────────────────
+
+  describe('asignarUnidades', () => {
+    const cg = { unidades: { id: 1n, codigo: 'CG', denominacion: 'Cuartel General' } };
+    const efa = { unidades: { id: 4n, codigo: 'EFA', denominacion: 'Escuela de Formación' } };
+
+    beforeEach(() => {
+      prisma.usuarios.findFirst.mockResolvedValue({ id: 10n, username: 'jefe@fau.mil.uy' });
+      prisma.unidades.findMany.mockResolvedValue([{ id: 4n, vigente: true }]);
+      jest.spyOn(service, 'findOne').mockResolvedValue({} as any);
+    });
+
+    it('audita el cambio con las unidades anteriores y las nuevas, legibles', async () => {
+      prisma.usuarios_unidades.findMany
+        .mockResolvedValueOnce([cg])
+        .mockResolvedValueOnce([efa]);
+
+      await service.asignarUnidades('10', ['4'], '1');
+
+      expect(auditoria.registrar).toHaveBeenCalledWith({
+        usuarioId: '1',
+        accion: 'unidad.asignar',
+        contexto: 'Usuarios',
+        entidad: 'Usuario',
+        entidadId: 10n,
+        detalle: {
+          usuario: 'jefe@fau.mil.uy',
+          unidadesAnteriores: [{ id: '1', codigo: 'CG', denominacion: 'Cuartel General' }],
+          unidadesNuevas: [{ id: '4', codigo: 'EFA', denominacion: 'Escuela de Formación' }],
+        },
+      });
+    });
+
+    it('registra unidad.quitar cuando se le sacan todas las unidades', async () => {
+      prisma.usuarios_unidades.findMany
+        .mockResolvedValueOnce([cg])
+        .mockResolvedValueOnce([]);
+
+      await service.asignarUnidades('10', [], '1');
+
+      expect(auditoria.registrar).toHaveBeenCalledWith(
+        expect.objectContaining({ accion: 'unidad.quitar' }),
+      );
+    });
+
+    it('registra unidad.quitar si solo se sacó una de varias unidades', async () => {
+      prisma.usuarios_unidades.findMany
+        .mockResolvedValueOnce([cg, efa])
+        .mockResolvedValueOnce([efa]);
+
+      await service.asignarUnidades('10', ['4'], '1');
+
+      expect(auditoria.registrar).toHaveBeenCalledWith(
+        expect.objectContaining({ accion: 'unidad.quitar' }),
+      );
+    });
+
+    it('no audita si la unidad no existe', async () => {
+      prisma.unidades.findMany.mockResolvedValue([]);
+
+      await expect(service.asignarUnidades('10', ['99'], '1')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(auditoria.registrar).not.toHaveBeenCalled();
     });
   });
 });

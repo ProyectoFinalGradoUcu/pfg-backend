@@ -188,6 +188,8 @@ SELECT nombre, descripcion FROM (VALUES
   ('CAMBIAR_PASSWORD',  'Cambio de contraseña propia'),
   ('RESETEAR_PASSWORD', 'Reseteo de contraseña de otro usuario'),
   ('DESCARGAR',         'Descarga o exportación de datos'),
+  ('unidad.asignar',                 'Se asignó una unidad a un usuario del sistema'),
+  ('unidad.quitar',                  'Se quitó una unidad a un usuario del sistema'),
   ('unidad_rol.agregar',             'Se asignó un rol a una unidad'),
   ('unidad_rol.quitar',              'Se quitó un rol de una unidad'),
   ('relacion_laboral.cambio_unidad', 'Se cambió el destino de un funcionario'),

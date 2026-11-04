@@ -162,9 +162,11 @@ export class AuthService {
     });
     if (!usuario) throw new UnauthorizedException('Usuario no encontrado');
 
+    // 400 y no 401: es un dato mal ingresado, no una sesión inválida. El frontend trata
+    // todo 401 con sesión iniciada como sesión terminada y desloguearía al usuario (SCRUM-149).
     const ok = await bcrypt.compare(dto.passwordActual, usuario.password_hash);
     if (!ok)
-      throw new UnauthorizedException('La contraseña actual es incorrecta');
+      throw new BadRequestException('La contraseña actual es incorrecta');
 
     if (dto.passwordActual === dto.passwordNueva) {
       throw new BadRequestException(
@@ -187,7 +189,7 @@ export class AuthService {
     try {
       return jwt.verify(token, this.getSecret()) as AuthPayload;
     } catch {
-      throw new UnauthorizedException('Token inválido o expirado');
+      throw new UnauthorizedException('La sesión expiró. Volvé a iniciar sesión.');
     }
   }
 
