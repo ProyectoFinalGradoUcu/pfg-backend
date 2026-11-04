@@ -989,6 +989,7 @@ describe('RetirosService', () => {
     it.each([
       ['un cadete', { id: 29n, codigo: 'CADETE_3RA', denominacion: 'Cadete 3ª', es_oficial: false, es_subalterno: true }],
       ['un At. 3.ª', { id: 33n, codigo: 'AT_3RA', denominacion: 'At. 3ª', es_oficial: false, es_subalterno: false }],
+      ['un aprendiz', { id: 26n, codigo: 'APRENDIZ', denominacion: 'Aprendiz', es_oficial: false, es_subalterno: true }],
     ])('bloquea a %s', async (_caso, grados) => {
       prisma.retiros.findUnique.mockResolvedValue(retiroConGrado(grados));
 
@@ -1013,6 +1014,7 @@ describe('RetirosService', () => {
         makeGrado({ id: 33n, codigo: 'AT_3RA', denominacion: 'At. 3ª', es_subalterno: false }),
         makeGrado({ id: 29n, codigo: 'CADETE_3RA', denominacion: 'Cadete 3ª' }),
         makeGrado({ id: 17n, codigo: 'CAD_1RO', denominacion: 'Cad. 1°', es_subalterno: false }),
+        makeGrado({ id: 26n, codigo: 'APRENDIZ', denominacion: 'Aprendiz' }),
         makeGrado({ id: 7n, codigo: 'ALF', denominacion: 'Alf.', es_oficial: true, es_subalterno: false }),
         makeGrado({ id: 10n, codigo: 'CAP', denominacion: 'Cap.', es_oficial: true, es_subalterno: false }),
       ];
@@ -1031,7 +1033,7 @@ describe('RetirosService', () => {
       });
 
       it.each([['ADM'], ['SIN_DATO'], ['RVA'], ['AT']])(
-        'a un subalterno con escalafon %s le ofrece los grados de subalterno y de aerotecnico, sin cadetes ni At. 3.ª',
+        'a un subalterno con escalafon %s le ofrece los grados de subalterno y de aerotecnico, sin cadetes, aprendices ni At. 3.ª',
         async (escalafon) => {
           prisma.retiros.findUnique.mockResolvedValue(
             makeRetiro({
@@ -1383,6 +1385,7 @@ describe('RetirosService', () => {
       ['es de cadete', makeGrado({ codigo: 'CADETE_3RA', denominacion: 'Cadete 3ª' })],
       ['es de cadete sin categoria en el catalogo', makeGrado({ codigo: 'CAD_1RO', es_subalterno: false })],
       ['es At. 3.ª', makeGrado({ codigo: 'AT_3RA', denominacion: 'At. 3ª', es_subalterno: false })],
+      ['es de aprendiz', makeGrado({ codigo: 'APRENDIZ', denominacion: 'Aprendiz' })],
     ])('422 si el grado de reincorporacion %s', async (_caso, grado) => {
       prisma.grados.findUnique.mockResolvedValue(grado);
 
@@ -1507,6 +1510,15 @@ describe('RetirosService', () => {
         where: { id: 46n },
         data: { grado_reincorporacion_id: 3n, fecha_actualizacion: expect.any(Date) },
       });
+    });
+
+    it('422 sin escribir si el grado de reincorporacion es de aprendiz', async () => {
+      prisma.grados.findUnique.mockResolvedValue(makeGrado({ id: 26n, codigo: 'APRENDIZ', denominacion: 'Aprendiz' }));
+
+      await expect(
+        service.actualizarReincorporacion(88, { grado_reincorporacion_id: 26 }),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
     });
 
     it('acepta un grado de aerotecnico en una relacion SIT17', async () => {

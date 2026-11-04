@@ -40,8 +40,9 @@ const CODIGOS_REINCORPORADO: (string | undefined)[] = Object.values(SITUACION_RE
 
 type Categoria = keyof typeof SITUACION_REINCORPORADO;
 
-// Cadetes y At. 3.ª no se reincorporan: ningún reincorporado histórico de la FAU los tiene.
-const gradoNoReincorporable = (codigo?: string) => !!codigo?.startsWith('CAD') || codigo === 'AT_3RA';
+// Cadetes, aprendices y At. 3.ª no se reincorporan: ningún reincorporado histórico de la FAU los tiene.
+const gradoNoReincorporable = (codigo?: string) =>
+  !!codigo?.startsWith('CAD') || codigo === 'AT_3RA' || codigo === 'APRENDIZ';
 
 // El catálogo de liquidación no marca a los aerotécnicos ni como oficiales ni como subalternos.
 const gradoCorresponde = (grado: { es_oficial: boolean }, categoria: Categoria) =>
