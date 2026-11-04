@@ -76,7 +76,8 @@ export class UsuariosController {
 
   @Patch(':id/unidad')
   @RequirePermissions('usuarios.gestionar')
-  @Auditar({ contexto: 'Usuarios', accion: 'ASIGNAR', entidad: 'Usuario' })
+  // El service registra el cambio con las unidades anteriores y las nuevas.
+  @Auditar({ contexto: 'Usuarios', registroManual: true })
   @ApiOperation({
     summary: 'Asignar las unidades de un usuario del sistema',
     description:
@@ -85,8 +86,12 @@ export class UsuariosController {
   @ApiResponse({ status: 200, description: 'Unidad asignada.' })
   @ApiResponse({ status: 404, description: 'Usuario o unidad no encontrados.' })
   @ApiResponse({ status: 409, description: 'La unidad no está vigente.' })
-  asignarUnidad(@Param('id') id: string, @Body() dto: AsignarUnidadesDto) {
-    return this.usuariosService.asignarUnidades(id, dto.unidadIds);
+  asignarUnidad(
+    @Param('id') id: string,
+    @Body() dto: AsignarUnidadesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usuariosService.asignarUnidades(id, dto.unidadIds, user.id);
   }
 
   @Post(':id/roles/:rolId')

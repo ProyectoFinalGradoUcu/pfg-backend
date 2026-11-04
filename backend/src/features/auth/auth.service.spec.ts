@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
+import * as bcrypt from 'bcrypt';
 
 // `bcrypt` es un modulo nativo: mockearlo evita depender del binario compilado y hace
 // deterministica la comparacion de password, que no es lo que se prueba en esta suite.
@@ -264,6 +265,33 @@ describe('AuthService', () => {
 
       await expect(service.assertUsuarioActivo('1', 1000)).rejects.toThrow(
         UnauthorizedException,
+      );
+    });
+  });
+
+  // ─── changePassword ─────────────────────────────────────────────────────────
+
+  describe('changePassword', () => {
+    const dto = { passwordActual: 'Vieja123!', passwordNueva: 'Nueva123!' };
+
+    it('con la contraseña actual incorrecta lanza 400, no 401, y no cambia el hash', async () => {
+      // Un 401 haría que el frontend tome la sesión por terminada y desloguee (SCRUM-149).
+      prisma.usuarios.findUnique.mockResolvedValue(makeUsuario());
+      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
+
+      await expect(service.changePassword('1', dto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.usuarios.update).not.toHaveBeenCalled();
+    });
+
+    it('con la contraseña actual correcta guarda el hash nuevo', async () => {
+      prisma.usuarios.findUnique.mockResolvedValue(makeUsuario());
+
+      await service.changePassword('1', dto);
+
+      expect(prisma.usuarios.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ password_hash: 'hash' }) }),
       );
     });
   });

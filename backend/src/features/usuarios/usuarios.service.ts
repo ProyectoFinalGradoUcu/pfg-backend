@@ -8,6 +8,8 @@ import {
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { unidadesDeUsuario } from '../unidades/unidades-usuario';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
@@ -103,6 +105,7 @@ export class UsuariosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sesiones: SesionesService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async findAll(query: ListUsuariosQueryDto = {}) {
@@ -281,7 +284,7 @@ export class UsuariosService {
    *
    * Acepta un array de unidadIds. Si es vacío, quita todas las unidades.
    */
-  async asignarUnidades(id: string, unidadIds: string[]) {
+  async asignarUnidades(id: string, unidadIds: string[], actorId: string) {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
     });
@@ -302,6 +305,8 @@ export class UsuariosService {
       }
     }
 
+    const anteriores = await unidadesDeUsuario(this.prisma, usuario.id);
+
     // Reemplazar todas las asignaciones: borrar las existentes e insertar las nuevas
     await this.prisma.usuarios_unidades.deleteMany({
       where: { usuario_id: usuario.id },
@@ -317,6 +322,23 @@ export class UsuariosService {
     }
 
     await this.sesiones.invalidarUsuario(usuario.id);
+
+    // Reemplaza todas de una vez: si solo se sacaron unidades es una quita; si entró alguna
+    // nueva (aunque a la vez salga otra), una asignación.
+    const nuevas = await unidadesDeUsuario(this.prisma, usuario.id);
+    const soloQuito = nuevas.every((n) => anteriores.some((a) => a.id === n.id));
+    void this.auditoria.registrar({
+      usuarioId: actorId,
+      accion: soloQuito ? 'unidad.quitar' : 'unidad.asignar',
+      contexto: 'Usuarios',
+      entidad: 'Usuario',
+      entidadId: usuario.id,
+      detalle: {
+        usuario: usuario.username,
+        unidadesAnteriores: anteriores,
+        unidadesNuevas: nuevas,
+      },
+    });
 
     return this.findOne(id);
   }
