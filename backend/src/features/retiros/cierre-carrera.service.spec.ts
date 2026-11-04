@@ -146,6 +146,26 @@ describe('CierreCarreraService', () => {
     });
   });
 
+  it('con motivo FALLECIMIENTO deja la fecha en la persona, sin pisar una ya cargada', async () => {
+    prisma.motivos_baja.findUnique.mockResolvedValue(
+      makeMotivoBaja({ id: 4n, codigo: 'FALLECIMIENTO' }),
+    );
+    prisma.tipos_movimiento.findFirst.mockResolvedValue({ id: 7n, nombre: 'Baja', es_alta: false });
+
+    await service.cerrar(paramsBase());
+
+    expect(prisma.personas.updateMany).toHaveBeenCalledWith({
+      where: { id: 100n, fecha_fallecimiento: null },
+      data: { fecha_fallecimiento: new Date('2026-08-28') },
+    });
+  });
+
+  it('con otro motivo no toca la persona', async () => {
+    await service.cerrar(paramsBase());
+
+    expect(prisma.personas.updateMany).not.toHaveBeenCalled();
+  });
+
   it('guarda el movimiento_laboral_id y los cierres_aplicados en el retiro', async () => {
     await service.cerrar(paramsBase());
 

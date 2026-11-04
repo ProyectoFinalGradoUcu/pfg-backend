@@ -159,7 +159,9 @@ export class AscensoRegistroService {
         observaciones: params.observaciones ?? relacionActual.observaciones,
         sub_unidad_id: relacionActual.sub_unidad_id,
         motivo_baja_id: relacionActual.motivo_baja_id,
-        grado_reincorporacion_id: relacionActual.grado_reincorporacion_id,
+        // Liquidación toma la base del sueldo de este grado antes que de grado_id: si no sigue al ascenso, cobra como antes.
+        grado_reincorporacion_id:
+          relacionActual.grado_reincorporacion_id != null ? gradoDestino.id : null,
         haber_retiro: relacionActual.haber_retiro,
         porcentaje_progresivo: relacionActual.porcentaje_progresivo,
         superprima: relacionActual.superprima,
