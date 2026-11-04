@@ -129,9 +129,13 @@ export class AuditoriaService {
     };
   }
 
-  /** Devuelve los valores disponibles de acción y contexto para poblar filtros en el frontend. */
+  /**
+   * Devuelve los valores disponibles para poblar los filtros en el frontend. Los usuarios van
+   * todos, bloqueados incluidos: siguen teniendo historial, y salen de acá porque `/usuarios`
+   * pide otro permiso que quien consulta la auditoría puede no tener.
+   */
   async filtros() {
-    const [acciones, contextos] = await Promise.all([
+    const [acciones, contextos, usuarios] = await Promise.all([
       this.prisma.acciones.findMany({
         orderBy: { nombre: 'asc' },
         select: { id: true, nombre: true },
@@ -140,11 +144,17 @@ export class AuditoriaService {
         orderBy: { nombre: 'asc' },
         select: { id: true, nombre: true },
       }),
+      this.prisma.usuarios.findMany({
+        where: { aplicacion: APLICACION },
+        orderBy: { username: 'asc' },
+        select: { id: true, username: true },
+      }),
     ]);
 
     return {
       acciones: acciones.map((a) => ({ id: a.id.toString(), nombre: a.nombre })),
       contextos: contextos.map((c) => ({ id: c.id.toString(), nombre: c.nombre })),
+      usuarios: usuarios.map((u) => ({ id: u.id.toString(), username: u.username })),
     };
   }
 

@@ -24,6 +24,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { InvitacionesService } from './invitaciones.service';
 import { CrearInvitacionDto } from './dto/crear-invitacion.dto';
 import { AceptarInvitacionDto } from './dto/aceptar-invitacion.dto';
+import { ListInvitacionesQueryDto } from './dto/list-invitaciones-query.dto';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Invitaciones')
@@ -49,10 +50,9 @@ export class InvitacionesController {
   @Get()
   @RequirePermissions('usuarios.gestionar')
   @ApiCookieAuth('auth_token')
-  @ApiOperation({ summary: 'Listar invitaciones' })
-  @ApiQuery({ name: 'estado', required: false, enum: ['pendiente', 'aceptada', 'expirada'] })
-  listar(@Query('estado') estado?: string) {
-    return this.invitacionesService.listar(estado);
+  @ApiOperation({ summary: 'Listar invitaciones, paginadas si se indica page o pageSize' })
+  listar(@Query() query: ListInvitacionesQueryDto) {
+    return this.invitacionesService.listar(query);
   }
 
   @Get('verificar')

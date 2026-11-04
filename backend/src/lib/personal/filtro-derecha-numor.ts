@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service.js';
 import { ESCALAS_DERECHA, NOMBRES_ESCALA } from '../../features/derecha/derecha.constants.js';
 import type { EscalaDerecha } from '../../features/derecha/derecha.constants.js';
+import { enIds, FiltroListaIds } from '../query/filtro-lista-ids.js';
 
 export const ORDENAR_POR_DERECHA_NUMOR = ['derecha', 'numor', 'apellido'] as const;
 export type OrdenarPorDerechaNumor = (typeof ORDENAR_POR_DERECHA_NUMOR)[number];
@@ -53,19 +54,11 @@ export class FiltroDerechaNumorDto {
   @Min(1)
   numorHasta?: number;
 
-  @ApiPropertyOptional({ example: 14, description: 'ID de grado' })
-  @IsOptional()
-  @Transform(toInt)
-  @IsInt()
-  @Min(1)
-  gradoId?: number;
+  @FiltroListaIds('IDs de grado separados por coma', '14')
+  gradoId?: number[];
 
-  @ApiPropertyOptional({ example: 1, description: 'ID de escalafón' })
-  @IsOptional()
-  @Transform(toInt)
-  @IsInt()
-  @Min(1)
-  escalafonId?: number;
+  @FiltroListaIds('IDs de escalafón separados por coma', '1')
+  escalafonId?: number[];
 
   @ApiPropertyOptional({ enum: ESCALAS_DERECHA, description: 'Escala de la derecha' })
   @IsOptional()
@@ -97,7 +90,10 @@ const CAMPOS_FILTRO = [
 ] as const;
 
 export function tieneFiltroDerechaNumor(f: FiltroDerechaNumorDto) {
-  return CAMPOS_FILTRO.some((c) => f[c] !== undefined && f[c] !== null);
+  return CAMPOS_FILTRO.some((c) => {
+    const v = f[c];
+    return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null;
+  });
 }
 
 const rango = (desde: number | undefined, hasta: number | undefined, campo: string) => {
@@ -115,8 +111,8 @@ export function whereRelacionPorDerechaNumor(f: FiltroDerechaNumorDto): Prisma.r
   return {
     ...(derecha && { derecha }),
     ...(numor && { numor }),
-    ...(f.gradoId && { grado_id: BigInt(f.gradoId) }),
-    ...(f.escalafonId && { escalafon_id: BigInt(f.escalafonId) }),
+    ...(f.gradoId?.length && { grado_id: enIds(f.gradoId) }),
+    ...(f.escalafonId?.length && { escalafon_id: enIds(f.escalafonId) }),
     ...(f.escala && { escala_derecha: f.escala }),
   };
 }
@@ -209,8 +205,8 @@ export function describirFiltroDerechaNumor(
 
   const partes = [
     f.escala && `Escala: ${NOMBRES_ESCALA[f.escala]}`,
-    f.gradoId && `Grado: ${nombres.grado ?? f.gradoId}`,
-    f.escalafonId && `Escalafón: ${nombres.escalafon ?? f.escalafonId}`,
+    f.gradoId?.length && `Grado: ${nombres.grado ?? f.gradoId.join(', ')}`,
+    f.escalafonId?.length && `Escalafón: ${nombres.escalafon ?? f.escalafonId.join(', ')}`,
     (f.derechaDesde !== undefined || f.derechaHasta !== undefined) &&
       `Derecha ${tramo(f.derechaDesde, f.derechaHasta)}`,
     (f.numorDesde !== undefined || f.numorHasta !== undefined) &&

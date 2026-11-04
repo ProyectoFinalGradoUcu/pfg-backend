@@ -96,6 +96,61 @@ describe('UsuariosService', () => {
 
   // ─── remove (deshabilitar usuario) ──────────────────────────────────────────
 
+  describe('findAll', () => {
+    const argsDelListado = () => prisma.usuarios.findMany.mock.calls[0][0];
+
+    beforeEach(() => {
+      prisma.usuarios.count.mockResolvedValue(0);
+      prisma.usuarios.findMany.mockResolvedValue([]);
+    });
+
+    it('sin filtros lista todos los usuarios de la aplicación', async () => {
+      await service.findAll({ page: 1, pageSize: 10 });
+
+      expect(Object.keys(argsDelListado().where)).toEqual(['aplicacion']);
+    });
+
+    const condicionDe = (palabra: string) => ({
+      OR: [
+        { username: { contains: palabra, mode: 'insensitive' } },
+        { personas: { primer_nombre: { contains: palabra, mode: 'insensitive' } } },
+        { personas: { primer_apellido: { contains: palabra, mode: 'insensitive' } } },
+      ],
+    });
+
+    it('busca en el email, el nombre y el apellido, sin distinguir mayúsculas ni espacios sobrantes', async () => {
+      await service.findAll({ search: '  JEFE ' });
+
+      expect(argsDelListado().where.AND).toEqual([condicionDe('JEFE')]);
+    });
+
+    it('con varias palabras exige todas, en cualquier columna', async () => {
+      await service.findAll({ search: 'Victoria   Castro' });
+
+      expect(argsDelListado().where.AND).toEqual([condicionDe('Victoria'), condicionDe('Castro')]);
+    });
+
+    it('una búsqueda solo de espacios no filtra', async () => {
+      await service.findAll({ search: '   ' });
+
+      expect(argsDelListado().where).not.toHaveProperty('AND');
+    });
+
+    it('combina búsqueda, rol y estado, y el total respeta los mismos filtros', async () => {
+      await service.findAll({ search: 'jefe', rolId: 2, estado: 'bloqueado' });
+
+      const where = argsDelListado().where;
+      expect(where).toEqual(
+        expect.objectContaining({
+          AND: [condicionDe('jefe')],
+          usuarios_roles: { some: { rol_id: 2n } },
+          estado: 'bloqueado',
+        }),
+      );
+      expect(prisma.usuarios.count).toHaveBeenCalledWith({ where });
+    });
+  });
+
   describe('remove', () => {
     it('cambia el estado a bloqueado (borrado lógico)', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(makeUsuario());

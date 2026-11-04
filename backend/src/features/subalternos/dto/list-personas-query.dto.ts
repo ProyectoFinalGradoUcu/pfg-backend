@@ -4,6 +4,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal.js';
 import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal.js';
 import { FiltroDerechaNumorDto } from '../../../lib/personal/filtro-derecha-numor.js';
+import { FiltroListaIds } from '../../../lib/query/filtro-lista-ids.js';
 
 const toInt = ({ value }: { value: unknown }) =>
   value === undefined ? undefined : Number(value);
@@ -35,12 +36,8 @@ export class ListPersonasQueryDto extends FiltroDerechaNumorDto {
   @IsString()
   search?: string;
 
-  @ApiPropertyOptional({ example: 3, description: 'ID de unidad (destino)' })
-  @IsOptional()
-  @Transform(toInt)
-  @IsInt()
-  @Min(1)
-  destino?: number;
+  @FiltroListaIds('IDs de unidad (destino) separados por coma. Trae a quien revista en cualquiera de ellas.', '3')
+  destino?: number[];
 
   @ApiPropertyOptional({ example: 7, description: 'ID de grado (rango)' })
   @IsOptional()
@@ -49,12 +46,8 @@ export class ListPersonasQueryDto extends FiltroDerechaNumorDto {
   @Min(1)
   rango?: number;
 
-  @ApiPropertyOptional({ example: 2, description: 'ID de situación (estado)' })
-  @IsOptional()
-  @Transform(toInt)
-  @IsInt()
-  @Min(1)
-  estado?: number;
+  @FiltroListaIds('IDs de situación (estado) separados por coma. Trae a quien tenga cualquiera de ellas.')
+  estado?: number[];
 
   @ApiPropertyOptional({
     example: false,

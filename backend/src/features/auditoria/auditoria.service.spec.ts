@@ -24,6 +24,75 @@ describe('AuditoriaService', () => {
       detalle,
     });
 
+  describe('filtros', () => {
+    beforeEach(() => {
+      prisma.acciones.findMany = jest.fn().mockResolvedValue([]);
+      prisma.contextos.findMany = jest.fn().mockResolvedValue([]);
+      prisma.usuarios = {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1n, username: 'activo@fau.mil.uy' },
+          { id: 2n, username: 'bloqueado@fau.mil.uy' },
+        ]),
+      };
+    });
+
+    it('ofrece los usuarios de la aplicación sin filtrar por estado, para incluir a los bloqueados', async () => {
+      const { usuarios } = await service.filtros();
+
+      expect(usuarios).toEqual([
+        { id: '1', username: 'activo@fau.mil.uy' },
+        { id: '2', username: 'bloqueado@fau.mil.uy' },
+      ]);
+      expect(prisma.usuarios.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { aplicacion: 'personal' }, orderBy: { username: 'asc' } }),
+      );
+    });
+
+    it('solo expone id y username', async () => {
+      await service.filtros();
+
+      expect(prisma.usuarios.findMany.mock.calls[0][0].select).toEqual({ id: true, username: true });
+    });
+  });
+
+  describe('listar', () => {
+    beforeEach(() => {
+      prisma.bitacora_auditoria.count = jest.fn().mockResolvedValue(0);
+      prisma.bitacora_auditoria.findMany = jest.fn().mockResolvedValue([]);
+      prisma.$transaction = jest.fn((operaciones: Promise<unknown>[]) => Promise.all(operaciones));
+    });
+
+    it('combina usuario, acción, contexto y período, y el total respeta los mismos filtros', async () => {
+      await service.listar({
+        usuarioId: '7',
+        accion: 'CREAR',
+        contexto: 'Roles',
+        desde: '2026-01-01',
+        hasta: '2026-01-31',
+        page: 2,
+        pageSize: 20,
+      });
+
+      const args = prisma.bitacora_auditoria.findMany.mock.calls[0][0];
+      expect(args.where).toEqual(
+        expect.objectContaining({
+          usuario_id: 7n,
+          acciones: { nombre: 'CREAR' },
+          contextos: { nombre: 'Roles' },
+          fecha: expect.objectContaining({ gte: expect.any(Date), lte: expect.any(Date) }),
+        }),
+      );
+      expect(args.skip).toBe(20);
+      expect(prisma.bitacora_auditoria.count).toHaveBeenCalledWith({ where: args.where });
+    });
+
+    it('sin usuario no filtra por usuario', async () => {
+      await service.listar({});
+
+      expect(prisma.bitacora_auditoria.findMany.mock.calls[0][0].where).not.toHaveProperty('usuario_id');
+    });
+  });
+
   describe('sanitización del detalle', () => {
     it('Serializa las fechas en ISO en vez de vaciarlas', async () => {
       await registrar({ fecha_inicio: new Date('2024-01-15T00:00:00.000Z') });
