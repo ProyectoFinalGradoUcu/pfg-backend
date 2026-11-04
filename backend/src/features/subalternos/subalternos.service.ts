@@ -24,6 +24,7 @@ import {
   mensajeDeBloqueo,
   SELECT_CONTEO_BLOQUEOS,
 } from './bloqueos-borrado.js';
+import { enIds } from '../../lib/query/filtro-lista-ids.js';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal.js';
 import {
   ordenarPersonasPorDerechaNumor,
@@ -115,7 +116,7 @@ export class SubalternosService {
     // Solo el personal en actividad tiene derecha y numor.
     const relacionWhere = {
       ...((soloAbiertas || tieneFiltroDerechaNumor(query)) && { fecha_fin: null }),
-      ...(query.estado && { situacion_id: BigInt(query.estado) }),
+      ...(query.estado?.length && { situacion_id: enIds(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
       ...whereRelacionPorDerechaNumor(query),
     };
@@ -127,8 +128,8 @@ export class SubalternosService {
       // Sin alcance, se puede filtrar por query.destino opcionalmente.
       ...(unidadesForzadas !== null
         ? { destinos: { some: { unidad_id: { in: unidadesForzadas }, fecha_fin: null } } }
-        : query.destino && {
-            destinos: { some: { unidad_id: BigInt(query.destino), fecha_fin: null } },
+        : query.destino?.length && {
+            destinos: { some: { unidad_id: enIds(query.destino), fecha_fin: null } },
           }),
       ...(query.search && {
         OR: [
