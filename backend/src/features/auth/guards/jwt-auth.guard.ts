@@ -33,7 +33,9 @@ export class JwtAuthGuard implements CanActivate {
     const token = request.cookies?.[COOKIE_NAME];
 
     if (!token) {
-      throw new UnauthorizedException('No autenticado');
+      // El frontend muestra este texto en el login cuando una sesión abierta se corta
+      // (la cookie venció con el token), así que va redactado para el usuario.
+      throw new UnauthorizedException('La sesión expiró. Volvé a iniciar sesión.');
     }
 
     const payload: AuthPayload = this.authService.verifyToken(token);

@@ -6,8 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { unidadesDeUsuario } from '../unidades/unidades-usuario';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
@@ -103,16 +106,41 @@ export class UsuariosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sesiones: SesionesService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async findAll(query: ListUsuariosQueryDto = {}) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
+    const palabras = query.search?.trim().split(/\s+/).filter(Boolean) ?? [];
+    const coincide = (texto: string) => ({
+      contains: texto,
+      mode: Prisma.QueryMode.insensitive,
+    });
+
+    const where: Prisma.usuariosWhereInput = {
+      aplicacion: APLICACION,
+      // Palabra por palabra: nombre y apellido van en columnas separadas, y así
+      // "Victoria Castro" encuentra a la persona aunque ninguna columna tenga el texto entero.
+      ...(palabras.length
+        ? {
+            AND: palabras.map((palabra) => ({
+              OR: [
+                { username: coincide(palabra) },
+                { personas: { primer_nombre: coincide(palabra) } },
+                { personas: { primer_apellido: coincide(palabra) } },
+              ],
+            })),
+          }
+        : {}),
+      ...(query.rolId ? { usuarios_roles: { some: { rol_id: BigInt(query.rolId) } } } : {}),
+      ...(query.estado ? { estado: query.estado } : {}),
+    };
 
     const [total, usuarios] = await this.prisma.$transaction([
-      this.prisma.usuarios.count({ where: { aplicacion: APLICACION } }),
+      this.prisma.usuarios.count({ where }),
       this.prisma.usuarios.findMany({
-        where: { aplicacion: APLICACION },
+        where,
         orderBy: { username: 'asc' },
         include: USUARIO_INCLUDE,
         skip: (page - 1) * pageSize,
@@ -281,7 +309,7 @@ export class UsuariosService {
    *
    * Acepta un array de unidadIds. Si es vacío, quita todas las unidades.
    */
-  async asignarUnidades(id: string, unidadIds: string[]) {
+  async asignarUnidades(id: string, unidadIds: string[], actorId: string) {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
     });
@@ -302,6 +330,8 @@ export class UsuariosService {
       }
     }
 
+    const anteriores = await unidadesDeUsuario(this.prisma, usuario.id);
+
     // Reemplazar todas las asignaciones: borrar las existentes e insertar las nuevas
     await this.prisma.usuarios_unidades.deleteMany({
       where: { usuario_id: usuario.id },
@@ -317,6 +347,23 @@ export class UsuariosService {
     }
 
     await this.sesiones.invalidarUsuario(usuario.id);
+
+    // Reemplaza todas de una vez: si solo se sacaron unidades es una quita; si entró alguna
+    // nueva (aunque a la vez salga otra), una asignación.
+    const nuevas = await unidadesDeUsuario(this.prisma, usuario.id);
+    const soloQuito = nuevas.every((n) => anteriores.some((a) => a.id === n.id));
+    void this.auditoria.registrar({
+      usuarioId: actorId,
+      accion: soloQuito ? 'unidad.quitar' : 'unidad.asignar',
+      contexto: 'Usuarios',
+      entidad: 'Usuario',
+      entidadId: usuario.id,
+      detalle: {
+        usuario: usuario.username,
+        unidadesAnteriores: anteriores,
+        unidadesNuevas: nuevas,
+      },
+    });
 
     return this.findOne(id);
   }
