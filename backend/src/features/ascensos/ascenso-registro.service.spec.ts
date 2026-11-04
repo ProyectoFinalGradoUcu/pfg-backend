@@ -192,6 +192,28 @@ describe('AscensoRegistroService', () => {
       expect(data.categoria_viatico).toBe(3);
     });
 
+    it('en un reincorporado lleva el grado de reincorporación al grado nuevo y conserva haber y porcentaje', async () => {
+      escenarioOk(prisma, {
+        relacion: makeRelacion({ grado_reincorporacion_id: 3n, haber_retiro: 42000.5, porcentaje_progresivo: 0.3 }),
+      });
+
+      await service.registrar(params());
+
+      const data = prisma.relaciones_laborales.create.mock.calls[0][0].data;
+      expect(data.grado_reincorporacion_id).toBe(4n);
+      expect(data.haber_retiro).toBe(42000.5);
+      expect(data.porcentaje_progresivo).toBe(0.3);
+    });
+
+    it('a quien no es reincorporado no le carga grado de reincorporación', async () => {
+      escenarioOk(prisma);
+
+      await service.registrar(params());
+
+      const data = prisma.relaciones_laborales.create.mock.calls[0][0].data;
+      expect(data.grado_reincorporacion_id).toBeNull();
+    });
+
     it('vacía la prima técnica solo si el destino es Sgto. 1.º', async () => {
       escenarioOk(prisma, {
         destino: makeGrado({ id: 6n, codigo: 'SGTO_1RO', denominacion: 'Sargento 1.º', orden: 6 }),

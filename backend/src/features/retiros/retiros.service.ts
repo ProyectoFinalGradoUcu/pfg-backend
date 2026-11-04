@@ -393,15 +393,30 @@ export class RetirosService {
     usuarios_anulacion: { select: { id: true, username: true } },
   };
 
-  /** La relación laboral que empezó después del retiro, si la persona volvió. */
-  private async buscarReincorporacion(r: any) {
-    const posterior: any = await this.prisma.relaciones_laborales.findFirst({
-      where: { persona_id: r.persona_id, fecha_inicio: { gt: r.fecha_retiro } },
-      orderBy: { fecha_inicio: 'asc' },
+  /**
+   * Las relaciones que empezaron después del retiro y antes del retiro siguiente. Con un ascenso de
+   * por medio son varias: `actual` es la activa o, si ninguna lo está, la que cerró última.
+   */
+  private async relacionesDeLaReincorporacion(retiro: { persona_id: bigint; fecha_retiro: Date }) {
+    const siguiente = await this.prisma.retiros.findFirst({
+      where: { persona_id: retiro.persona_id, anulado: false, fecha_retiro: { gt: retiro.fecha_retiro } },
+      orderBy: { fecha_retiro: 'asc' },
+      select: { fecha_retiro: true },
+    });
+    const relaciones: any[] = await this.prisma.relaciones_laborales.findMany({
+      where: {
+        persona_id: retiro.persona_id,
+        fecha_inicio: {
+          gt: retiro.fecha_retiro,
+          ...(siguiente ? { lte: siguiente.fecha_retiro } : {}),
+        },
+      },
+      orderBy: [{ fecha_inicio: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
         estado: true,
         fecha_inicio: true,
+        fecha_fin: true,
         haber_retiro: true,
         porcentaje_progresivo: true,
         situaciones: { select: { codigo: true, denominacion: true } },
@@ -410,7 +425,20 @@ export class RetirosService {
         },
       },
     });
-    if (!posterior) return null;
+    if (relaciones.length === 0) return null;
+
+    const actual =
+      relaciones.find((rel) => rel.estado === 'activo') ??
+      relaciones.reduce((a, b) =>
+        (b.fecha_fin?.getTime() ?? 0) > (a.fecha_fin?.getTime() ?? 0) ? b : a,
+      );
+    return { primera: relaciones[0], actual };
+  }
+
+  private async buscarReincorporacion(r: any) {
+    const relaciones = await this.relacionesDeLaReincorporacion(r);
+    if (!relaciones) return null;
+    const posterior = relaciones.actual;
 
     const activa = posterior.estado === 'activo';
     const esReincorporado = CODIGOS_REINCORPORADO.includes(posterior.situaciones?.codigo);
@@ -420,7 +448,7 @@ export class RetirosService {
 
     return {
       relacion_laboral_id: posterior.id.toString(),
-      fecha: soloFecha(posterior.fecha_inicio),
+      fecha: soloFecha(relaciones.primera.fecha_inicio),
       situacion: posterior.situaciones
         ? {
             codigo: posterior.situaciones.codigo,
@@ -946,14 +974,11 @@ export class RetirosService {
       throw new UnprocessableEntityException('No hay datos para actualizar');
     }
 
-    const relacion = await this.prisma.relaciones_laborales.findFirst({
-      where: { persona_id: retiro.persona_id, fecha_inicio: { gt: retiro.fecha_retiro } },
-      orderBy: { fecha_inicio: 'asc' },
-      select: { id: true, estado: true, situaciones: { select: { codigo: true } } },
-    });
-    if (!relacion) {
+    const relaciones = await this.relacionesDeLaReincorporacion(retiro);
+    if (!relaciones) {
       throw new ConflictException('El funcionario no se reincorporó después de este retiro');
     }
+    const relacion = relaciones.actual;
     // Una relación cerrada ya se liquidó con lo que tenía: cambiarla reescribe la historia.
     if (relacion.estado !== 'activo') {
       throw new ConflictException(

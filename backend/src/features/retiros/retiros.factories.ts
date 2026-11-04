@@ -110,7 +110,7 @@ export const makePrismaMock = () => ({
     count: jest.fn(),
   },
   personas: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
-  relaciones_laborales: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
+  relaciones_laborales: { findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn(), create: jest.fn() },
   motivos_baja: { findUnique: jest.fn(), findFirst: jest.fn() },
   situaciones: { findFirst: jest.fn() },
   tipos_movimiento: { findFirst: jest.fn() },

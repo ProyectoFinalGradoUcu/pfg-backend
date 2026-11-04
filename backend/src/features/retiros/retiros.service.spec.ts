@@ -424,7 +424,8 @@ describe('RetirosService', () => {
 
   describe('obtener', () => {
     beforeEach(() => {
-      prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+      prisma.relaciones_laborales.findMany.mockResolvedValue([]);
+      prisma.retiros.findFirst.mockResolvedValue(null);
     });
 
     it('trae el contexto completo del retiro', async () => {
@@ -480,19 +481,24 @@ describe('RetirosService', () => {
       expect(result.movimiento).toBeNull();
     });
 
+    const retiroSinDetalle = () =>
+      makeRetiro({ movimientos_laborales: null, usuarios_registro: null, usuarios_anulacion: null });
+
+    const posterior = (o: Partial<any> = {}) => ({
+      id: 46n,
+      estado: 'activo',
+      fecha_inicio: new Date('2027-01-15'),
+      fecha_fin: null,
+      haber_retiro: 42000.5,
+      porcentaje_progresivo: 0.3,
+      situaciones: { codigo: 'SIT17', denominacion: 'Personal Subalterno reincorporado.' },
+      grados_relaciones_laborales_grado_reincorporacion_idTogrados: { id: 3n, denominacion: 'Sargento' },
+      ...o,
+    });
+
     it('expone la reincorporacion si la persona volvio', async () => {
-      prisma.retiros.findUnique.mockResolvedValue(
-        makeRetiro({ movimientos_laborales: null, usuarios_registro: null, usuarios_anulacion: null }),
-      );
-      prisma.relaciones_laborales.findFirst.mockResolvedValue({
-        id: 46n,
-        estado: 'activo',
-        fecha_inicio: new Date('2027-01-15'),
-        haber_retiro: 42000.5,
-        porcentaje_progresivo: 0.3,
-        situaciones: { codigo: 'SIT17', denominacion: 'Personal Subalterno reincorporado.' },
-        grados_relaciones_laborales_grado_reincorporacion_idTogrados: { id: 3n, denominacion: 'Sargento' },
-      });
+      prisma.retiros.findUnique.mockResolvedValue(retiroSinDetalle());
+      prisma.relaciones_laborales.findMany.mockResolvedValue([posterior()]);
 
       const result = await service.obtener(88);
 
@@ -509,18 +515,10 @@ describe('RetirosService', () => {
     });
 
     it('avisa si a la reincorporacion activa le faltan haber y porcentaje', async () => {
-      prisma.retiros.findUnique.mockResolvedValue(
-        makeRetiro({ movimientos_laborales: null, usuarios_registro: null, usuarios_anulacion: null }),
-      );
-      prisma.relaciones_laborales.findFirst.mockResolvedValue({
-        id: 46n,
-        estado: 'activo',
-        fecha_inicio: new Date('2027-01-15'),
-        haber_retiro: null,
-        porcentaje_progresivo: null,
-        situaciones: { codigo: 'SIT17', denominacion: 'Personal Subalterno reincorporado.' },
-        grados_relaciones_laborales_grado_reincorporacion_idTogrados: null,
-      });
+      prisma.retiros.findUnique.mockResolvedValue(retiroSinDetalle());
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        posterior({ haber_retiro: null, porcentaje_progresivo: null }),
+      ]);
 
       const result = await service.obtener(88);
 
@@ -532,22 +530,47 @@ describe('RetirosService', () => {
     });
 
     it('no avisa si la relacion posterior ya se cerro', async () => {
-      prisma.retiros.findUnique.mockResolvedValue(
-        makeRetiro({ movimientos_laborales: null, usuarios_registro: null, usuarios_anulacion: null }),
-      );
-      prisma.relaciones_laborales.findFirst.mockResolvedValue({
-        id: 46n,
-        estado: 'inactivo',
-        fecha_inicio: new Date('2027-01-15'),
-        haber_retiro: null,
-        porcentaje_progresivo: null,
-        situaciones: { codigo: 'SIT17', denominacion: 'Personal Subalterno reincorporado.' },
-        grados_relaciones_laborales_grado_reincorporacion_idTogrados: null,
-      });
+      prisma.retiros.findUnique.mockResolvedValue(retiroSinDetalle());
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        posterior({ estado: 'inactivo', fecha_fin: new Date('2027-06-30'), haber_retiro: null, porcentaje_progresivo: null }),
+      ]);
 
       const result = await service.obtener(88);
 
       expect(result.reincorporacion).toMatchObject({ activa: false, faltan_datos_de_calculo: false });
+    });
+
+    it('despues de un ascenso informa la relacion activa con la fecha de la reincorporacion', async () => {
+      // Nuestro ascenso abre la relación nueva con la misma fecha de inicio.
+      prisma.retiros.findUnique.mockResolvedValue(retiroSinDetalle());
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        posterior({ estado: 'inactivo', fecha_fin: new Date('2027-06-01') }),
+        posterior({
+          id: 47n,
+          grados_relaciones_laborales_grado_reincorporacion_idTogrados: { id: 2n, denominacion: 'Sargento Primero' },
+        }),
+      ]);
+
+      const result = await service.obtener(88);
+
+      expect(result.reincorporacion).toMatchObject({
+        relacion_laboral_id: '47',
+        fecha: '2027-01-15',
+        activa: true,
+        grado_reincorporacion: { id: '2', denominacion: 'Sargento Primero' },
+      });
+    });
+
+    it('con un ascenso que abrio la relacion en otra fecha tambien toma la activa', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(retiroSinDetalle());
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        posterior({ estado: 'inactivo', fecha_fin: new Date('2027-06-01') }),
+        posterior({ id: 47n, fecha_inicio: new Date('2027-06-01') }),
+      ]);
+
+      const result = await service.obtener(88);
+
+      expect(result.reincorporacion).toMatchObject({ relacion_laboral_id: '47', fecha: '2027-01-15', activa: true });
     });
 
     it('404 si el retiro no existe', async () => {
@@ -565,6 +588,7 @@ describe('RetirosService', () => {
       prisma.motivos_baja.findUnique.mockResolvedValue(makeMotivoBaja({ id: 2n, codigo: 'RETIRO_VOL' }));
       prisma.relaciones_laborales.update.mockResolvedValue(makeRelacion());
       prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+      prisma.relaciones_laborales.findMany.mockResolvedValue([]);
     });
 
     it('actualiza solo los campos declarativos enviados', async () => {
@@ -1275,13 +1299,16 @@ describe('RetirosService', () => {
     const relacionReincorporada = (o: Partial<any> = {}) => ({
       id: 46n,
       estado: 'activo',
+      fecha_inicio: new Date('2026-10-01'),
+      fecha_fin: null,
       situaciones: { codigo: 'SIT17' },
       ...o,
     });
 
     beforeEach(() => {
       prisma.retiros.findUnique.mockResolvedValue(makeRetiro());
-      prisma.relaciones_laborales.findFirst.mockResolvedValue(relacionReincorporada());
+      prisma.relaciones_laborales.findMany.mockResolvedValue([relacionReincorporada()]);
+      prisma.retiros.findFirst.mockResolvedValue(null);
       prisma.relaciones_laborales.update.mockResolvedValue({ id: 46n });
       prisma.grados.findUnique.mockResolvedValue(makeGrado());
     });
@@ -1295,13 +1322,37 @@ describe('RetirosService', () => {
       });
     });
 
-    it('busca la primera relacion que empieza despues del retiro', async () => {
+    it('despues de un ascenso actualiza la relacion activa, no la que cerro el ascenso', async () => {
+      // El ascenso abre la relación nueva con la misma fecha de inicio.
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        relacionReincorporada({ estado: 'inactivo', fecha_fin: new Date('2027-03-01') }),
+        relacionReincorporada({ id: 47n }),
+      ]);
+
       await service.actualizarReincorporacion(88, { haber_retiro: 42000.5, porcentaje_progresivo: 0.3 });
 
-      expect(prisma.relaciones_laborales.findFirst).toHaveBeenCalledWith(
+      expect(prisma.relaciones_laborales.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 47n } }),
+      );
+    });
+
+    it('no toma relaciones de una reincorporacion posterior a otro retiro', async () => {
+      prisma.retiros.findFirst.mockResolvedValue({ fecha_retiro: new Date('2027-06-30') });
+
+      await service.actualizarReincorporacion(88, { haber_retiro: 42000.5, porcentaje_progresivo: 0.3 });
+
+      expect(prisma.retiros.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { persona_id: 100n, fecha_inicio: { gt: new Date('2026-08-28') } },
-          orderBy: { fecha_inicio: 'asc' },
+          where: { persona_id: 100n, anulado: false, fecha_retiro: { gt: new Date('2026-08-28') } },
+          orderBy: { fecha_retiro: 'asc' },
+        }),
+      );
+      expect(prisma.relaciones_laborales.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            persona_id: 100n,
+            fecha_inicio: { gt: new Date('2026-08-28'), lte: new Date('2027-06-30') },
+          },
         }),
       );
     });
@@ -1338,7 +1389,7 @@ describe('RetirosService', () => {
     });
 
     it('409 si el funcionario no se reincorporo despues de este retiro', async () => {
-      prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+      prisma.relaciones_laborales.findMany.mockResolvedValue([]);
 
       await expect(
         service.actualizarReincorporacion(88, { haber_retiro: 1, porcentaje_progresivo: 0.1 }),
@@ -1346,9 +1397,9 @@ describe('RetirosService', () => {
     });
 
     it('409 si la relacion de la reincorporacion ya se cerro', async () => {
-      prisma.relaciones_laborales.findFirst.mockResolvedValue(
-        relacionReincorporada({ estado: 'inactivo' }),
-      );
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        relacionReincorporada({ estado: 'inactivo', fecha_fin: new Date('2026-11-02') }),
+      ]);
 
       await expect(
         service.actualizarReincorporacion(88, { haber_retiro: 1, porcentaje_progresivo: 0.1 }),
@@ -1357,9 +1408,9 @@ describe('RetirosService', () => {
     });
 
     it('422 si la relacion posterior no es de reincorporado', async () => {
-      prisma.relaciones_laborales.findFirst.mockResolvedValue(
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
         relacionReincorporada({ situaciones: { codigo: 'SIT07' } }),
-      );
+      ]);
 
       await expect(
         service.actualizarReincorporacion(88, { haber_retiro: 1, porcentaje_progresivo: 0.1 }),
