@@ -960,6 +960,42 @@ describe('RetirosService', () => {
       expect(result.bloqueos).toContainEqual(expect.stringMatching(/no corresponde/i));
     });
 
+    const retiroConGrado = (grados: any, tipo_funcionario: string | null = 'subalterno') =>
+      makeRetiro({ relaciones_laborales: makeRelacion({ tipo_funcionario, grados }) });
+
+    it('no bloquea a un aerotecnico, aunque el catalogo no lo marque como subalterno', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(
+        retiroConGrado({ id: 21n, codigo: 'AT_1RA', denominacion: 'At. 1ª', es_oficial: false, es_subalterno: false }),
+      );
+
+      const result = await service.previaReincorporacion(88);
+
+      expect(result.bloqueos).toEqual([]);
+      expect(result.situacion?.codigo).toBe('SIT17');
+    });
+
+    it('a un aerotecnico sin tipo_funcionario lo toma como subalterno', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(
+        retiroConGrado({ id: 21n, codigo: 'AT_1RA', denominacion: 'At. 1ª', es_oficial: false, es_subalterno: false }, null),
+      );
+
+      const result = await service.previaReincorporacion(88);
+
+      expect(result.bloqueos).toEqual([]);
+      expect(result.se_copia.tipo_funcionario).toBe('subalterno');
+    });
+
+    it.each([
+      ['un cadete', { id: 29n, codigo: 'CADETE_3RA', denominacion: 'Cadete 3ª', es_oficial: false, es_subalterno: true }],
+      ['un At. 3.ª', { id: 33n, codigo: 'AT_3RA', denominacion: 'At. 3ª', es_oficial: false, es_subalterno: false }],
+    ])('bloquea a %s', async (_caso, grados) => {
+      prisma.retiros.findUnique.mockResolvedValue(retiroConGrado(grados));
+
+      const result = await service.previaReincorporacion(88);
+
+      expect(result.bloqueos).toContainEqual(expect.stringMatching(/no se reincorpora/i));
+    });
+
     it('bloquea si falta la situacion en el catalogo', async () => {
       prisma.situaciones.findFirst.mockResolvedValue(null);
 
@@ -1261,12 +1297,36 @@ describe('RetirosService', () => {
       ['no existe', null],
       ['no esta vigente', makeGrado({ vigente: false })],
       ['es de oficial y el funcionario es subalterno', makeGrado({ es_oficial: true, es_subalterno: false })],
+      ['es de cadete', makeGrado({ codigo: 'CADETE_3RA', denominacion: 'Cadete 3ª' })],
+      ['es de cadete sin categoria en el catalogo', makeGrado({ codigo: 'CAD_1RO', es_subalterno: false })],
+      ['es At. 3.ª', makeGrado({ codigo: 'AT_3RA', denominacion: 'At. 3ª', es_subalterno: false })],
     ])('422 si el grado de reincorporacion %s', async (_caso, grado) => {
       prisma.grados.findUnique.mockResolvedValue(grado);
 
       await expect(service.reincorporar(88, dtoBase(), 7n)).rejects.toThrow(
         UnprocessableEntityException,
       );
+    });
+
+    it('acepta para un subalterno un grado de aerotecnico, que el catalogo no marca como subalterno', async () => {
+      prisma.grados.findUnique.mockResolvedValue(
+        makeGrado({ id: 21n, codigo: 'AT_1RA', denominacion: 'At. 1ª', es_subalterno: false }),
+      );
+
+      await service.reincorporar(88, dtoBase({ grado_reincorporacion_id: 21 }), 7n);
+
+      expect(dataRelacionNueva()).toMatchObject({ grado_reincorporacion_id: 21n, situacion_id: 17n });
+    });
+
+    it('422 si a un oficial se le da un grado de aerotecnico', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(retiroOficial());
+      prisma.grados.findUnique.mockResolvedValue(
+        makeGrado({ id: 21n, codigo: 'AT_1RA', es_subalterno: false }),
+      );
+
+      await expect(
+        service.reincorporar(88, dtoBase({ grado_reincorporacion_id: 21 }), 7n),
+      ).rejects.toThrow(UnprocessableEntityException);
     });
 
     it.each([
@@ -1364,6 +1424,18 @@ describe('RetirosService', () => {
         where: { id: 46n },
         data: { grado_reincorporacion_id: 3n, fecha_actualizacion: expect.any(Date) },
       });
+    });
+
+    it('acepta un grado de aerotecnico en una relacion SIT17', async () => {
+      prisma.grados.findUnique.mockResolvedValue(
+        makeGrado({ id: 21n, codigo: 'AT_1RA', es_subalterno: false }),
+      );
+
+      await service.actualizarReincorporacion(88, { grado_reincorporacion_id: 21 });
+
+      expect(prisma.relaciones_laborales.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ grado_reincorporacion_id: 21n }) }),
+      );
     });
 
     it('422 si el grado no corresponde a la situacion de la relacion', async () => {

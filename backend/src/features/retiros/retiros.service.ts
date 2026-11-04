@@ -40,6 +40,13 @@ const CODIGOS_REINCORPORADO: (string | undefined)[] = Object.values(SITUACION_RE
 
 type Categoria = keyof typeof SITUACION_REINCORPORADO;
 
+// Cadetes y At. 3.ª no se reincorporan: ningún reincorporado histórico de la FAU los tiene.
+const gradoNoReincorporable = (codigo?: string) => !!codigo?.startsWith('CAD') || codigo === 'AT_3RA';
+
+// El catálogo de liquidación no marca a los aerotécnicos ni como oficiales ni como subalternos.
+const gradoCorresponde = (grado: { es_oficial: boolean }, categoria: Categoria) =>
+  categoria === 'oficial' ? grado.es_oficial : !grado.es_oficial;
+
 const validarParCalculo = (dto: { haber_retiro?: number; porcentaje_progresivo?: number }) => {
   if ((dto.haber_retiro == null) !== (dto.porcentaje_progresivo == null)) {
     throw new UnprocessableEntityException(
@@ -711,7 +718,7 @@ export class RetirosService {
         motivos_baja: { select: { codigo: true } },
         relaciones_laborales: {
           include: {
-            grados: { select: { id: true, denominacion: true, es_oficial: true, es_subalterno: true } },
+            grados: { select: { id: true, codigo: true, denominacion: true, es_oficial: true, es_subalterno: true } },
             unidades: { select: { id: true, denominacion: true } },
             escalafones: { select: { id: true, denominacion: true } },
             regimenes: { select: { id: true, denominacion: true } },
@@ -726,7 +733,7 @@ export class RetirosService {
     const grado = cerrada.grados;
     const tipo =
       cerrada.tipo_funcionario ??
-      (grado?.es_oficial ? 'oficial' : grado?.es_subalterno ? 'subalterno' : null);
+      (grado?.es_oficial ? 'oficial' : grado ? 'subalterno' : null);
     const categoria: Categoria | null = tipo === 'oficial' || tipo === 'subalterno' ? tipo : null;
     const codigoSituacion = categoria ? SITUACION_REINCORPORADO[categoria] : null;
 
@@ -761,7 +768,9 @@ export class RetirosService {
     }
     if (!categoria) {
       invalidos.push('La reincorporación es solo para personal superior o subalterno.');
-    } else if (categoria === 'oficial' ? grado?.es_subalterno : grado?.es_oficial) {
+    } else if (grado && gradoNoReincorporable(grado.codigo)) {
+      invalidos.push(`Los funcionarios con grado ${grado.denominacion} no se reincorporan.`);
+    } else if (grado && !gradoCorresponde(grado, categoria)) {
       invalidos.push(
         `El grado ${grado?.denominacion} no corresponde a personal ${categoria === 'oficial' ? 'superior' : 'subalterno'}.`,
       );
@@ -951,12 +960,17 @@ export class RetirosService {
   private async validarGradoReincorporacion(gradoId: number, categoria: Categoria) {
     const grado = await this.prisma.grados.findUnique({
       where: { id: BigInt(gradoId) },
-      select: { id: true, vigente: true, es_oficial: true, es_subalterno: true },
+      select: { id: true, codigo: true, denominacion: true, vigente: true, es_oficial: true, es_subalterno: true },
     });
     if (!grado || !grado.vigente) {
       throw new UnprocessableEntityException('Grado de reincorporación no encontrado o no vigente');
     }
-    if (categoria === 'oficial' ? !grado.es_oficial : !grado.es_subalterno) {
+    if (gradoNoReincorporable(grado.codigo)) {
+      throw new UnprocessableEntityException(
+        `El grado ${grado.denominacion} no se puede usar como grado de reincorporación`,
+      );
+    }
+    if (!gradoCorresponde(grado, categoria)) {
       throw new UnprocessableEntityException(
         `El grado de reincorporación no corresponde a personal ${categoria === 'oficial' ? 'superior' : 'subalterno'}`,
       );
