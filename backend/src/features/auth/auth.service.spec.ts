@@ -269,6 +269,32 @@ describe('AuthService', () => {
     });
   });
 
+  // ─── solicitarResetPassword: aislamiento por aplicación ─────────────────────
+
+  describe('solicitarResetPassword', () => {
+    it('busca el usuario solo entre las cuentas de la aplicación personal', async () => {
+      prisma.usuarios.findFirst.mockResolvedValue(null);
+
+      await service.solicitarResetPassword({ username: 'jperez' });
+
+      expect(prisma.usuarios.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { username: 'jperez', aplicacion: 'personal' },
+        }),
+      );
+    });
+
+    it('si el username solo existe en otra aplicación responde ok sin generar token ni mandar mail', async () => {
+      // El filtro por aplicación hace que Prisma no encuentre la cuenta de liquidación.
+      prisma.usuarios.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.solicitarResetPassword({ username: 'admin' }),
+      ).resolves.toEqual({ ok: true });
+      expect(prisma.usuarios.update).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── changePassword ─────────────────────────────────────────────────────────
 
   describe('changePassword', () => {
