@@ -7,7 +7,9 @@ import {
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { APLICACION } from '../../lib/aplicacion.const';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ListUnidadesQueryDto } from './dto/list-unidades-query.dto';
+import { unidadesDeUsuario } from './unidades-usuario';
 
 type RolConPermisos = {
   id: bigint;
@@ -16,11 +18,14 @@ type RolConPermisos = {
   roles_permisos: { permisos: { id: bigint; nombre: string } }[];
 };
 
+type UnidadDetalle = Awaited<ReturnType<UnidadesService['findOne']>>;
+
 @Injectable()
 export class UnidadesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sesiones: SesionesService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async findAll(query: ListUnidadesQueryDto) {
@@ -150,7 +155,7 @@ export class UnidadesService {
    * ver su personal. Como eso altera permisos efectivos, se les cierra la sesión activa.
    * NO modifica el destino de ningún funcionario.
    */
-  async asignarUsuarios(id: string, usuarioIds: string[]) {
+  async asignarUsuarios(id: string, usuarioIds: string[], actorId: string) {
     const unidad = await this.prisma.unidades.findUnique({
       where: { id: BigInt(id) },
       select: { id: true, vigente: true },
@@ -168,7 +173,7 @@ export class UnidadesService {
     const ids = usuarioIds.map((u) => BigInt(u));
     const usuarios = await this.prisma.usuarios.findMany({
       where: { id: { in: ids }, aplicacion: APLICACION },
-      select: { id: true },
+      select: { id: true, username: true },
     });
 
     // Verificar cuáles ya están en la unidad
@@ -179,11 +184,26 @@ export class UnidadesService {
     const yaAsignadosSet = new Set(yaAsignados.map((r) => r.usuario_id));
     const aMover = usuarios.filter((u) => !yaAsignadosSet.has(u.id));
 
+    // Un registro por usuario, no uno por unidad: así la bitácora filtrada por el usuario
+    // afectado muestra el cambio, con las unidades que tenía antes y las que le quedan.
     for (const usuario of aMover) {
+      const anteriores = await unidadesDeUsuario(this.prisma, usuario.id);
       await this.prisma.usuarios_unidades.create({
         data: { usuario_id: usuario.id, unidad_id: unidad.id },
       });
       await this.sesiones.invalidarUsuario(usuario.id);
+      void this.auditoria.registrar({
+        usuarioId: actorId,
+        accion: 'unidad.asignar',
+        contexto: 'Usuarios',
+        entidad: 'Usuario',
+        entidadId: usuario.id,
+        detalle: {
+          usuario: usuario.username,
+          unidadesAnteriores: anteriores,
+          unidadesNuevas: await unidadesDeUsuario(this.prisma, usuario.id),
+        },
+      });
     }
 
     return {
@@ -194,17 +214,20 @@ export class UnidadesService {
   }
 
   /** Saca al usuario de la unidad: deja de heredar roles de esta unidad. */
-  async quitarUsuario(id: string, usuarioId: string) {
+  async quitarUsuario(id: string, usuarioId: string, actorId: string) {
     const registro = await this.prisma.usuarios_unidades.findFirst({
       where: {
         usuario_id: BigInt(usuarioId),
         unidad_id: BigInt(id),
         usuarios: { aplicacion: APLICACION },
       },
+      include: { usuarios: { select: { username: true } } },
     });
     if (!registro) {
       throw new NotFoundException('El usuario no pertenece a esta unidad');
     }
+
+    const anteriores = await unidadesDeUsuario(this.prisma, BigInt(usuarioId));
 
     await this.prisma.usuarios_unidades.delete({
       where: {
@@ -216,10 +239,23 @@ export class UnidadesService {
     });
     await this.sesiones.invalidarUsuario(BigInt(usuarioId));
 
+    void this.auditoria.registrar({
+      usuarioId: actorId,
+      accion: 'unidad.quitar',
+      contexto: 'Usuarios',
+      entidad: 'Usuario',
+      entidadId: usuarioId,
+      detalle: {
+        usuario: registro.usuarios.username,
+        unidadesAnteriores: anteriores,
+        unidadesNuevas: anteriores.filter((u) => u.id !== id),
+      },
+    });
+
     return { ok: true };
   }
 
-  async asignarRol(unidadId: string, rolId: string) {
+  async asignarRol(unidadId: string, rolId: string, actorId: string) {
     const unidad = await this.prisma.unidades.findUnique({
       where: { id: BigInt(unidadId) },
       select: { id: true },
@@ -239,6 +275,8 @@ export class UnidadesService {
       throw new ConflictException('El rol ya está asignado a esta unidad');
     }
 
+    const antes = await this.findOne(unidadId);
+
     await this.prisma.unidades_roles.create({
       data: { unidad_id: unidad.id, rol_id: rol.id },
     });
@@ -246,10 +284,12 @@ export class UnidadesService {
     // Cambian los permisos efectivos de todos los usuarios de la unidad.
     await this.sesiones.invalidarPorUnidad(unidad.id);
 
-    return this.findOne(unidadId);
+    const despues = await this.findOne(unidadId);
+    this.auditarCambioRoles('unidad_rol.agregar', actorId, rolId, antes, despues);
+    return despues;
   }
 
-  async quitarRol(unidadId: string, rolId: string) {
+  async quitarRol(unidadId: string, rolId: string, actorId: string) {
     const unidad = await this.prisma.unidades.findUnique({
       where: { id: BigInt(unidadId) },
       select: { id: true },
@@ -265,6 +305,8 @@ export class UnidadesService {
       throw new NotFoundException('El rol no está asignado a esta unidad');
     }
 
+    const antes = await this.findOne(unidadId);
+
     await this.prisma.unidades_roles.delete({
       where: {
         unidad_id_rol_id: { unidad_id: unidad.id, rol_id: BigInt(rolId) },
@@ -273,7 +315,39 @@ export class UnidadesService {
 
     await this.sesiones.invalidarPorUnidad(unidad.id);
 
-    return this.findOne(unidadId);
+    const despues = await this.findOne(unidadId);
+    this.auditarCambioRoles('unidad_rol.quitar', actorId, rolId, antes, despues);
+    return despues;
+  }
+
+  /**
+   * Un único registro a nivel unidad, aunque afecte a muchos usuarios. Guarda los roles
+   * anteriores con sus permisos: si se quita el último, es lo único que permite reconstruir
+   * qué permisos perdieron los usuarios de la unidad.
+   */
+  private auditarCambioRoles(
+    accion: 'unidad_rol.agregar' | 'unidad_rol.quitar',
+    actorId: string,
+    rolId: string,
+    antes: UnidadDetalle,
+    despues: UnidadDetalle,
+  ) {
+    const rol =
+      [...antes.roles, ...despues.roles].find((r) => r.id === rolId) ?? null;
+    void this.auditoria.registrar({
+      usuarioId: actorId,
+      accion,
+      contexto: 'Unidades',
+      entidad: 'Unidad',
+      entidadId: despues.id,
+      detalle: {
+        unidad: { codigo: despues.codigo, denominacion: despues.denominacion },
+        rol,
+        rolesAnteriores: antes.roles,
+        rolesResultantes: despues.roles.map((r) => r.nombre),
+        usuariosAfectados: despues.cantidadUsuarios,
+      },
+    });
   }
 
   private toRol(rol: RolConPermisos) {

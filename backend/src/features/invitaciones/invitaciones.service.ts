@@ -12,9 +12,43 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { CrearInvitacionDto } from './dto/crear-invitacion.dto';
 import { AceptarInvitacionDto } from './dto/aceptar-invitacion.dto';
+import { ListInvitacionesQueryDto } from './dto/list-invitaciones-query.dto';
 
 const DEFAULT_INVITATION_TTL_HOURS = 48;
 const DEFAULT_BCRYPT_ROUNDS = 12;
+
+const INVITACION_SELECT = {
+  id: true,
+  email: true,
+  estado: true,
+  roles: true,
+  persona_id: true,
+  creado_en: true,
+  expira_en: true,
+  usado_en: true,
+} as const;
+
+function toInvitacionResponse(inv: {
+  id: bigint;
+  email: string;
+  estado: string;
+  roles: string[];
+  persona_id: bigint | null;
+  creado_en: Date;
+  expira_en: Date;
+  usado_en: Date | null;
+}) {
+  return {
+    id: inv.id.toString(),
+    email: inv.email,
+    estado: inv.estado,
+    roles: inv.roles,
+    personaId: inv.persona_id?.toString() ?? null,
+    creadoEn: inv.creado_en,
+    expiraEn: inv.expira_en,
+    usadoEn: inv.usado_en,
+  };
+}
 
 @Injectable()
 export class InvitacionesService {
@@ -96,32 +130,38 @@ export class InvitacionesService {
     };
   }
 
-  async listar(estado?: string) {
-    const invitaciones = await this.prisma.invitaciones.findMany({
-      where: estado ? { estado } : undefined,
-      orderBy: { creado_en: 'desc' },
-      select: {
-        id: true,
-        email: true,
-        estado: true,
-        roles: true,
-        persona_id: true,
-        creado_en: true,
-        expira_en: true,
-        usado_en: true,
-      },
-    });
+  /**
+   * Con `page` o `pageSize` devuelve una página. Sin ellos, el listado completo: lo usa el alta
+   * de usuarios para avisar de una invitación pendiente sin distinguir mayúsculas.
+   */
+  async listar(query: ListInvitacionesQueryDto = {}) {
+    const where = query.estado ? { estado: query.estado } : undefined;
+    // El id desempata: con fechas iguales un registro podría repetirse o saltearse entre páginas.
+    const orderBy = [{ creado_en: 'desc' as const }, { id: 'desc' as const }];
 
-    return invitaciones.map((inv) => ({
-      id: inv.id.toString(),
-      email: inv.email,
-      estado: inv.estado,
-      roles: inv.roles,
-      personaId: inv.persona_id?.toString() ?? null,
-      creadoEn: inv.creado_en,
-      expiraEn: inv.expira_en,
-      usadoEn: inv.usado_en,
-    }));
+    if (query.page === undefined && query.pageSize === undefined) {
+      const invitaciones = await this.prisma.invitaciones.findMany({
+        where,
+        orderBy,
+        select: INVITACION_SELECT,
+      });
+      return invitaciones.map(toInvitacionResponse);
+    }
+
+    const page = query.page ?? 1;
+    const pageSize = Math.min(query.pageSize ?? 10, 100);
+    const [total, invitaciones] = await this.prisma.$transaction([
+      this.prisma.invitaciones.count({ where }),
+      this.prisma.invitaciones.findMany({
+        where,
+        orderBy,
+        select: INVITACION_SELECT,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    return { items: invitaciones.map(toInvitacionResponse), total, page, pageSize };
   }
 
   async verificarToken(rawToken: string) {

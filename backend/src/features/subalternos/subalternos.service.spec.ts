@@ -1,5 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { SubalternosService } from './subalternos.service';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import { ListPersonasQueryDto } from './dto/list-personas-query.dto';
 
 describe('SubalternosService', () => {
   let service: SubalternosService;
@@ -147,6 +150,84 @@ describe('SubalternosService', () => {
     });
   });
 
+  describe('findAllPersonas · estado', () => {
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(0);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([]);
+    });
+
+    const relacionWhere = () =>
+      prisma.personas.count.mock.calls.at(-1)[0].where.relaciones_laborales.some;
+
+    it('con varios estados trae a quien tenga cualquiera de ellos', async () => {
+      await service.findAllPersonas({ estado: [2, 5] });
+
+      expect(relacionWhere().situacion_id).toEqual({ in: [2n, 5n] });
+    });
+
+    it('sin estados no filtra por situación', async () => {
+      await service.findAllPersonas({ estado: [] });
+
+      expect(relacionWhere()).not.toHaveProperty('situacion_id');
+    });
+  });
+
+  describe('findAllPersonas · varios destinos, grados y escalafones', () => {
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(0);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([]);
+      prisma.relaciones_laborales = { ...prisma.relaciones_laborales, findMany: jest.fn().mockResolvedValue([]) };
+    });
+
+    it('arma un `in` por cada lista', async () => {
+      await service.findAllPersonas({ destino: [3, 4], gradoId: [14, 15], escalafonId: [1, 2] });
+
+      const { where } = prisma.personas.count.mock.calls.at(-1)[0];
+      expect(where.destinos.some.unidad_id).toEqual({ in: [3n, 4n] });
+      expect(where.relaciones_laborales.some).toEqual(
+        expect.objectContaining({ grado_id: { in: [14n, 15n] }, escalafon_id: { in: [1n, 2n] } }),
+      );
+    });
+
+    it('listas vacías no filtran', async () => {
+      await service.findAllPersonas({ destino: [], gradoId: [], escalafonId: [] });
+
+      const { where } = prisma.personas.count.mock.calls.at(-1)[0];
+      expect(where).not.toHaveProperty('destinos');
+      expect(where.relaciones_laborales.some).not.toHaveProperty('grado_id');
+      expect(where.relaciones_laborales.some).not.toHaveProperty('escalafon_id');
+    });
+  });
+
+  describe('ListPersonasQueryDto · estado', () => {
+    const parsear = (estado: unknown) =>
+      plainToInstance(ListPersonasQueryDto, { estado });
+
+    it('acepta ids separados por coma', () => {
+      const dto = parsear('2, 5');
+      expect(dto.estado).toEqual([2, 5]);
+      expect(validateSync(dto)).toHaveLength(0);
+    });
+
+    it('acepta el parámetro repetido y un id suelto', () => {
+      expect(parsear(['2', '5']).estado).toEqual([2, 5]);
+      expect(parsear('3').estado).toEqual([3]);
+    });
+
+    it('destino, gradoId y escalafonId también aceptan listas', () => {
+      const dto = plainToInstance(ListPersonasQueryDto, { destino: '3,4', gradoId: '14', escalafonId: ['1', '2'] });
+      expect(dto.destino).toEqual([3, 4]);
+      expect(dto.gradoId).toEqual([14]);
+      expect(dto.escalafonId).toEqual([1, 2]);
+      expect(validateSync(dto)).toHaveLength(0);
+    });
+
+    it('rechaza ids que no son enteros positivos', () => {
+      expect(validateSync(parsear('2,abc'))).not.toHaveLength(0);
+      expect(validateSync(parsear('0'))).not.toHaveLength(0);
+    });
+  });
+
   describe('findAllPersonas · derecha y numor', () => {
     const persona = (id: bigint, derecha: number | null) => ({
       id,
@@ -232,17 +313,17 @@ describe('SubalternosService', () => {
     });
 
     it('filtra por la unidad del destino vigente', async () => {
-      await service.findAllPersonas({ destino: 5 });
+      await service.findAllPersonas({ destino: [5] });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
       expect(where.destinos).toEqual({
-        some: { unidad_id: 5n, fecha_fin: null },
+        some: { unidad_id: { in: [5n] }, fecha_fin: null },
       });
     });
 
     it('ya no filtra por la unidad de la relación laboral', async () => {
-      await service.findAllPersonas({ destino: 5 });
+      await service.findAllPersonas({ destino: [5] });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
@@ -258,14 +339,14 @@ describe('SubalternosService', () => {
     });
 
     it('mantiene los filtros de estado y rango en la relación laboral', async () => {
-      await service.findAllPersonas({ estado: 2, rango: 6 });
+      await service.findAllPersonas({ estado: [2], rango: 6 });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
       expect(where.relaciones_laborales.some).toEqual(
         expect.objectContaining({
           fecha_fin: null,
-          situacion_id: 2n,
+          situacion_id: { in: [2n] },
           grado_id: 6n,
         }),
       );
@@ -598,12 +679,12 @@ describe('SubalternosService', () => {
     });
 
     it('respeta el filtro destino del query con alcance global', async () => {
-      await service.findAllPersonas({ destino: '99' } as any, GLOBAL);
+      await service.findAllPersonas({ destino: [99] }, GLOBAL);
 
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            destinos: { some: { unidad_id: 99n, fecha_fin: null } },
+            destinos: { some: { unidad_id: { in: [99n] }, fecha_fin: null } },
           }),
         }),
       );

@@ -46,7 +46,12 @@ export class RolesService {
       },
     });
     if (!rol) throw new NotFoundException('Rol no encontrado');
-    return this.toResponse(rol);
+    return {
+      ...this.toResponse(rol),
+      // Directos y vía unidad: son los que pierden la sesión si se tocan los permisos del rol.
+      // Solo en el detalle, para no sumar un count por rol al listado.
+      cantidadUsuariosAfectados: await this.sesiones.contarUsuariosDeRol(rol.id),
+    };
   }
 
   async create(dto: CreateRolDto) {

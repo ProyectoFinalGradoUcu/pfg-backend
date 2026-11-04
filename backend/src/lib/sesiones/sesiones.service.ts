@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 
 /**
@@ -38,20 +39,30 @@ export class SesionesService {
    */
   async invalidarPorRol(rolId: bigint): Promise<void> {
     await this.prisma.usuarios.updateMany({
-      where: {
-        OR: [
-          { usuarios_roles: { some: { rol_id: rolId } } },
-          {
-            usuarios_unidades: {
-              some: {
-                unidades: { unidades_roles: { some: { rol_id: rolId } } },
-              },
-            },
-          },
-        ],
-      },
+      where: this.usuariosConRol(rolId),
       data: { sesiones_invalidas_desde: new Date() },
     });
+  }
+
+  /** Cuántos usuarios quedarían deslogueados al tocar los permisos de un rol. */
+  async contarUsuariosDeRol(rolId: bigint): Promise<number> {
+    return this.prisma.usuarios.count({ where: this.usuariosConRol(rolId) });
+  }
+
+  /** Compartido entre invalidar y contar, para que el aviso nunca difiera de lo que pasa. */
+  private usuariosConRol(rolId: bigint): Prisma.usuariosWhereInput {
+    return {
+      OR: [
+        { usuarios_roles: { some: { rol_id: rolId } } },
+        {
+          usuarios_unidades: {
+            some: {
+              unidades: { unidades_roles: { some: { rol_id: rolId } } },
+            },
+          },
+        },
+      ],
+    };
   }
 
   /** Cuántos usuarios quedarían deslogueados al tocar los roles de una unidad. */
