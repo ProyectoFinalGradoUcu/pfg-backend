@@ -88,6 +88,14 @@ export class CierreCarreraService {
         },
       });
 
+      // Así las dos puertas de un fallecimiento dejan el mismo estado: la de PATCH /personas ya la cargó.
+      if (motivoBaja.codigo === 'FALLECIMIENTO') {
+        await tx.personas.updateMany({
+          where: { id: BigInt(params.personaId), fecha_fallecimiento: null },
+          data: { fecha_fallecimiento: params.fechaRetiro },
+        });
+      }
+
       await this.derecha.quitarPorInactividadEnTransaccion(tx, BigInt(params.personaId), {
         motivo: params.motivo ?? nombreTipo,
         usuarioId: params.autorId,

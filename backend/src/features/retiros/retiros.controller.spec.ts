@@ -35,7 +35,7 @@ describe('RetirosController · rutas', () => {
     expect(idxPrevia).toBeLessThan(idxPorId);
   });
 
-  it('expone exactamente las seis rutas del módulo', () => {
+  it('expone exactamente las nueve rutas del módulo', () => {
     const rutas = handlersEnOrden().map((r) => `${RequestMethod[r.method]} ${r.path}`);
 
     expect(rutas.sort()).toEqual(
@@ -46,6 +46,9 @@ describe('RetirosController · rutas', () => {
         'POST /',
         'PATCH :retiroId',
         'DELETE :retiroId',
+        'GET :retiroId/reincorporacion/previa',
+        'POST :retiroId/reincorporacion',
+        'PATCH :retiroId/reincorporacion',
       ].sort(),
     );
   });
@@ -62,6 +65,9 @@ describe('RetirosController · permisos', () => {
     ['registrar', 'retiros.registrar'],
     ['corregir', 'retiros.registrar'],
     ['anular', 'retiros.registrar'],
+    ['previaReincorporacion', 'retiros.ver'],
+    ['reincorporar', 'retiros.registrar'],
+    ['actualizarReincorporacion', 'retiros.registrar'],
   ])('%s requiere %s', (handler, permiso) => {
     expect(permisoDe(handler)).toEqual([permiso]);
   });
@@ -92,7 +98,7 @@ describe('RetirosController · envoltorio service_request', () => {
       .map(([, valor]) => (valor as any).data);
   };
 
-  it.each(['registrar', 'corregir', 'anular'])(
+  it.each(['registrar', 'corregir', 'anular', 'reincorporar', 'actualizarReincorporacion'])(
     '%s extrae el dto de service_request',
     (handler) => {
       expect(dataDeBody(handler)).toEqual(['service_request']);
@@ -100,7 +106,7 @@ describe('RetirosController · envoltorio service_request', () => {
   );
 
   it('ningun handler de escritura toma el body plano', () => {
-    const planos = ['registrar', 'corregir', 'anular'].filter((h) =>
+    const planos = ['registrar', 'corregir', 'anular', 'reincorporar', 'actualizarReincorporacion'].filter((h) =>
       dataDeBody(h).includes(undefined),
     );
     expect(planos).toEqual([]);

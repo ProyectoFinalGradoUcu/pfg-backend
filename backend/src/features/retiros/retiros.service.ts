@@ -11,6 +11,8 @@ import { ListRetirosQueryDto } from './dto/list-retiros-query.dto';
 import { CreateRetiroDto } from './dto/create-retiro.dto';
 import { UpdateRetiroDto } from './dto/update-retiro.dto';
 import { AnularRetiroDto } from './dto/anular-retiro.dto';
+import { ReincorporarDto } from './dto/reincorporar.dto';
+import { ActualizarReincorporacionDto } from './dto/actualizar-reincorporacion.dto';
 import { CierreCarreraService } from './cierre-carrera.service';
 import { DerechaService } from '../derecha/derecha.service';
 
@@ -30,6 +32,25 @@ export const soloFecha = (fecha: Date | null) =>
 export const soloHora = (hora: Date | null) =>
   hora ? hora.toISOString().split('T')[1].slice(0, 8) : null;
 
+const diaAnterior = (fecha: Date) => new Date(fecha.getTime() - 86_400_000);
+
+const SITUACION_REINCORPORADO = { oficial: 'SIT16', subalterno: 'SIT17' } as const;
+
+const CODIGOS_REINCORPORADO: (string | undefined)[] = Object.values(SITUACION_REINCORPORADO);
+
+type Categoria = keyof typeof SITUACION_REINCORPORADO;
+
+const validarParCalculo = (dto: { haber_retiro?: number; porcentaje_progresivo?: number }) => {
+  if ((dto.haber_retiro == null) !== (dto.porcentaje_progresivo == null)) {
+    throw new UnprocessableEntityException(
+      'El haber de retiro y el porcentaje progresivo van juntos: cargá los dos o ninguno',
+    );
+  }
+};
+
+const ref = (x: { id: bigint; denominacion: string } | null) =>
+  x ? { id: x.id.toString(), denominacion: x.denominacion } : null;
+
 @Injectable()
 export class RetirosService {
   constructor(
@@ -46,11 +67,7 @@ export class RetirosService {
         cedula: true,
         primer_nombre: true,
         primer_apellido: true,
-        relaciones_laborales: {
-          where: { estado: 'activo' },
-          select: { id: true },
-          take: 1,
-        },
+        relaciones_laborales: { select: { estado: true, fecha_inicio: true } },
       },
     },
     motivos_baja: { select: { id: true, codigo: true, denominacion: true } },
@@ -92,9 +109,13 @@ export class RetirosService {
       motivo_baja: { codigo: r.motivos_baja.codigo, denominacion: r.motivos_baja.denominacion },
       motivo: r.motivo,
       anulado: r.anulado,
-      // Un retiro sigue en pie mientras la persona no haya vuelto al servicio.
-      // Mirar la relación que cerró no sirve: queda inactiva para siempre.
-      vigente: !r.anulado && (r.personas?.relaciones_laborales?.length ?? 0) === 0,
+      // En pie mientras nadie volvió a entrar después: mirar solo si hoy hay relación activa dejaba
+      // vigente el retiro viejo de alguien que se reincorporó y se volvió a retirar.
+      vigente:
+        !r.anulado &&
+        !(r.personas?.relaciones_laborales ?? []).some(
+          (rel: any) => rel.estado === 'activo' || rel.fecha_inicio > r.fecha_retiro,
+        ),
     };
   }
 
@@ -113,13 +134,6 @@ export class RetirosService {
     const relacionWhere: Record<string, unknown> = {};
     if (query.unidad_id) relacionWhere.unidad_id = BigInt(query.unidad_id);
     if (query.categoria) relacionWhere.tipo_funcionario = query.categoria;
-
-    // "Los retirados" son las personas sin relación activa. Filtrar por el
-    // estado de la relación cerrada dejaría dentro a los reincorporados.
-    const filtroVigentes =
-      (query.vigentes ?? true)
-        ? { personas: { relaciones_laborales: { none: { estado: 'activo' } } } }
-        : {};
 
     const where: any = {
       ...(query.incluir_anulados ? {} : { anulado: false }),
@@ -140,8 +154,17 @@ export class RetirosService {
 
     if (Object.keys(relacionWhere).length > 0) where.relaciones_laborales = relacionWhere;
 
-    if (filtroVigentes.personas) {
-      where.personas = { ...(where.personas ?? {}), ...filtroVigentes.personas };
+    // Comparar cada retiro con las relaciones de su persona no se puede escribir en un where de Prisma.
+    if (query.vigentes ?? true) {
+      const vigentes = await this.prisma.$queryRaw<{ id: bigint }[]>`
+        SELECT r.id FROM retiros r
+        WHERE NOT r.anulado
+          AND NOT EXISTS (
+            SELECT 1 FROM relaciones_laborales rl
+            WHERE rl.persona_id = r.persona_id
+              AND (rl.estado = 'activo' OR rl.fecha_inicio > r.fecha_retiro)
+          )`;
+      where.id = { in: vigentes.map((v) => v.id) };
     }
 
     const [items, total] = await Promise.all([
@@ -372,16 +395,28 @@ export class RetirosService {
 
   /** La relación laboral que empezó después del retiro, si la persona volvió. */
   private async buscarReincorporacion(r: any) {
-    const posterior = await this.prisma.relaciones_laborales.findFirst({
+    const posterior: any = await this.prisma.relaciones_laborales.findFirst({
       where: { persona_id: r.persona_id, fecha_inicio: { gt: r.fecha_retiro } },
       orderBy: { fecha_inicio: 'asc' },
       select: {
         id: true,
+        estado: true,
         fecha_inicio: true,
+        haber_retiro: true,
+        porcentaje_progresivo: true,
         situaciones: { select: { codigo: true, denominacion: true } },
+        grados_relaciones_laborales_grado_reincorporacion_idTogrados: {
+          select: { id: true, denominacion: true },
+        },
       },
     });
     if (!posterior) return null;
+
+    const activa = posterior.estado === 'activo';
+    const esReincorporado = CODIGOS_REINCORPORADO.includes(posterior.situaciones?.codigo);
+    const haber = posterior.haber_retiro == null ? null : Number(posterior.haber_retiro);
+    const porcentaje =
+      posterior.porcentaje_progresivo == null ? null : Number(posterior.porcentaje_progresivo);
 
     return {
       relacion_laboral_id: posterior.id.toString(),
@@ -392,6 +427,12 @@ export class RetirosService {
             denominacion: posterior.situaciones.denominacion,
           }
         : null,
+      activa,
+      grado_reincorporacion: ref(posterior.grados_relaciones_laborales_grado_reincorporacion_idTogrados),
+      haber_retiro: haber,
+      porcentaje_progresivo: porcentaje,
+      // Sin estos dos datos liquidación le paga el sueldo completo, sin descontar el haber de retiro.
+      faltan_datos_de_calculo: activa && esReincorporado && (haber == null || porcentaje == null),
     };
   }
 
@@ -492,10 +533,66 @@ export class RetirosService {
     // sin commitear.
     return this.obtener(retiroId);
   }
+  // El ascenso abre la relación nueva con la misma fecha_inicio: a igual inicio, manda la que termina después.
+  private relacionPosterior(
+    retiro: { persona_id: bigint; relacion_laboral_id: bigint; fecha_retiro: Date },
+    fechaInicio: Date,
+  ) {
+    return this.prisma.relaciones_laborales.findFirst({
+      where: {
+        persona_id: retiro.persona_id,
+        id: { not: retiro.relacion_laboral_id },
+        OR: [
+          { fecha_inicio: { gt: fechaInicio } },
+          {
+            fecha_inicio: fechaInicio,
+            OR: [{ fecha_fin: null }, { fecha_fin: { gt: retiro.fecha_retiro } }],
+          },
+        ],
+      },
+      select: { id: true },
+    });
+  }
+
   async anular(retiroId: number, dto: AnularRetiroDto, autorId: bigint) {
-    const retiro = await this.prisma.retiros.findUnique({ where: { id: BigInt(retiroId) } });
+    const retiro = await this.prisma.retiros.findUnique({
+      where: { id: BigInt(retiroId) },
+      include: {
+        personas: {
+          select: {
+            fecha_fallecimiento: true,
+            relaciones_laborales: { where: { estado: 'activo' }, select: { id: true }, take: 1 },
+          },
+        },
+        relaciones_laborales: { select: { fecha_inicio: true } },
+      },
+    });
     if (!retiro) throw new NotFoundException('Retiro no encontrado');
     if (retiro.anulado) throw new ConflictException('El retiro ya está anulado');
+
+    if (retiro.personas.fecha_fallecimiento) {
+      throw new ConflictException(
+        'El funcionario tiene fecha de fallecimiento: el retiro no se puede anular. Si la fecha se cargó por error, borrala primero',
+      );
+    }
+
+    // Sin movimiento, el retiro no lo registró este módulo (importado o previo): no hay con qué revertirlo.
+    const movimientoId = retiro.movimiento_laboral_id;
+    if (!movimientoId) {
+      throw new ConflictException(
+        'El retiro es histórico o importado: no se registró desde este módulo y no se puede anular',
+      );
+    }
+    if (retiro.personas.relaciones_laborales.length > 0) {
+      throw new ConflictException(
+        'El funcionario ya tiene una relación laboral activa: el retiro no se puede anular',
+      );
+    }
+    if (await this.relacionPosterior(retiro, retiro.relaciones_laborales.fecha_inicio)) {
+      throw new ConflictException(
+        'La relación laboral que cerró este retiro ya no es la más reciente del funcionario: el retiro no se puede anular',
+      );
+    }
 
     const cierres = (retiro.cierres_aplicados ?? {}) as {
       destino_id?: string | null;
@@ -527,9 +624,7 @@ export class RetirosService {
         },
       });
 
-      if (retiro.movimiento_laboral_id) {
-        await tx.movimientos_laborales.delete({ where: { id: retiro.movimiento_laboral_id } });
-      }
+      await tx.movimientos_laborales.delete({ where: { id: movimientoId } });
 
       if (cierres.destino_id) {
         await tx.destinos.update({
@@ -562,12 +657,337 @@ export class RetirosService {
         id: retiroId.toString(),
         revertido: {
           relacion_laboral: retiro.relacion_laboral_id.toString(),
-          movimiento_borrado: retiro.movimiento_laboral_id?.toString() ?? null,
+          movimiento_borrado: movimientoId.toString(),
           destino: cierres.destino_id ?? null,
           inscripciones: cierres.inscripciones_ids ?? [],
           usuario: cierres.usuario_id ?? null,
         },
       };
     });
+  }
+
+  private async evaluarReincorporacion(retiroId: number) {
+    const retiro = await this.prisma.retiros.findUnique({
+      where: { id: BigInt(retiroId) },
+      include: {
+        personas: {
+          select: {
+            id: true,
+            cedula: true,
+            primer_nombre: true,
+            primer_apellido: true,
+            fecha_fallecimiento: true,
+            relaciones_laborales: { where: { estado: 'activo' }, select: { id: true }, take: 1 },
+          },
+        },
+        motivos_baja: { select: { codigo: true } },
+        relaciones_laborales: {
+          include: {
+            grados: { select: { id: true, denominacion: true, es_oficial: true, es_subalterno: true } },
+            unidades: { select: { id: true, denominacion: true } },
+            escalafones: { select: { id: true, denominacion: true } },
+            regimenes: { select: { id: true, denominacion: true } },
+            programas: { select: { id: true, denominacion: true } },
+          },
+        },
+      },
+    });
+    if (!retiro) throw new NotFoundException('Retiro no encontrado');
+
+    const cerrada = retiro.relaciones_laborales;
+    const grado = cerrada.grados;
+    const tipo =
+      cerrada.tipo_funcionario ??
+      (grado?.es_oficial ? 'oficial' : grado?.es_subalterno ? 'subalterno' : null);
+    const categoria: Categoria | null = tipo === 'oficial' || tipo === 'subalterno' ? tipo : null;
+    const codigoSituacion = categoria ? SITUACION_REINCORPORADO[categoria] : null;
+
+    const [posterior, situacion, tipoMovimiento, destinoAbierto] = await Promise.all([
+      this.relacionPosterior(retiro, cerrada.fecha_inicio),
+      codigoSituacion
+        ? this.prisma.situaciones.findFirst({ where: { codigo: codigoSituacion } })
+        : Promise.resolve(null),
+      this.prisma.tipos_movimiento.findFirst({ where: { nombre: 'Reincorporacion', es_alta: true } }),
+      this.prisma.destinos.findFirst({
+        where: { persona_id: retiro.persona_id, fecha_fin: null },
+        select: {
+          id: true,
+          unidad_id: true,
+          fecha_inicio: true,
+          unidades: { select: { id: true, denominacion: true } },
+        },
+      }),
+    ]);
+
+    const conflictos: string[] = [];
+    if (retiro.anulado) conflictos.push('El retiro está anulado.');
+    if (retiro.personas.relaciones_laborales.length > 0) {
+      conflictos.push('El funcionario ya tiene una relación laboral activa.');
+    } else if (posterior) {
+      conflictos.push('Solo se puede reincorporar desde el retiro más reciente del funcionario.');
+    }
+
+    const invalidos: string[] = [];
+    if (retiro.personas.fecha_fallecimiento || retiro.motivos_baja?.codigo === 'FALLECIMIENTO') {
+      invalidos.push('El funcionario falleció: no se puede reincorporar.');
+    }
+    if (!categoria) {
+      invalidos.push('La reincorporación es solo para personal superior o subalterno.');
+    } else if (categoria === 'oficial' ? grado?.es_subalterno : grado?.es_oficial) {
+      invalidos.push(
+        `El grado ${grado?.denominacion} no corresponde a personal ${categoria === 'oficial' ? 'superior' : 'subalterno'}.`,
+      );
+    }
+    if (codigoSituacion && !situacion) {
+      invalidos.push(`La situación ${codigoSituacion} no existe en el catálogo.`);
+    }
+    if (!tipoMovimiento) {
+      invalidos.push("El tipo de movimiento 'Reincorporacion' no existe en el catálogo.");
+    }
+
+    return { retiro, cerrada, categoria, situacion, tipoMovimiento, destinoAbierto, conflictos, invalidos };
+  }
+
+  async previaReincorporacion(retiroId: number) {
+    const e = await this.evaluarReincorporacion(retiroId);
+    const c = e.cerrada;
+
+    return {
+      retiro: { id: e.retiro.id.toString(), fecha_retiro: soloFecha(e.retiro.fecha_retiro) },
+      persona: {
+        id: e.retiro.personas.id.toString(),
+        cedula: e.retiro.personas.cedula,
+        primer_nombre: e.retiro.personas.primer_nombre,
+        primer_apellido: e.retiro.personas.primer_apellido,
+      },
+      situacion: e.situacion
+        ? {
+            id: e.situacion.id.toString(),
+            codigo: e.situacion.codigo,
+            denominacion: e.situacion.denominacion,
+          }
+        : null,
+      se_copia: {
+        regimen: ref(c.regimenes),
+        programa: ref(c.programas),
+        escalafon: ref(c.escalafones),
+        grado: ref(c.grados),
+        tipo_funcionario: e.categoria,
+        fecha_ascenso_oficial: soloFecha(c.fecha_ascenso_oficial),
+        fecha_ultimo_ascenso: soloFecha(c.fecha_ultimo_ascenso),
+        anios_servicio_anterior: c.anios_servicio_anterior,
+        anios_inactivos: c.anios_inactivos,
+        riesgo_vuelo: c.riesgo_vuelo == null ? null : Number(c.riesgo_vuelo),
+        categoria_viatico: c.categoria_viatico,
+        usa_fonasa: c.usa_fonasa,
+        superprima: c.superprima,
+        prima_tecnica: c.prima_tecnica,
+        prima_solidaria_familiar: c.prima_solidaria_familiar,
+      },
+      unidad_anterior: ref(c.unidades),
+      destino_abierto: e.destinoAbierto
+        ? {
+            id: e.destinoAbierto.id.toString(),
+            unidad: ref(e.destinoAbierto.unidades),
+            fecha_inicio: soloFecha(e.destinoAbierto.fecha_inicio),
+          }
+        : null,
+      bloqueos: [...e.conflictos, ...e.invalidos],
+    };
+  }
+
+  async reincorporar(retiroId: number, dto: ReincorporarDto, autorId: bigint) {
+    const e = await this.evaluarReincorporacion(retiroId);
+    if (e.conflictos.length > 0) throw new ConflictException(e.conflictos.join(' '));
+    if (e.invalidos.length > 0) throw new UnprocessableEntityException(e.invalidos.join(' '));
+    const { retiro, cerrada, destinoAbierto } = e;
+    const categoria = e.categoria!;
+    const situacion = e.situacion!;
+    const tipoMovimiento = e.tipoMovimiento!;
+
+    const fecha = new Date(dto.fecha_reincorporacion);
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    if (fecha <= retiro.fecha_retiro) {
+      throw new UnprocessableEntityException(
+        'La fecha de reincorporación tiene que ser posterior a la del retiro',
+      );
+    }
+    if (fecha > hoy) {
+      throw new UnprocessableEntityException('La fecha de reincorporación no puede ser futura');
+    }
+
+    validarParCalculo(dto);
+
+    const unidadId = BigInt(dto.unidad_id);
+    const [gradoReincorporacion, unidad] = await Promise.all([
+      this.validarGradoReincorporacion(dto.grado_reincorporacion_id, categoria),
+      this.prisma.unidades.findUnique({ where: { id: unidadId }, select: { id: true, vigente: true } }),
+    ]);
+    if (!unidad || !unidad.vigente) {
+      throw new UnprocessableEntityException('Unidad no encontrada o no vigente');
+    }
+
+    const cierreDestino = diaAnterior(fecha);
+    if (destinoAbierto?.fecha_inicio && cierreDestino < destinoAbierto.fecha_inicio) {
+      throw new UnprocessableEntityException(
+        'El destino abierto empieza después de la fecha de reincorporación: corregilo desde destinos',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx: any) => {
+      const relacion = await tx.relaciones_laborales.create({
+        data: {
+          persona_id: retiro.persona_id,
+          regimen_id: cerrada.regimen_id,
+          unidad_id: unidadId,
+          sub_unidad_id: unidadId === cerrada.unidad_id ? cerrada.sub_unidad_id : null,
+          programa_id: cerrada.programa_id,
+          situacion_id: situacion.id,
+          escalafon_id: cerrada.escalafon_id,
+          // El retiro no cambia el grado; el de reincorporación solo fija la base del sueldo.
+          grado_id: cerrada.grado_id,
+          grado_reincorporacion_id: gradoReincorporacion.id,
+          haber_retiro: dto.haber_retiro ?? null,
+          porcentaje_progresivo: dto.porcentaje_progresivo ?? null,
+          fecha_inicio: fecha,
+          estado: 'activo',
+          tipo_funcionario: categoria,
+          fecha_ascenso_oficial: cerrada.fecha_ascenso_oficial,
+          fecha_ultimo_ascenso: cerrada.fecha_ultimo_ascenso,
+          anios_servicio_anterior: cerrada.anios_servicio_anterior,
+          anios_inactivos: cerrada.anios_inactivos,
+          riesgo_vuelo: cerrada.riesgo_vuelo,
+          categoria_viatico: cerrada.categoria_viatico,
+          usa_fonasa: cerrada.usa_fonasa,
+          superprima: cerrada.superprima,
+          prima_tecnica: cerrada.prima_tecnica,
+          prima_solidaria_familiar: cerrada.prima_solidaria_familiar,
+          tiene_mando: cerrada.tiene_mando,
+          mutaciones: cerrada.mutaciones,
+          conducta: cerrada.conducta,
+          observaciones: dto.observaciones ?? cerrada.observaciones,
+        },
+      });
+
+      const movimiento = await tx.movimientos_laborales.create({
+        data: {
+          relacion_laboral_id: relacion.id,
+          tipo_movimiento_id: tipoMovimiento.id,
+          fecha_movimiento: fecha,
+          usuario_id: autorId,
+          observaciones: dto.observaciones ?? null,
+        },
+      });
+
+      // Aunque conservara la plaza en la misma unidad, el destino nuevo es el que registra la orden del acto.
+      if (destinoAbierto) {
+        await tx.destinos.update({
+          where: { id: destinoAbierto.id },
+          data: { fecha_fin: cierreDestino },
+        });
+      }
+      const destino = await tx.destinos.create({
+        data: {
+          persona_id: retiro.persona_id,
+          unidad_id: unidadId,
+          fecha_inicio: fecha,
+          posicion_destino: dto.posicion_destino ?? null,
+          numero_orden: dto.numero_orden ?? null,
+          boletin: dto.boletin ?? null,
+          observaciones: dto.observaciones ?? null,
+        },
+      });
+
+      await this.derecha.asignarEnAltaEnTransaccion(tx, retiro.persona_id, null, null, {
+        motivo: 'Reincorporación',
+        usuarioId: autorId,
+      });
+
+      return {
+        retiro_id: retiro.id.toString(),
+        relacion_laboral: {
+          id: relacion.id.toString(),
+          fecha_inicio: soloFecha(fecha),
+          situacion: { codigo: situacion.codigo, denominacion: situacion.denominacion },
+        },
+        movimiento_id: movimiento.id.toString(),
+        destino: {
+          id: destino.id.toString(),
+          anterior_cerrado: destinoAbierto?.id.toString() ?? null,
+        },
+      };
+    });
+  }
+
+  private async validarGradoReincorporacion(gradoId: number, categoria: Categoria) {
+    const grado = await this.prisma.grados.findUnique({
+      where: { id: BigInt(gradoId) },
+      select: { id: true, vigente: true, es_oficial: true, es_subalterno: true },
+    });
+    if (!grado || !grado.vigente) {
+      throw new UnprocessableEntityException('Grado de reincorporación no encontrado o no vigente');
+    }
+    if (categoria === 'oficial' ? !grado.es_oficial : !grado.es_subalterno) {
+      throw new UnprocessableEntityException(
+        `El grado de reincorporación no corresponde a personal ${categoria === 'oficial' ? 'superior' : 'subalterno'}`,
+      );
+    }
+    return grado;
+  }
+
+  async actualizarReincorporacion(retiroId: number, dto: ActualizarReincorporacionDto) {
+    const retiro = await this.prisma.retiros.findUnique({ where: { id: BigInt(retiroId) } });
+    if (!retiro) throw new NotFoundException('Retiro no encontrado');
+    if (retiro.anulado) throw new ConflictException('El retiro está anulado');
+
+    validarParCalculo(dto);
+    if (dto.grado_reincorporacion_id == null && dto.haber_retiro == null) {
+      throw new UnprocessableEntityException('No hay datos para actualizar');
+    }
+
+    const relacion = await this.prisma.relaciones_laborales.findFirst({
+      where: { persona_id: retiro.persona_id, fecha_inicio: { gt: retiro.fecha_retiro } },
+      orderBy: { fecha_inicio: 'asc' },
+      select: { id: true, estado: true, situaciones: { select: { codigo: true } } },
+    });
+    if (!relacion) {
+      throw new ConflictException('El funcionario no se reincorporó después de este retiro');
+    }
+    // Una relación cerrada ya se liquidó con lo que tenía: cambiarla reescribe la historia.
+    if (relacion.estado !== 'activo') {
+      throw new ConflictException(
+        'La relación de la reincorporación ya está cerrada: sus datos de cálculo no se cambian',
+      );
+    }
+    const codigo = relacion.situaciones?.codigo;
+    if (codigo !== SITUACION_REINCORPORADO.oficial && codigo !== SITUACION_REINCORPORADO.subalterno) {
+      throw new UnprocessableEntityException(
+        'La relación posterior al retiro no es de reincorporado (SIT16 o SIT17)',
+      );
+    }
+
+    if (dto.grado_reincorporacion_id != null) {
+      await this.validarGradoReincorporacion(
+        dto.grado_reincorporacion_id,
+        codigo === SITUACION_REINCORPORADO.oficial ? 'oficial' : 'subalterno',
+      );
+    }
+
+    await this.prisma.relaciones_laborales.update({
+      where: { id: relacion.id },
+      data: {
+        ...(dto.grado_reincorporacion_id != null && {
+          grado_reincorporacion_id: BigInt(dto.grado_reincorporacion_id),
+        }),
+        ...(dto.haber_retiro != null && {
+          haber_retiro: dto.haber_retiro,
+          porcentaje_progresivo: dto.porcentaje_progresivo,
+        }),
+        fecha_actualizacion: new Date(),
+      },
+    });
+
+    return this.obtener(retiroId);
   }
 }
