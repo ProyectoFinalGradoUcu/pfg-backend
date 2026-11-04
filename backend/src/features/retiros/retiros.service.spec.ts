@@ -857,6 +857,7 @@ describe('RetirosService', () => {
   const prepararReincorporable = () => {
     prisma.retiros.findUnique.mockResolvedValue(makeRetiro());
     prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+    prisma.grados.findMany.mockResolvedValue([]);
     prisma.situaciones.findFirst.mockImplementation(({ where }: any) =>
       Promise.resolve(
         where.codigo === 'SIT16'
@@ -1002,6 +1003,88 @@ describe('RetirosService', () => {
       const result = await service.previaReincorporacion(88);
 
       expect(result.bloqueos).toContainEqual(expect.stringMatching(/SIT17/));
+    });
+
+    describe('grados_validos', () => {
+      const catalogo = [
+        makeGrado({ id: 1n, codigo: 'SDO_1RA', denominacion: 'Sdo. 1ª' }),
+        makeGrado({ id: 4n, codigo: 'SGTO', denominacion: 'Sgto.' }),
+        makeGrado({ id: 21n, codigo: 'AT_1RA', denominacion: 'At. 1ª', es_subalterno: false }),
+        makeGrado({ id: 33n, codigo: 'AT_3RA', denominacion: 'At. 3ª', es_subalterno: false }),
+        makeGrado({ id: 29n, codigo: 'CADETE_3RA', denominacion: 'Cadete 3ª' }),
+        makeGrado({ id: 17n, codigo: 'CAD_1RO', denominacion: 'Cad. 1°', es_subalterno: false }),
+        makeGrado({ id: 7n, codigo: 'ALF', denominacion: 'Alf.', es_oficial: true, es_subalterno: false }),
+        makeGrado({ id: 10n, codigo: 'CAP', denominacion: 'Cap.', es_oficial: true, es_subalterno: false }),
+      ];
+      const ids = (lista: { id: string }[]) => lista.map((g) => g.id);
+
+      beforeEach(() => {
+        prisma.grados.findMany.mockResolvedValue(catalogo);
+      });
+
+      it('pide solo los grados vigentes, ordenados', async () => {
+        await service.previaReincorporacion(88);
+
+        expect(prisma.grados.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { vigente: true }, orderBy: { orden: 'asc' } }),
+        );
+      });
+
+      it.each([['ADM'], ['SIN_DATO'], ['RVA'], ['AT']])(
+        'a un subalterno con escalafon %s le ofrece los grados de subalterno y de aerotecnico, sin cadetes ni At. 3.ª',
+        async (escalafon) => {
+          prisma.retiros.findUnique.mockResolvedValue(
+            makeRetiro({
+              relaciones_laborales: makeRelacion({
+                escalafones: { id: 9n, codigo: escalafon, denominacion: escalafon },
+              }),
+            }),
+          );
+
+          const result = await service.previaReincorporacion(88);
+
+          expect(ids(result.grados_validos)).toEqual(['1', '4', '21']);
+          expect(result.grados_validos[0]).toEqual({ id: '1', codigo: 'SDO_1RA', denominacion: 'Sdo. 1ª' });
+        },
+      );
+
+      it('a un oficial le ofrece solo grados de oficial', async () => {
+        prisma.retiros.findUnique.mockResolvedValue(retiroOficial());
+
+        const result = await service.previaReincorporacion(88);
+
+        expect(ids(result.grados_validos)).toEqual(['7', '10']);
+      });
+
+      it('sin categoria no ofrece grados', async () => {
+        prisma.retiros.findUnique.mockResolvedValue(
+          makeRetiro({ relaciones_laborales: makeRelacion({ tipo_funcionario: null, grados: null }) }),
+        );
+
+        const result = await service.previaReincorporacion(88);
+
+        expect(result.grados_validos).toEqual([]);
+      });
+
+      it('todo grado ofrecido pasa la validacion del POST', async () => {
+        const result = await service.previaReincorporacion(88);
+
+        for (const g of result.grados_validos) {
+          prisma.grados.findUnique.mockResolvedValue(catalogo.find((c) => c.id.toString() === g.id));
+          prisma.relaciones_laborales.create.mockResolvedValue({ id: 46n });
+          prisma.movimientos_laborales.create.mockResolvedValue({ id: 411n });
+          prisma.destinos.create.mockResolvedValue({ id: 90n });
+          prisma.unidades.findUnique.mockResolvedValue({ id: 5n, vigente: true });
+
+          await expect(
+            service.reincorporar(
+              88,
+              { fecha_reincorporacion: '2026-10-01', grado_reincorporacion_id: Number(g.id), unidad_id: 5, numero_orden: 'O.D. 1' },
+              7n,
+            ),
+          ).resolves.toBeDefined();
+        }
+      });
     });
 
     it('no escribe nada', async () => {

@@ -47,6 +47,10 @@ const gradoNoReincorporable = (codigo?: string) => !!codigo?.startsWith('CAD') |
 const gradoCorresponde = (grado: { es_oficial: boolean }, categoria: Categoria) =>
   categoria === 'oficial' ? grado.es_oficial : !grado.es_oficial;
 
+// La previa ofrece exactamente lo que después aceptan el POST y el PATCH.
+const gradoAdmitido = (grado: { codigo: string; es_oficial: boolean }, categoria: Categoria) =>
+  !gradoNoReincorporable(grado.codigo) && gradoCorresponde(grado, categoria);
+
 const validarParCalculo = (dto: { haber_retiro?: number; porcentaje_progresivo?: number }) => {
   if ((dto.haber_retiro == null) !== (dto.porcentaje_progresivo == null)) {
     throw new UnprocessableEntityException(
@@ -788,6 +792,14 @@ export class RetirosService {
   async previaReincorporacion(retiroId: number) {
     const e = await this.evaluarReincorporacion(retiroId);
     const c = e.cerrada;
+    const categoria = e.categoria;
+    const grados = categoria
+      ? await this.prisma.grados.findMany({
+          where: { vigente: true },
+          orderBy: { orden: 'asc' },
+          select: { id: true, codigo: true, denominacion: true, es_oficial: true },
+        })
+      : [];
 
     return {
       retiro: { id: e.retiro.id.toString(), fecha_retiro: soloFecha(e.retiro.fecha_retiro) },
@@ -822,6 +834,11 @@ export class RetirosService {
         prima_solidaria_familiar: c.prima_solidaria_familiar,
       },
       unidad_anterior: ref(c.unidades),
+      grados_validos: categoria
+        ? grados
+            .filter((g) => gradoAdmitido(g, categoria))
+            .map((g) => ({ id: g.id.toString(), codigo: g.codigo, denominacion: g.denominacion }))
+        : [],
       destino_abierto: e.destinoAbierto
         ? {
             id: e.destinoAbierto.id.toString(),
