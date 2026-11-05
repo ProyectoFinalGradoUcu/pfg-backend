@@ -39,7 +39,10 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const payload: AuthPayload = this.authService.verifyToken(token);
-    await this.authService.assertUsuarioActivo(payload.sub, payload.iat);
+    await this.authService.assertUsuarioActivo(payload.sub, {
+      iat: payload.iat,
+      iatMs: payload.iatMs,
+    });
 
     request.user = {
       id: payload.sub,

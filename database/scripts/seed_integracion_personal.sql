@@ -201,7 +201,12 @@ SELECT nombre, descripcion FROM (VALUES
   ('ascenso.anular',                 'Se anuló un ascenso puntual'),
   ('orden_ascenso.anular',           'Se anuló una orden de ascenso completa'),
   ('regla_ascenso.desactivar',       'Se desactivó una regla de ascenso'),
-  ('regla_ascenso.restaurar',        'Se restauraron las reglas de ascenso por defecto de la FAU')
+  ('regla_ascenso.restaurar',        'Se restauraron las reglas de ascenso por defecto de la FAU'),
+  ('retiro.anular',                  'Se anuló un retiro cargado por error'),
+  ('reincorporacion.anular',         'Se anuló una reincorporación cargada por error'),
+  ('derecha.reordenar',              'Se reordenó la derecha de un grado'),
+  ('derecha.cambios',                'Se aplicaron cambios de posición en la derecha'),
+  ('numor.reordenar',                'Se reordenó el numor de un grupo')
 ) AS t(nombre, descripcion)
 ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
 

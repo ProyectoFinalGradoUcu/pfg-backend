@@ -1,16 +1,40 @@
 import {
   IsDateString,
   IsInt,
-  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
   Max,
   MaxLength,
+  ValidateBy,
   ValidateIf,
+  ValidationArguments,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+
+// Recorta, y un texto vacío o de solo espacios cuenta como no enviado: así el otro campo pasa a ser
+// obligatorio y, si tampoco vino, da 400.
+const textoOVacio = ({ value }: { value: unknown }) => {
+  if (typeof value !== 'string') return value;
+  const recortado = value.trim();
+  return recortado === '' ? undefined : recortado;
+};
+const FALTA_RESPALDO = 'Indicá el número de orden o el boletín de la reincorporación';
+
+/** Un solo chequeo, para devolver un solo mensaje de error. */
+const TextoDeRespaldo = () =>
+  ValidateBy({
+    name: 'textoDeRespaldo',
+    validator: {
+      validate: (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 50,
+      defaultMessage: (args?: ValidationArguments) =>
+        typeof args?.value === 'string' && args.value.length > 50
+          ? `${args.property} admite hasta 50 caracteres`
+          : FALTA_RESPALDO,
+    },
+  });
 
 export class ReincorporarDto {
   @ApiProperty({ example: '2026-10-01', description: 'ISO 8601, sin hora. Posterior a la fecha del retiro.' })
@@ -51,17 +75,16 @@ export class ReincorporarDto {
   unidad_id: number;
 
   @ApiPropertyOptional({ example: 'O.D. 13001', maxLength: 50, description: 'Requerido si no se indica boletín' })
-  @ValidateIf((o) => !o.boletin)
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
+  @Transform(textoOVacio)
+  // Si no vino ninguno de los dos, el error queda acá y no se repite en boletin.
+  @ValidateIf((o) => o.numero_orden != null || o.boletin == null)
+  @TextoDeRespaldo()
   numero_orden?: string;
 
   @ApiPropertyOptional({ example: 'B.P. 9012', maxLength: 50, description: 'Requerido si no se indica número de orden' })
-  @ValidateIf((o) => !o.numero_orden)
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
+  @Transform(textoOVacio)
+  @ValidateIf((o) => o.boletin != null)
+  @TextoDeRespaldo()
   boletin?: string;
 
   @ApiPropertyOptional({ example: 'Jefe de Sección', maxLength: 200 })

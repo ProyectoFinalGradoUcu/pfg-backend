@@ -24,6 +24,15 @@ export class CerrarDto {
   @IsInt({ each: true })
   inscripciones?: number[];
 
+  @ApiPropertyOptional({
+    example: [12],
+    description: 'Ids de pertenencias a comisiones (asignaciones_comision) a cerrar en la fecha del retiro',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  comisiones?: number[];
+
   @ApiPropertyOptional({ example: true, description: 'Bloquear la cuenta de usuario' })
   @IsOptional()
   @IsBoolean()

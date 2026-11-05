@@ -8,6 +8,8 @@ import {
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { APLICACION } from '../../lib/aplicacion.const';
+import { assertPermisosDelActor } from '../auth/privilegios';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { CreateRolDto } from './dto/create-rol.dto';
 import { UpdateRolDto } from './dto/update-rol.dto';
 
@@ -54,28 +56,42 @@ export class RolesService {
     };
   }
 
-  async create(dto: CreateRolDto) {
+  async create(dto: CreateRolDto, actor: AuthenticatedUser) {
     const existente = await this.prisma.roles.findFirst({
       where: { nombre: dto.nombre, aplicacion: APLICACION },
     });
     if (existente) throw new ConflictException('Ya existe un rol con ese nombre');
 
-    const rol = await this.prisma.roles.create({
-      data: { nombre: dto.nombre, descripcion: dto.descripcion, aplicacion: APLICACION },
-    });
-
-    if (dto.permisos && dto.permisos.length > 0) {
-      const permisos = await this.prisma.permisos.findMany({
-        where: { nombre: { in: dto.permisos }, aplicacion: APLICACION },
-      });
-      if (permisos.length !== dto.permisos.length) {
-        throw new BadRequestException('Uno o más permisos no existen');
-      }
-      await this.prisma.roles_permisos.createMany({
-        data: permisos.map((p) => ({ rol_id: rol.id, permiso_id: p.id })),
-        skipDuplicates: true,
-      });
+    // Se valida todo antes de escribir y el alta va en una transacción, para no dejar el
+    // rol creado a medias.
+    const nombresPermisos = Array.from(new Set(dto.permisos ?? []));
+    const permisos = nombresPermisos.length
+      ? await this.prisma.permisos.findMany({
+          where: { nombre: { in: nombresPermisos }, aplicacion: APLICACION },
+        })
+      : [];
+    if (permisos.length !== nombresPermisos.length) {
+      const faltan = nombresPermisos.filter((n) => !permisos.some((p) => p.nombre === n));
+      throw new BadRequestException(`Permisos no encontrados: ${faltan.join(', ')}`);
     }
+    assertPermisosDelActor(
+      actor,
+      permisos.map((p) => p.nombre),
+      'crear un rol con esos permisos',
+    );
+
+    const rol = await this.prisma.$transaction(async (tx) => {
+      const creado = await tx.roles.create({
+        data: { nombre: dto.nombre, descripcion: dto.descripcion, aplicacion: APLICACION },
+      });
+      if (permisos.length > 0) {
+        await tx.roles_permisos.createMany({
+          data: permisos.map((p) => ({ rol_id: creado.id, permiso_id: p.id })),
+          skipDuplicates: true,
+        });
+      }
+      return creado;
+    });
 
     return this.findOne(rol.id.toString());
   }
@@ -129,13 +145,15 @@ export class RolesService {
     return { ok: true };
   }
 
-  async activarPermiso(rolId: string, permisoId: string) {
+  async activarPermiso(rolId: string, permisoId: string, actor: AuthenticatedUser) {
     const [rol, permiso] = await Promise.all([
       this.prisma.roles.findFirst({ where: { id: BigInt(rolId), aplicacion: APLICACION } }),
       this.prisma.permisos.findFirst({ where: { id: BigInt(permisoId), aplicacion: APLICACION } }),
     ]);
     if (!rol) throw new NotFoundException('Rol no encontrado');
     if (!permiso) throw new NotFoundException('Permiso no encontrado');
+
+    assertPermisosDelActor(actor, [permiso.nombre], `activar el permiso ${permiso.nombre}`);
 
     await this.prisma.roles_permisos.upsert({
       where: { permiso_id_rol_id: { permiso_id: permiso.id, rol_id: rol.id } },

@@ -31,6 +31,22 @@ const makeUsuarioConRelaciones = (overrides: Partial<any> = {}) => ({
   personas: null,
 });
 
+const ADMIN = {
+  id: '1',
+  username: 'admin@fau.mil.uy',
+  roles: ['Administrador del sistema'],
+  permisos: [],
+  unidades: [],
+};
+
+const GESTOR = {
+  id: '2',
+  username: 'gestor@fau.mil.uy',
+  roles: ['Gestor'],
+  permisos: ['usuarios.ver', 'usuarios.gestionar'],
+  unidades: [],
+};
+
 // ─── Prisma mock ──────────────────────────────────────────────────────────────
 
 const makePrismaMock = () => ({
@@ -55,6 +71,9 @@ const makePrismaMock = () => ({
   },
   unidades: {
     findMany: jest.fn(),
+  },
+  permisos: {
+    findMany: jest.fn().mockResolvedValue([]),
   },
   usuarios_unidades: {
     findMany: jest.fn().mockResolvedValue([]),
@@ -160,7 +179,7 @@ describe('UsuariosService', () => {
     it('cambia el estado a bloqueado (borrado lógico)', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(makeUsuario());
 
-      const result = await service.remove('1', '99');
+      const result = await service.remove('1', { ...ADMIN, id: '99' });
 
       expect(prisma.usuarios.update).toHaveBeenCalledWith({
         where: { id: 1n },
@@ -170,15 +189,79 @@ describe('UsuariosService', () => {
     });
 
     it('lanza ForbiddenException si intenta deshabilitar su propio usuario', async () => {
-      await expect(service.remove('1', '1')).rejects.toThrow(ForbiddenException);
+      await expect(service.remove('1', ADMIN)).rejects.toThrow(ForbiddenException);
       expect(prisma.usuarios.findFirst).not.toHaveBeenCalled();
     });
 
     it('lanza NotFoundException si el usuario no existe', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(null);
 
-      await expect(service.remove('99', '1')).rejects.toThrow(NotFoundException);
+      await expect(service.remove('99', ADMIN)).rejects.toThrow(NotFoundException);
       expect(prisma.usuarios.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── gestionar a alguien con más privilegios ─────────────────────────────────
+
+  describe('no se puede gestionar a quien tiene más permisos', () => {
+    const rol = (nombre: string, permisos: string[]) => ({
+      roles: { nombre, roles_permisos: permisos.map((p) => ({ permisos: { nombre: p } })) },
+    });
+    const destinoCon = (roles: ReturnType<typeof rol>[], unidades: ReturnType<typeof rol>[] = []) => {
+      prisma.usuarios.findFirst.mockResolvedValue(makeUsuario({ id: 5n }));
+      prisma.usuarios.findUnique = jest.fn().mockResolvedValue({
+        usuarios_roles: roles,
+        usuarios_unidades: unidades.length ? [{ unidades: { unidades_roles: unidades } }] : [],
+      });
+    };
+
+    it('un gestor no puede resetear la contraseña de un Administrador', async () => {
+      destinoCon([rol('Administrador del sistema', ['usuarios.ver'])]);
+
+      await expect(service.resetPassword('5', { password: 'NuevaPass123' } as any, GESTOR)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(prisma.usuarios.update).not.toHaveBeenCalled();
+    });
+
+    it('un gestor no puede resetear la contraseña de quien tiene permisos que él no tiene', async () => {
+      destinoCon([rol('Oficina', ['usuarios.ver', 'roles.gestionar'])]);
+
+      await expect(service.resetPassword('5', { password: 'NuevaPass123' } as any, GESTOR)).rejects.toThrow(
+        /roles\.gestionar/,
+      );
+    });
+
+    it('también cuentan los permisos heredados de las unidades', async () => {
+      destinoCon([], [rol('Jefe de unidad', ['personal.gestionar'])]);
+
+      await expect(service.update('5', { estado: 'bloqueado' }, GESTOR)).rejects.toThrow(ForbiddenException);
+      expect(prisma.usuarios.update).not.toHaveBeenCalled();
+    });
+
+    it('un gestor no puede quitarle roles ni dar de baja a un Administrador', async () => {
+      destinoCon([rol('Administrador del sistema', [])]);
+      prisma.roles.findFirst.mockResolvedValue({ id: 1n, nombre: 'Administrador del sistema' });
+
+      await expect(service.quitarRol('5', '1', GESTOR)).rejects.toThrow(ForbiddenException);
+      await expect(service.remove('5', GESTOR)).rejects.toThrow(ForbiddenException);
+      expect(prisma.usuarios_roles.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('un gestor sí puede resetear a quien tiene solo permisos que él también tiene', async () => {
+      destinoCon([rol('Consulta', ['usuarios.ver'])]);
+
+      await expect(service.resetPassword('5', { password: 'NuevaPass123' } as any, GESTOR)).resolves.toEqual({
+        ok: true,
+      });
+    });
+
+    it('el Administrador puede gestionar a cualquiera', async () => {
+      destinoCon([rol('Administrador del sistema', ['todo.lo.demas'])]);
+
+      await expect(service.resetPassword('5', { password: 'NuevaPass123' } as any, ADMIN)).resolves.toEqual({
+        ok: true,
+      });
     });
   });
 
@@ -194,7 +277,7 @@ describe('UsuariosService', () => {
         .mockResolvedValueOnce(makeUsuario({ estado: 'bloqueado' }))
         .mockResolvedValueOnce(makeUsuarioConRelaciones({ estado: 'activo' }));
 
-      await service.update('1', { estado: 'activo' }, '99');
+      await service.update('1', { estado: 'activo' }, { ...ADMIN, id: '99' });
 
       expect(prisma.usuarios.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -212,7 +295,7 @@ describe('UsuariosService', () => {
       prisma.usuarios.findFirst.mockResolvedValue(makeUsuario());
 
       await expect(
-        service.update('1', { estado: 'bloqueado' }, '1'),
+        service.update('1', { estado: 'bloqueado' }, ADMIN),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -220,7 +303,7 @@ describe('UsuariosService', () => {
       prisma.usuarios.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.update('99', { estado: 'activo' }, '1'),
+        service.update('99', { estado: 'activo' }, ADMIN),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -242,7 +325,7 @@ describe('UsuariosService', () => {
         .mockResolvedValueOnce([cg])
         .mockResolvedValueOnce([efa]);
 
-      await service.asignarUnidades('10', ['4'], '1');
+      await service.asignarUnidades('10', ['4'], ADMIN);
 
       expect(auditoria.registrar).toHaveBeenCalledWith({
         usuarioId: '1',
@@ -263,7 +346,7 @@ describe('UsuariosService', () => {
         .mockResolvedValueOnce([cg])
         .mockResolvedValueOnce([]);
 
-      await service.asignarUnidades('10', [], '1');
+      await service.asignarUnidades('10', [], ADMIN);
 
       expect(auditoria.registrar).toHaveBeenCalledWith(
         expect.objectContaining({ accion: 'unidad.quitar' }),
@@ -275,7 +358,7 @@ describe('UsuariosService', () => {
         .mockResolvedValueOnce([cg, efa])
         .mockResolvedValueOnce([efa]);
 
-      await service.asignarUnidades('10', ['4'], '1');
+      await service.asignarUnidades('10', ['4'], ADMIN);
 
       expect(auditoria.registrar).toHaveBeenCalledWith(
         expect.objectContaining({ accion: 'unidad.quitar' }),
@@ -285,10 +368,67 @@ describe('UsuariosService', () => {
     it('no audita si la unidad no existe', async () => {
       prisma.unidades.findMany.mockResolvedValue([]);
 
-      await expect(service.asignarUnidades('10', ['99'], '1')).rejects.toThrow(
+      await expect(service.asignarUnidades('10', ['99'], ADMIN)).rejects.toThrow(
         NotFoundException,
       );
       expect(auditoria.registrar).not.toHaveBeenCalled();
+    });
+    it('rechaza con 403 que un no administrador sume una unidad cuyos roles tienen permisos que él no tiene', async () => {
+      prisma.unidades.findMany.mockResolvedValue([
+        { id: 1n, vigente: true },
+        { id: 4n, vigente: true },
+      ]);
+      prisma.usuarios_unidades.findMany.mockResolvedValue([cg]);
+      prisma.permisos.findMany.mockResolvedValue([{ nombre: 'roles.gestionar' }]);
+
+      await expect(service.asignarUnidades('10', ['1', '4'], GESTOR)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(prisma.usuarios_unidades.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── asignarRol ──────────────────────────────────────────────────────────────
+
+  describe('asignarRol', () => {
+    const rolAdmin = {
+      id: 1n,
+      nombre: 'Administrador del sistema',
+      roles_permisos: [
+        { permisos: { nombre: 'usuarios.gestionar' } },
+        { permisos: { nombre: 'roles.gestionar' } },
+      ],
+    };
+
+    beforeEach(() => {
+      prisma.usuarios.findFirst.mockResolvedValue(makeUsuario({ id: 2n }));
+      jest.spyOn(service, 'findOne').mockResolvedValue({} as any);
+    });
+
+    it('rechaza con 403 asignar un rol con permisos que el actor no tiene', async () => {
+      prisma.roles.findFirst.mockResolvedValue(rolAdmin);
+
+      await expect(service.asignarRol('2', '1', GESTOR)).rejects.toThrow(ForbiddenException);
+      expect(prisma.usuarios_roles.upsert).not.toHaveBeenCalled();
+      expect(sesiones.invalidarUsuario).not.toHaveBeenCalled();
+    });
+
+    it('permite asignar un rol cuyos permisos el actor ya tiene', async () => {
+      prisma.roles.findFirst.mockResolvedValue({
+        id: 5n,
+        nombre: 'Consulta',
+        roles_permisos: [{ permisos: { nombre: 'usuarios.ver' } }],
+      });
+
+      await service.asignarRol('2', '5', GESTOR);
+      expect(prisma.usuarios_roles.upsert).toHaveBeenCalled();
+    });
+
+    it('el administrador puede asignar cualquier rol', async () => {
+      prisma.roles.findFirst.mockResolvedValue(rolAdmin);
+
+      await service.asignarRol('2', '1', ADMIN);
+      expect(prisma.usuarios_roles.upsert).toHaveBeenCalled();
     });
   });
 });

@@ -679,4 +679,73 @@ describe('DerechaService', () => {
       await expect(service.obtenerGrado(Number(GRADOS.CADETE))).rejects.toThrow(BadRequestException);
     });
   });
+
+  // ─── Alcance por unidad ─────────────────────────────────────────────────────
+
+  describe('alcance por unidad', () => {
+    // p2 y p4 (Brig. AV) y p8 (Sgto.) están en la unidad 20; el resto, en la 10.
+    const enUnidad20 = new Set(['2', '4', '8']);
+    const alcance20 = { tipo: 'unidad' as const, unidadIds: ['20'] };
+
+    beforeEach(() =>
+      crear(
+        makeFilas().map((r) => ({ ...r, unidad_id: enUnidad20.has(String(r.persona_id)) ? 20n : 10n })),
+      ),
+    );
+
+    it('el listado del personal trae solo a los de sus unidades', async () => {
+      const r = await service.listarPersonal(alcance20);
+      expect(r.map((x) => x.persona_id)).toEqual(['2', '4', '8']);
+    });
+
+    it('con alcance global trae a todos', async () => {
+      const r = await service.listarPersonal({ tipo: 'global' });
+      expect(r).toHaveLength(9);
+    });
+
+    it('la sugerencia de orden no expone a los de otras unidades, pero el orden es del grado entero', async () => {
+      const r = await service.sugerirOrden(Number(GRADOS.BRIG), 'EGRESO', alcance20);
+
+      expect(r.items.map((i) => i.persona_id)).toEqual(['2', '4']);
+      expect(r.sin_datos).toHaveLength(2);
+      // El orden se aplica sobre todo el grado: son solo ids.
+      expect(r.orden).toEqual(['2', '3', '4']);
+    });
+
+    it('el grado filtra los integrantes pero conserva la posición real y el resumen del grado', async () => {
+      const r = await service.obtenerGrado(Number(GRADOS.BRIG), alcance20);
+
+      expect(r.cantidad).toBe(3);
+      expect(r.items.map((i) => [i.persona_id, i.posicion_grado])).toEqual([['2', 1], ['4', 3]]);
+      expect(r.escalafones).toEqual([expect.objectContaining({ cantidad: 2 })]);
+    });
+
+    it('el grupo de numor filtra los integrantes', async () => {
+      const r = await service.obtenerGrupoNumor(Number(GRADOS.BRIG), Number(ESC.AV), alcance20);
+
+      expect(r.cantidad).toBe(2);
+      expect(r.items.map((i) => i.persona_id)).toEqual(['2', '4']);
+    });
+
+    it('la previsualización solo muestra afectados de sus unidades', async () => {
+      const r = await service.previsualizar(
+        { operacion: 'REORDEN', grado_id: Number(GRADOS.BRIG), persona_id: 4, posicion: 1 },
+        alcance20,
+      );
+
+      expect(r.derecha.map((a) => a.persona_id)).toEqual(['4', '2']);
+      expect(r.afectados).toBe(2);
+    });
+
+    it('el historial filtra por personas con relación activa en sus unidades', async () => {
+      prisma.historial_derecha_numor.count = jest.fn().mockResolvedValue(0);
+      prisma.historial_derecha_numor.findMany = jest.fn().mockResolvedValue([]);
+
+      await service.historial({}, alcance20);
+
+      expect(prisma.historial_derecha_numor.findMany.mock.calls[0][0].where).toEqual({
+        personas: { relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [20n] } } } },
+      });
+    });
+  });
 });

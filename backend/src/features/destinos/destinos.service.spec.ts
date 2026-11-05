@@ -430,6 +430,33 @@ describe('DestinosService', () => {
       );
     });
 
+    it('permite reabrir un destino histórico que nunca tuvo número de orden ni boletín', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(
+        makeAsignacion({ id: 200n, fecha_fin: new Date('2026-01-01'), numero_orden: null, boletin: null }),
+      );
+      prisma.destinos.findFirst.mockResolvedValue(null);
+
+      await service.editarDestino(200, { fecha_fin: null });
+
+      expect(prisma.destinos.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ fecha_fin: null }) }),
+      );
+    });
+
+    it('reabrir un destino pone su unidad en la relación laboral vigente', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(
+        makeAsignacion({ id: 200n, unidad_id: 7n, fecha_fin: new Date('2026-01-01') }),
+      );
+      prisma.destinos.findFirst.mockResolvedValue(null);
+
+      await service.editarDestino(200, { fecha_fin: null });
+
+      expect(prisma.relaciones_laborales.updateMany).toHaveBeenCalledWith({
+        where: { persona_id: 100n, fecha_fin: null },
+        data: { unidad_id: 7n },
+      });
+    });
+
     it('permite reabrir si no hay otro destino activo', async () => {
       prisma.destinos.findUnique.mockResolvedValue(
         makeAsignacion({ id: 200n, fecha_fin: new Date('2026-01-01') }),
@@ -447,14 +474,55 @@ describe('DestinosService', () => {
   // ─── eliminarDestino ────────────────────────────────────────────────────────
 
   describe('eliminarDestino', () => {
-    it('elimina la asignación', async () => {
-      prisma.destinos.findUnique.mockResolvedValue(makeAsignacion());
-      prisma.destinos.delete.mockResolvedValue(makeAsignacion());
+    it('elimina un destino ya cerrado sin tocar la relación laboral', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(makeAsignacion({ fecha_fin: new Date('2025-01-01') }));
 
       const result = await service.eliminarDestino(200);
 
       expect(prisma.destinos.delete).toHaveBeenCalledWith({ where: { id: 200n } });
-      expect(result).toEqual({ id: '200', eliminado: true });
+      expect(prisma.relaciones_laborales.updateMany).not.toHaveBeenCalled();
+      expect(result).toEqual({ id: '200', eliminado: true, destino_reabierto: null });
+    });
+
+    it('al eliminar el vigente reabre el que cerró el pase y vuelve la relación a su unidad', async () => {
+      // Pase del 2024-04-30: el anterior (unidad 3) terminó el 2024-04-29.
+      prisma.destinos.findUnique.mockResolvedValue(makeAsignacion());
+      prisma.destinos.findFirst.mockResolvedValue(
+        makeAsignacion({ id: 150n, unidad_id: 3n, fecha_inicio: new Date('2020-01-01'), fecha_fin: new Date('2024-04-29') }),
+      );
+
+      const result = await service.eliminarDestino(200);
+
+      expect(prisma.destinos.update).toHaveBeenCalledWith({ where: { id: 150n }, data: { fecha_fin: null } });
+      expect(prisma.relaciones_laborales.updateMany).toHaveBeenCalledWith({
+        where: { persona_id: 100n, fecha_fin: null },
+        data: { unidad_id: 3n },
+      });
+      expect(result.destino_reabierto).toBe('150');
+    });
+
+    it('si el anterior terminó mucho antes no lo reabre, pero la relación vuelve a su unidad', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(makeAsignacion());
+      prisma.destinos.findFirst.mockResolvedValue(
+        makeAsignacion({ id: 150n, unidad_id: 3n, fecha_fin: new Date('2023-01-01') }),
+      );
+
+      const result = await service.eliminarDestino(200);
+
+      expect(prisma.destinos.update).not.toHaveBeenCalled();
+      expect(prisma.relaciones_laborales.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { unidad_id: 3n } }),
+      );
+      expect(result.destino_reabierto).toBeNull();
+    });
+
+    it('sin destino anterior deja la relación como está', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(makeAsignacion());
+      prisma.destinos.findFirst.mockResolvedValue(null);
+
+      await service.eliminarDestino(200);
+
+      expect(prisma.relaciones_laborales.updateMany).not.toHaveBeenCalled();
     });
 
     it('rechaza si no existe', async () => {

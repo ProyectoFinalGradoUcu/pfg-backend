@@ -16,13 +16,21 @@ const registro = (changes = {}) => ({
   ...changes,
 });
 
+const lote = { persona_ids: [1, 2], comision_id: 2, fecha_inicio: '2026-02-01', numero_orden: '001', boletin: 'B-001' };
+
 describe('ComisionesService', () => {
   let service: ComisionesService;
   let tx: any;
   beforeEach(() => {
     tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: 2n, vigente: true }]),
-      personas: { findUnique: jest.fn().mockResolvedValue({ id: 1n }), findMany: jest.fn().mockResolvedValue([{ id: 1n }, { id: 2n }]) },
+      personas: {
+        findUnique: jest.fn().mockResolvedValue({ id: 1n }),
+        // La consulta de retirados (filtra por `retiros`) no encuentra a nadie por defecto.
+        findMany: jest.fn().mockImplementation(({ where }) =>
+          Promise.resolve(where.retiros ? [] : [{ id: 1n }, { id: 2n }]),
+        ),
+      },
       comisiones: { update: jest.fn() },
       asignaciones_comision: {
         count: jest.fn().mockResolvedValue(0),
@@ -41,10 +49,47 @@ describe('ComisionesService', () => {
     expect(tx.asignaciones_comision.update).not.toHaveBeenCalled();
     expect(tx.asignaciones_comision.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ persona_id: 1n, comision_id: 2n, boletin: 'B-001' }) }));
   });
+  describe('un retirado no puede integrar una comisión', () => {
+    const retirada = { primer_nombre: 'Ana', primer_apellido: 'Pérez', cedula: '123' };
+    const conRetirados = (lista: object[]) =>
+      tx.personas.findMany.mockImplementation(({ where }: any) =>
+        Promise.resolve(where.retiros ? lista : [{ id: 1n }, { id: 2n }]),
+      );
+
+    it('rechaza asignar a un retirado', async () => {
+      conRetirados([retirada]);
+      await expect(
+        service.crearAsignacion({ persona_id: 1, comision_id: 2, fecha_inicio: '2026-02-01', boletin: 'B-001' }),
+      ).rejects.toThrow('Ana Pérez (123) está retirado');
+      expect(tx.asignaciones_comision.create).not.toHaveBeenCalled();
+    });
+
+    it('en un lote con un retirado no crea ninguna', async () => {
+      conRetirados([retirada]);
+      await expect(service.crearLote(lote)).rejects.toThrow(ConflictException);
+      expect(tx.asignaciones_comision.create).not.toHaveBeenCalled();
+    });
+
+    it('busca retiro no anulado y sin relación laboral activa (un reincorporado sí puede)', async () => {
+      await service.crearAsignacion({ persona_id: 1, comision_id: 2, fecha_inicio: '2026-02-01', boletin: 'B-001' });
+      const consulta = tx.personas.findMany.mock.calls.find(([q]: any) => q.where.retiros)[0];
+      expect(consulta.where).toMatchObject({
+        retiros: { some: { anulado: false } },
+        relaciones_laborales: { none: { fecha_fin: null } },
+      });
+    });
+
+    it('no deja reabrir la pertenencia de un retirado', async () => {
+      tx.asignaciones_comision.findUnique.mockResolvedValue(registro({ fecha_fin: new Date('2026-03-01') }));
+      conRetirados([retirada]);
+      await expect(service.editarAsignacion(10n, { fecha_fin: null } as any)).rejects.toThrow(ConflictException);
+      expect(tx.asignaciones_comision.update).not.toHaveBeenCalled();
+    });
+  });
+
   it('rechaza documentos en blanco', async () => {
     await expect(service.crearAsignacion({ persona_id: 1, comision_id: 2, fecha_inicio: '2026-02-01', boletin: '  ' })).rejects.toThrow(BadRequestException);
   });
-  const lote = { persona_ids: [1, 2], comision_id: 2, fecha_inicio: '2026-02-01', numero_orden: '001', boletin: 'B-001' };
   it('crea un lote con documentos compartidos y sin cargo', async () => {
     const result = await service.crearLote(lote);
     expect(result.cantidad).toBe(2);

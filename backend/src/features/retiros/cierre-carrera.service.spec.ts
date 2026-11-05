@@ -32,6 +32,10 @@ describe('CierreCarreraService', () => {
     inscripciones: [
       { id: 301n, cursos: { id: 9n, nombre_curso: 'Curso A' }, fecha_inicio: null, fecha_fin: null },
     ],
+    comisiones: [
+      { id: 12n, fecha_inicio: new Date('2024-01-01'), fecha_fin: null },
+      { id: 13n, fecha_inicio: new Date('2024-01-01'), fecha_fin: new Date('2027-03-31') },
+    ],
     usuario: { id: 7n, username: 'jperez', estado: 'activo' },
     vivienda: null,
     bloqueos: [],
@@ -179,6 +183,7 @@ describe('CierreCarreraService', () => {
         cierres_aplicados: {
           destino_id: '88',
           inscripciones_ids: ['301'],
+          comisiones: [],
           usuario_id: '7',
         },
       }),
@@ -197,6 +202,7 @@ describe('CierreCarreraService', () => {
     expect(prisma.retiros.create.mock.calls[0][0].data.cierres_aplicados).toEqual({
       destino_id: null,
       inscripciones_ids: [],
+      comisiones: [],
       usuario_id: '7',
     });
   });
@@ -305,7 +311,49 @@ describe('CierreCarreraService', () => {
 
     expect(result).toEqual({
       retiroId: 88n,
-      cerrado: { destino: '88', inscripciones: ['301'], usuario: '7' },
+      cerrado: { destino: '88', inscripciones: ['301'], comisiones: [], usuario: '7' },
+    });
+  });
+
+  describe('pertenencias a comisiones', () => {
+    it('cierra las elegidas en la fecha del retiro y guarda su fecha_fin anterior', async () => {
+      const r = await service.cerrar({
+        ...paramsBase(),
+        cierres: { ...paramsBase().cierres, comisiones: [12, 13] },
+      });
+
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalledWith({
+        where: { id: 12n },
+        data: { fecha_fin: new Date('2026-08-28') },
+      });
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalledWith({
+        where: { id: 13n },
+        data: { fecha_fin: new Date('2026-08-28') },
+      });
+      expect(prisma.retiros.create.mock.calls[0][0].data.cierres_aplicados.comisiones).toEqual([
+        { id: '12', fecha_fin_anterior: null },
+        { id: '13', fecha_fin_anterior: '2027-03-31' },
+      ]);
+      expect(r.cerrado.comisiones).toEqual(['12', '13']);
+    });
+
+    it('no cierra las que no se eligieron', async () => {
+      await service.cerrar({ ...paramsBase(), cierres: { ...paramsBase().cierres, comisiones: [12] } });
+
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('con forzarCascada las cierra todas', async () => {
+      await service.cerrar({ ...paramsBase(), forzarCascada: true });
+
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalledTimes(2);
+    });
+
+    it('422 si piden cerrar una que no es del funcionario', async () => {
+      await expect(
+        service.cerrar({ ...paramsBase(), cierres: { ...paramsBase().cierres, comisiones: [99] } }),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(prisma.asignaciones_comision.update).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
+  BadRequestException,
   ConflictException,
   NotFoundException,
   UnprocessableEntityException,
@@ -218,6 +219,15 @@ describe('RetirosService', () => {
       prisma.funcionarios_cursos.findMany.mockResolvedValue([
         { id: 301n, fecha_inicio: null, fecha_fin: null, cursos: { id: 9n, nombre_curso: 'Curso A' } },
       ]);
+      prisma.asignaciones_comision.findMany.mockResolvedValue([
+        {
+          id: 12n,
+          cargo: 'Vocal',
+          fecha_inicio: new Date('2024-01-01'),
+          fecha_fin: null,
+          comisiones: { id: 3n, denominacion: 'Comisión de Vivienda' },
+        },
+      ]);
       prisma.usuarios.findFirst.mockResolvedValue({ id: 7n, username: 'jperez', estado: 'activo' });
       prisma.ocupaciones_vivienda.findFirst.mockResolvedValue(null);
     };
@@ -395,7 +405,7 @@ describe('RetirosService', () => {
 
       expect(cierre.cerrar).toHaveBeenCalledWith(
         expect.objectContaining({
-          cierres: { destino: false, inscripciones: [301], usuario: true },
+          cierres: { destino: false, inscripciones: [301], comisiones: [], usuario: true },
           forzarCascada: false,
         }),
       );
@@ -406,7 +416,7 @@ describe('RetirosService', () => {
 
       expect(cierre.cerrar).toHaveBeenCalledWith(
         expect.objectContaining({
-          cierres: { destino: true, inscripciones: [301], usuario: true },
+          cierres: { destino: true, inscripciones: [301], comisiones: [], usuario: true },
         }),
       );
     });
@@ -616,6 +626,58 @@ describe('RetirosService', () => {
       await expect(service.corregir(88, { motivo: 'x' })).rejects.toThrow(ConflictException);
     });
 
+    describe('fecha corregida', () => {
+      beforeEach(() => {
+        prisma.relaciones_laborales.findUnique.mockResolvedValue({ fecha_inicio: new Date('2015-03-01') });
+        prisma.movimientos_laborales.findFirst.mockResolvedValue(null);
+      });
+
+      const rechaza = async (fecha: string) => {
+        await expect(service.corregir(88, { fecha_retiro: fecha })).rejects.toThrow(BadRequestException);
+        expect(prisma.retiros.update).not.toHaveBeenCalled();
+        expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
+      };
+
+      it('400 si es futura', () => rechaza('2099-01-01'));
+
+      it('400 si es anterior al inicio de la relación que cierra', () => rechaza('2010-01-01'));
+
+      it('400 si es anterior al último movimiento de la relación (sin contar el del retiro)', async () => {
+        prisma.movimientos_laborales.findFirst.mockResolvedValue({ fecha_movimiento: new Date('2026-05-01') });
+        await rechaza('2026-04-01');
+        expect(prisma.movimientos_laborales.findFirst.mock.calls[0][0].where).toEqual({
+          relacion_laboral_id: 45n,
+          id: { not: 410n },
+        });
+      });
+
+      it('400 si cae el día de la reincorporación o después', async () => {
+        prisma.relaciones_laborales.findFirst.mockResolvedValue({ fecha_inicio: new Date('2026-10-15') });
+        await rechaza('2026-10-15');
+        await rechaza('2026-10-20');
+      });
+
+      it('acepta una fecha anterior a la reincorporación', async () => {
+        prisma.relaciones_laborales.findFirst.mockResolvedValue({ fecha_inicio: new Date('2026-10-15') });
+        await service.corregir(88, { fecha_retiro: '2026-10-14' });
+        expect(prisma.relaciones_laborales.update).toHaveBeenCalled();
+      });
+
+      it('también corrige la fecha del movimiento del retiro', async () => {
+        await service.corregir(88, { fecha_retiro: '2026-08-29' });
+
+        expect(prisma.movimientos_laborales.update).toHaveBeenCalledWith({
+          where: { id: 410n },
+          data: { fecha_movimiento: new Date('2026-08-29') },
+        });
+      });
+
+      it('sin fecha no toca el movimiento', async () => {
+        await service.corregir(88, { motivo: 'x' });
+        expect(prisma.movimientos_laborales.update).not.toHaveBeenCalled();
+      });
+    });
+
     it('422 si el motivo de baja nuevo no es valido', async () => {
       prisma.motivos_baja.findUnique.mockResolvedValue(null);
 
@@ -651,6 +713,56 @@ describe('RetirosService', () => {
       prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
     });
 
+    it('409 (no 500) si despues del retiro se le asigno otro destino', async () => {
+      prisma.destinos.findFirst.mockResolvedValue({
+        id: 95n,
+        fecha_inicio: new Date('2026-10-25'),
+        unidades: { denominacion: 'Base Aérea Nº 1' },
+      });
+
+      await expect(service.anular(88, { motivo_anulacion: 'Error de carga' }, 9n)).rejects.toThrow(
+        /otro destino \(Base Aérea Nº 1, desde 2026-10-25\)/,
+      );
+      expect(prisma.destinos.findFirst.mock.calls[0][0].where).toMatchObject({
+        fecha_fin: null,
+        id: { not: 88n },
+      });
+      expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
+    });
+
+    it('409 (no 500) si despues del retiro se le abrio otra pertenencia en la misma comision', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(
+        retiroConCierres({
+          cierres_aplicados: { comisiones: [{ id: '18', fecha_fin_anterior: null }] },
+        }),
+      );
+      prisma.asignaciones_comision.findMany.mockResolvedValue([{ id: 18n, comision_id: 7n }]);
+      prisma.asignaciones_comision.findFirst.mockResolvedValue({
+        id: 20n,
+        comisiones: { denominacion: 'Comisión A' },
+      });
+
+      await expect(service.anular(88, { motivo_anulacion: 'x' }, 9n)).rejects.toThrow(ConflictException);
+      expect(prisma.asignaciones_comision.findFirst.mock.calls[0][0].where).toMatchObject({
+        comision_id: { in: [7n] },
+        id: { notIn: [18n] },
+      });
+      expect(prisma.asignaciones_comision.update).not.toHaveBeenCalled();
+    });
+
+    it('una pertenencia que vuelve a su fin original no se valida contra las abiertas', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(
+        retiroConCierres({
+          cierres_aplicados: { comisiones: [{ id: '19', fecha_fin_anterior: '2027-03-31' }] },
+        }),
+      );
+
+      await service.anular(88, { motivo_anulacion: 'x' }, 9n);
+
+      expect(prisma.asignaciones_comision.findFirst).not.toHaveBeenCalled();
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalled();
+    });
+
     it('reabre la relacion laboral sin tocar situacion_id', async () => {
       await service.anular(88, { motivo_anulacion: 'Error de carga' }, 9n);
 
@@ -663,7 +775,7 @@ describe('RetirosService', () => {
       );
     });
 
-    it('lo reintegra a la derecha al final de su grado, como un alta', async () => {
+    it('sin rastro de la baja en el historial, lo reintegra al final de su grado', async () => {
       await service.anular(88, { motivo_anulacion: 'Error de carga' }, 9n);
 
       expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(
@@ -821,9 +933,37 @@ describe('RetirosService', () => {
           movimiento_borrado: '410',
           destino: '88',
           inscripciones: ['301'],
+          comisiones: [],
           usuario: '7',
         },
       });
+    });
+
+    it('reabre cada pertenencia a comisión con la fecha_fin que tenía', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(
+        retiroConCierres({
+          cierres_aplicados: {
+            comisiones: [
+              { id: '12', fecha_fin_anterior: null },
+              { id: '13', fecha_fin_anterior: '2027-03-31' },
+            ],
+          },
+        }),
+      );
+      prisma.asignaciones_comision.findMany.mockResolvedValue([{ id: 12n, comision_id: 7n }]);
+      prisma.asignaciones_comision.findFirst.mockResolvedValue(null);
+
+      const r = await service.anular(88, { motivo_anulacion: 'Error' }, 9n);
+
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalledWith({
+        where: { id: 12n },
+        data: { fecha_fin: null },
+      });
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalledWith({
+        where: { id: 13n },
+        data: { fecha_fin: new Date('2027-03-31') },
+      });
+      expect(r.revertido.comisiones).toEqual(['12', '13']);
     });
 
     it('409 si ya estaba anulado', async () => {
@@ -840,6 +980,60 @@ describe('RetirosService', () => {
       await expect(service.anular(999, { motivo_anulacion: 'x' }, 9n)).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    describe('posición en la derecha', () => {
+      beforeEach(() => {
+        prisma.historial_derecha_numor.findFirst.mockResolvedValue({ valor_anterior: 19, lote_id: 'lote-1' });
+        prisma.historial_derecha_numor.findMany.mockResolvedValue([
+          { persona_id: 70n, tipo: 'DERECHA' },
+          { persona_id: 74n, tipo: 'DERECHA' },
+          { persona_id: 74n, tipo: 'NUMOR' },
+        ]);
+        prisma.relaciones_laborales.findUnique.mockResolvedValue({ grado_id: 4n, escalafon_id: 8n });
+      });
+
+      it('vuelve justo delante del primero que la baja había corrido', async () => {
+        prisma.relaciones_laborales.findFirst
+          .mockResolvedValueOnce(null) // relacionPosterior
+          .mockResolvedValueOnce({ derecha: 21 })
+          .mockResolvedValueOnce({ numor: 1 });
+        prisma.relaciones_laborales.count.mockResolvedValueOnce(10).mockResolvedValueOnce(0);
+
+        await service.anular(88, { motivo_anulacion: 'Error de carga' }, 9n);
+
+        expect(prisma.historial_derecha_numor.findFirst.mock.calls[0][0].where).toMatchObject({
+          persona_id: 100n,
+          tipo: 'DERECHA',
+          operacion: 'BAJA',
+          valor_nuevo: null,
+        });
+        expect(prisma.relaciones_laborales.count.mock.calls[0][0].where).toMatchObject({
+          grado_id: 4n,
+          derecha: { not: null, lt: 21 },
+        });
+        expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(
+          prisma,
+          100n,
+          11,
+          1,
+          expect.objectContaining({ usuarioId: 9n }),
+        );
+      });
+
+      it('si ninguno de los de atrás sigue en el grado, va al final', async () => {
+        prisma.relaciones_laborales.findFirst.mockResolvedValue(null);
+
+        await service.anular(88, { motivo_anulacion: 'Error de carga' }, 9n);
+
+        expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(
+          prisma,
+          100n,
+          null,
+          null,
+          expect.anything(),
+        );
+      });
     });
   });
   // ─── reincorporación ────────────────────────────────────────────────────────
@@ -868,6 +1062,120 @@ describe('RetirosService', () => {
     prisma.tipos_movimiento.findFirst.mockResolvedValue({ id: 5n, nombre: 'Reincorporacion', es_alta: true });
     prisma.destinos.findFirst.mockResolvedValue(null);
   };
+
+  describe('anularReincorporacion', () => {
+    const relacionNueva = (o: Partial<any> = {}) => ({
+      id: 99n,
+      estado: 'activo',
+      fecha_inicio: new Date('2026-09-10'),
+      unidad_id: 5n,
+      situaciones: { codigo: 'SIT17' },
+      ...o,
+    });
+    const dto = { motivo_anulacion: 'Cargada por error' };
+
+    beforeEach(() => {
+      prisma.retiros.findUnique.mockResolvedValue(makeRetiro());
+      prisma.relaciones_laborales.findMany.mockResolvedValue([relacionNueva()]);
+      prisma.movimientos_laborales.findMany.mockResolvedValue([
+        { id: 500n, tipos_movimiento: { nombre: 'Reincorporacion', es_alta: true } },
+      ]);
+      prisma.ascensos.count.mockResolvedValue(0);
+      prisma.retiros.count.mockResolvedValue(0);
+      prisma.items_liquidacion.count.mockResolvedValue(0);
+      prisma.compensaciones_diferencia_ascenso.count.mockResolvedValue(0);
+      prisma.destinos.findMany.mockResolvedValue([
+        { id: 77n, unidad_id: 5n, fecha_inicio: new Date('2026-09-10') },
+      ]);
+      prisma.destinos.findFirst.mockResolvedValue({ id: 60n });
+      (derecha as any).quitarPorInactividadEnTransaccion = jest.fn();
+    });
+
+    it('borra la relación, su movimiento y el destino nuevo, y reabre el que cerró', async () => {
+      const r = await service.anularReincorporacion(88, dto, 9n);
+
+      expect(prisma.movimientos_laborales.deleteMany).toHaveBeenCalledWith({
+        where: { relacion_laboral_id: 99n },
+      });
+      expect(prisma.destinos.delete).toHaveBeenCalledWith({ where: { id: 77n } });
+      expect(prisma.destinos.findFirst.mock.calls[0][0].where).toEqual({
+        persona_id: 100n,
+        fecha_fin: new Date('2026-09-09'),
+      });
+      expect(prisma.destinos.update).toHaveBeenCalledWith({ where: { id: 60n }, data: { fecha_fin: null } });
+      expect(prisma.relaciones_laborales.delete).toHaveBeenCalledWith({ where: { id: 99n } });
+      expect(r.revertido).toEqual({
+        relacion_laboral_borrada: '99',
+        movimientos_borrados: ['500'],
+        destino_borrado: '77',
+        destino_reabierto: '60',
+      });
+    });
+
+    it('la saca de la derecha antes de borrar la relación', async () => {
+      await service.anularReincorporacion(88, dto, 9n);
+
+      const quitar = (derecha as any).quitarPorInactividadEnTransaccion;
+      expect(quitar).toHaveBeenCalledWith(prisma, 100n, {
+        motivo: 'Anulación de reincorporación: Cargada por error',
+        usuarioId: 9n,
+      });
+      expect(quitar.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.relaciones_laborales.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('404 si el retiro no existe', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(null);
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(NotFoundException);
+    });
+
+    it('409 si no hubo reincorporación', async () => {
+      prisma.relaciones_laborales.findMany.mockResolvedValue([]);
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(ConflictException);
+    });
+
+    it('409 si después hubo otra relación (ascenso)', async () => {
+      prisma.relaciones_laborales.findMany.mockResolvedValue([relacionNueva(), relacionNueva({ id: 100n })]);
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(ConflictException);
+    });
+
+    it('409 si la reincorporación ya la cerró un retiro posterior', async () => {
+      prisma.relaciones_laborales.findMany.mockResolvedValue([relacionNueva({ estado: 'inactivo' })]);
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(ConflictException);
+    });
+
+    it('409 si la relación ya se liquidó', async () => {
+      prisma.items_liquidacion.count.mockResolvedValue(3);
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(ConflictException);
+      expect(prisma.relaciones_laborales.delete).not.toHaveBeenCalled();
+    });
+
+    it('409 si la relación tiene otros movimientos', async () => {
+      prisma.movimientos_laborales.findMany.mockResolvedValue([
+        { id: 500n, tipos_movimiento: { nombre: 'Reincorporacion', es_alta: true } },
+        { id: 501n, tipos_movimiento: { nombre: 'Ascenso', es_alta: false } },
+      ]);
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(ConflictException);
+    });
+
+    it('409 si cambió de destino después de reincorporarse', async () => {
+      prisma.destinos.findMany.mockResolvedValue([
+        { id: 78n, unidad_id: 6n, fecha_inicio: new Date('2026-10-01') },
+        { id: 77n, unidad_id: 5n, fecha_inicio: new Date('2026-09-10') },
+      ]);
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(ConflictException);
+    });
+
+    it('422 si la relación posterior no es de reincorporado', async () => {
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        relacionNueva({ situaciones: { codigo: 'SIT07' } }),
+      ]);
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+    });
+  });
 
   describe('previaReincorporacion', () => {
     beforeEach(prepararReincorporable);

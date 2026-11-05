@@ -51,8 +51,8 @@ export class UsuariosController {
   @Post()
   @RequirePermissions('usuarios.gestionar')
   @ApiOperation({ summary: 'Crear un nuevo usuario' })
-  create(@Body() dto: CreateUsuarioDto) {
-    return this.usuariosService.create(dto);
+  create(@Body() dto: CreateUsuarioDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.usuariosService.create(dto, user);
   }
 
   @Patch(':id')
@@ -63,7 +63,7 @@ export class UsuariosController {
     @Body() dto: UpdateUsuarioDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.usuariosService.update(id, dto, user.id);
+    return this.usuariosService.update(id, dto, user);
   }
 
   @Delete(':id')
@@ -71,7 +71,7 @@ export class UsuariosController {
   @RequirePermissions('usuarios.gestionar')
   @ApiOperation({ summary: 'Bloquear (soft delete) un usuario' })
   remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.usuariosService.remove(id, user.id);
+    return this.usuariosService.remove(id, user);
   }
 
   @Patch(':id/unidad')
@@ -91,7 +91,7 @@ export class UsuariosController {
     @Body() dto: AsignarUnidadesDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.usuariosService.asignarUnidades(id, dto.unidadIds, user.id);
+    return this.usuariosService.asignarUnidades(id, dto.unidadIds, user);
   }
 
   @Post(':id/roles/:rolId')
@@ -99,8 +99,12 @@ export class UsuariosController {
   @RequirePermissions('usuarios.gestionar')
   @Auditar({ contexto: 'Usuarios', accion: 'ASIGNAR', entidad: 'Usuario' })
   @ApiOperation({ summary: 'Asignar un rol a un usuario' })
-  asignarRol(@Param('id') id: string, @Param('rolId') rolId: string) {
-    return this.usuariosService.asignarRol(id, rolId);
+  asignarRol(
+    @Param('id') id: string,
+    @Param('rolId') rolId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usuariosService.asignarRol(id, rolId, user);
   }
 
   @Delete(':id/roles/:rolId')
@@ -113,7 +117,7 @@ export class UsuariosController {
     @Param('rolId') rolId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.usuariosService.quitarRol(id, rolId, user.id);
+    return this.usuariosService.quitarRol(id, rolId, user);
   }
 
   @Post(':id/reset-password')
@@ -121,7 +125,11 @@ export class UsuariosController {
   @RequirePermissions('usuarios.gestionar')
   @Auditar({ contexto: 'Usuarios', accion: 'RESETEAR_PASSWORD', entidad: 'Usuario' })
   @ApiOperation({ summary: 'Resetear la contraseña de un usuario' })
-  resetPassword(@Param('id') id: string, @Body() dto: ResetPasswordDto) {
-    return this.usuariosService.resetPassword(id, dto);
+  resetPassword(
+    @Param('id') id: string,
+    @Body() dto: ResetPasswordDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usuariosService.resetPassword(id, dto, user);
   }
 }

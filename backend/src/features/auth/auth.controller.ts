@@ -52,11 +52,27 @@ export class AuthController {
     return { user: result.user };
   }
 
+  // Es público para poder borrar la cookie aunque el token ya no sea válido.
+  // Si el token es válido, además se invalidan sus sesiones.
   @Post('sign-out')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiCookieAuth('auth_token')
-  @ApiOperation({ summary: 'Cerrar sesión' })
-  signOut(@Res({ passthrough: true }) res: Response) {
+  @ApiOperation({ summary: 'Cerrar sesión (invalida el token actual y los demás del usuario)' })
+  async signOut(
+    @Req() req: Request & { cookies?: Record<string, string> },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const token = req.cookies?.[COOKIE_NAME];
+    if (token) {
+      let usuarioId: string | null = null;
+      try {
+        usuarioId = this.authService.verifyToken(token).sub;
+      } catch {
+        // Token vencido o adulterado: no hay sesión que cerrar, solo se borra la cookie.
+      }
+      if (usuarioId) await this.authService.cerrarSesiones(usuarioId);
+    }
     res.clearCookie(COOKIE_NAME, this.cookieOptions(0));
     return { ok: true };
   }
@@ -76,8 +92,13 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ChangePasswordDto,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.changePassword(user.id, dto);
+    // El cambio invalida todas las sesiones, incluida esta: se le emite un token nuevo
+    // a quien hizo el cambio.
+    const sesion = await this.authService.reemitirSesion(user.id);
+    res.cookie(COOKIE_NAME, sesion.token, this.cookieOptions(sesion.expiresIn));
     void this.auditoria.registrar({
       usuarioId: user.id,
       accion: 'CAMBIAR_PASSWORD',

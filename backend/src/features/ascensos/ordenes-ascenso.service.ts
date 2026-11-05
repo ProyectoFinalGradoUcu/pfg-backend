@@ -7,8 +7,15 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service.js';
-import { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
-import { AscensoRegistroService } from './ascenso-registro.service.js';
+import {
+  AlcanceResuelto,
+  unidadIdsDeAlcance,
+} from '../../lib/alcance/alcance.types.js';
+import {
+  AscensoRegistroService,
+  mensajeFueraDeCarrera,
+} from './ascenso-registro.service.js';
+import { clasificarAscenso } from './ascensos.constants.js';
 import { ElegibilidadService } from './elegibilidad.service.js';
 import { CreateOrdenDto } from './dto/create-orden.dto.js';
 import { ListOrdenesQueryDto } from './dto/list-ordenes-query.dto.js';
@@ -51,6 +58,7 @@ export class OrdenesAscensoService {
     dto: CreateOrdenDto,
     usuarioId: bigint | null,
     permisos: string[] = [],
+    alcance?: AlcanceResuelto,
   ) {
     // La orden se identifica por el N.º de O.C.G.F.A. o por el boletín: al menos uno.
     if (!dto.numero_orden && !dto.boletin) {
@@ -65,8 +73,14 @@ export class OrdenesAscensoService {
       );
     }
 
-    // Antes de la transacción: es solo lectura.
-    const evaluaciones = await this.evaluarFuncionarios(dto);
+    // Antes de la transacción: es solo lectura. La relación que se ve acá es la
+    // que cada registro espera encontrar después de tomar el lock.
+    const [evaluaciones, vigentes, catalogo] = await Promise.all([
+      this.evaluarFuncionarios(dto),
+      this.relacionesVigentes(personaIds),
+      this.prisma.grados.findMany({ select: { id: true, codigo: true, denominacion: true } }),
+    ]);
+    const grados = new Map(catalogo.map((g) => [g.id.toString(), g]));
 
     const puedeExcepcion = permisos.includes('ascensos.excepcion');
 
@@ -78,6 +92,48 @@ export class OrdenesAscensoService {
         'No tenés el permiso para elegir la posición en la derecha o el numor: sin él, los ascendidos van al final de su grado.',
       );
     }
+    // Todo ascenso pasa por la evaluación de elegibilidad. El motor deja afuera
+    // a los civiles (no ascienden por la escala militar) y a quien no tiene
+    // relación vigente: a ninguno de los dos se le puede registrar un ascenso.
+    const personas = new Map(
+      (
+        await this.prisma.personas.findMany({
+          where: { id: { in: personaIds.map((id) => BigInt(id)) } },
+          select: { id: true, es_civil: true, primer_nombre: true, primer_apellido: true },
+        })
+      ).map((p) => [p.id.toString(), p]),
+    );
+    const unidadesDelUsuario = alcance ? unidadIdsDeAlcance(alcance) : null;
+    for (const f of dto.funcionarios) {
+      const clave = String(f.persona_id);
+      const persona = personas.get(clave);
+      const unidad = vigentes.get(clave)?.unidad_id ?? null;
+      // Fuera del alcance responde igual que si no existiera: un 403 confirmaría
+      // que la persona está en otra unidad (spec 002 §7).
+      const fueraDeAlcance =
+        unidadesDelUsuario !== null &&
+        (unidad === null || !unidadesDelUsuario.includes(unidad));
+      if (!persona || fueraDeAlcance) {
+        throw new NotFoundException(`No existe el funcionario ${f.persona_id}`);
+      }
+      const nombre = `${persona.primer_nombre} ${persona.primer_apellido}`.trim();
+      if (persona.es_civil) {
+        throw new BadRequestException(
+          `${nombre} es personal civil: los civiles no ascienden por la escala militar y no tienen evaluación de elegibilidad.`,
+        );
+      }
+      if (!vigentes.has(clave)) {
+        throw new BadRequestException(
+          `${nombre} no tiene una relación laboral vigente: no se le puede registrar un ascenso.`,
+        );
+      }
+      if (!evaluaciones.has(clave)) {
+        throw new BadRequestException(
+          `No se pudo evaluar la elegibilidad de ${nombre}: sin evaluación no se registra el ascenso.`,
+        );
+      }
+    }
+
     const preparados = dto.funcionarios.map((f) => {
       const evaluacion = evaluaciones.get(String(f.persona_id)) ?? null;
       const gradoDestinoId =
@@ -90,18 +146,32 @@ export class OrdenesAscensoService {
         );
       }
 
+      // Solo el grado siguiente de la misma escala es un ascenso normal.
+      const actual = vigentes.get(String(f.persona_id));
+      const destino = grados.get(String(gradoDestinoId));
+      const tipo =
+        actual && destino ? clasificarAscenso(actual.grados.codigo, destino.codigo) : null;
+      const fueraDeCarrera = tipo === 'SALTO' || tipo === 'CAMBIO_ESCALA';
+
       // Sin regla evaluable no se puede afirmar que cumplía ni que no cumplía.
-      const cumplia = evaluacion?.regla ? evaluacion.estado === 'PASIBLE' : null;
+      // Un salto o un cambio de escala nunca cumple: la regla es para el siguiente.
+      const cumplia = fueraDeCarrera
+        ? false
+        : evaluacion?.regla
+          ? evaluacion.estado === 'PASIBLE'
+          : null;
 
       if (cumplia === false) {
         if (!f.motivo_excepcion?.trim()) {
           throw new BadRequestException(
-            `${evaluacion?.persona.nombre_completo ?? `El funcionario ${f.persona_id}`} no cumple los requisitos (${evaluacion?.motivo ?? 'sin detalle'}). Para ascenderlo igual hay que escribir un motivo de excepción.`,
+            fueraDeCarrera
+              ? mensajeFueraDeCarrera(tipo!, actual!.grados, destino!, f.persona_id)
+              : `${evaluacion?.persona.nombre_completo ?? `El funcionario ${f.persona_id}`} no cumple los requisitos (${evaluacion?.motivo ?? 'sin detalle'}). Para ascenderlo igual hay que escribir un motivo de excepción.`,
           );
         }
         if (!puedeExcepcion) {
           throw new ForbiddenException(
-            `${evaluacion?.persona.nombre_completo ?? `El funcionario ${f.persona_id}`} no cumple los requisitos y no tenés el permiso para registrar un ascenso por excepción.`,
+            `${evaluacion?.persona.nombre_completo ?? `El funcionario ${f.persona_id}`} ${fueraDeCarrera ? 'no asciende al grado siguiente de su escala' : 'no cumple los requisitos'} y no tenés el permiso para registrar un ascenso por excepción.`,
           );
         }
       }
@@ -116,10 +186,18 @@ export class OrdenesAscensoService {
         motivo_excepcion: cumplia === false ? (f.motivo_excepcion ?? null) : null,
         posicion_derecha: f.posicion_derecha ?? null,
         posicion_numor: f.posicion_numor ?? null,
+        relacion_esperada_id: vigentes.get(String(f.persona_id))?.id ?? null,
       };
     });
 
     const orden = await this.prisma.$transaction(async (tx) => {
+      // Todos los locks de la orden de una vez y en orden de id, antes de
+      // escribir nada: dos órdenes con funcionarios en común no se cruzan.
+      await this.registro.bloquearPersonas(
+        tx,
+        preparados.map((p) => p.persona_id),
+      );
+
       const creada = await tx.ascensos_ordenes.create({
         data: {
           numero_orden: dto.numero_orden ?? null,
@@ -145,13 +223,49 @@ export class OrdenesAscensoService {
           usuario_id: usuarioId,
           posicion_derecha: p.posicion_derecha,
           posicion_numor: p.posicion_numor,
+          relacion_esperada_id: p.relacion_esperada_id,
         });
       }
 
       return creada;
     });
 
-    return this.obtener(Number(orden.id));
+    return this.obtener(Number(orden.id), {}, alcance);
+  }
+
+  /**
+   * Ascensos que el usuario puede ver, o null con alcance global. Se mira la
+   * relación nueva y también la anterior: al anular, la nueva se borra y el
+   * ascenso quedaría invisible para su propia unidad.
+   */
+  private filtroAscensosPorAlcance(alcance?: AlcanceResuelto): Prisma.ascensosWhereInput | null {
+    const unidades = alcance ? unidadIdsDeAlcance(alcance) : null;
+    if (unidades === null) return null;
+    return {
+      OR: [
+        { relacion_laboral_nueva: { unidad_id: { in: unidades } } },
+        { relacion_laboral_anterior: { unidad_id: { in: unidades } } },
+      ],
+    };
+  }
+
+  /** Relación vigente de cada funcionario, por persona. */
+  private async relacionesVigentes(personaIds: number[]) {
+    const relaciones = await this.prisma.relaciones_laborales.findMany({
+      where: { persona_id: { in: personaIds.map((id) => BigInt(id)) }, fecha_fin: null },
+      orderBy: { fecha_inicio: 'desc' },
+      select: {
+        id: true,
+        persona_id: true,
+        unidad_id: true,
+        grados: { select: { codigo: true, denominacion: true } },
+      },
+    });
+    const porPersona = new Map<string, (typeof relaciones)[number]>();
+    for (const r of relaciones) {
+      if (!porPersona.has(r.persona_id.toString())) porPersona.set(r.persona_id.toString(), r);
+    }
+    return porPersona;
   }
 
   /** Agrupados por fecha de ascenso, que es de lo que depende la evaluación. */
@@ -197,12 +311,13 @@ export class OrdenesAscensoService {
     const filtroAscensos: Prisma.ascensosWhereInput = {};
     if (query.grado_destino_id) filtroAscensos.grado_id = BigInt(query.grado_destino_id);
     if (query.con_excepciones) filtroAscensos.cumplia_requisitos = false;
-    if (query.unidad_id || alcance?.tipo === 'unidad') {
-      const unidades = query.unidad_id
-        ? [BigInt(query.unidad_id)]
-        : (alcance as { unidadIds: string[] }).unidadIds.map((u) => BigInt(u));
-      filtroAscensos.relacion_laboral_nueva = { unidad_id: { in: unidades } };
+    if (query.unidad_id) {
+      filtroAscensos.relacion_laboral_nueva = { unidad_id: BigInt(query.unidad_id) };
     }
+    // Además del filtro de unidad que pida, el alcance: con `.unidad` solo
+    // órdenes con algún funcionario suyo, y de cada una solo esos funcionarios.
+    const visibles = this.filtroAscensosPorAlcance(alcance);
+    if (visibles) filtroAscensos.AND = [visibles];
     if (Object.keys(filtroAscensos).length > 0) {
       where.ascensos = { some: filtroAscensos };
     }
@@ -217,16 +332,24 @@ export class OrdenesAscensoService {
         include: {
           usuario_creacion: { select: { id: true, username: true } },
           usuario_anulacion: { select: { id: true, username: true } },
-          ascensos: { include: includeAscenso },
+          ascensos: { where: visibles ?? undefined, include: includeAscenso },
         },
       }),
     ]);
 
+    // Los totales usan el mismo alcance que la tabla: con `.unidad`, solo las órdenes con
+    // algún funcionario suyo y, de cada una, solo esos ascensos.
     const delPeriodo = await this.prisma.ascensos_ordenes.findMany({
-      where: { fecha_orden: { gte: desde, lt: hasta } },
+      where: {
+        fecha_orden: { gte: desde, lt: hasta },
+        ...(visibles ? { ascensos: { some: visibles } } : {}),
+      },
       select: {
         anulada_en: true,
-        ascensos: { select: { anulado_en: true, cumplia_requisitos: true } },
+        ascensos: {
+          where: visibles ?? undefined,
+          select: { anulado_en: true, cumplia_requisitos: true },
+        },
       },
     });
 
@@ -251,16 +374,21 @@ export class OrdenesAscensoService {
    * Los funcionarios vienen paginados; los contadores y la lista de vigentes
    * (la que nombra la confirmación de anular la orden) son de la orden entera.
    */
-  async obtener(id: number, query: DetalleOrdenQueryDto = {}) {
+  async obtener(id: number, query: DetalleOrdenQueryDto = {}, alcance?: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 200);
 
-    const orden = await this.prisma.ascensos_ordenes.findUnique({
-      where: { id: BigInt(id) },
+    // Con alcance de unidad solo se ven los funcionarios de sus unidades, y una
+    // orden sin ninguno de ellos responde como inexistente.
+    const visibles = this.filtroAscensosPorAlcance(alcance);
+
+    const orden = await this.prisma.ascensos_ordenes.findFirst({
+      where: { id: BigInt(id), ...(visibles ? { ascensos: { some: visibles } } : {}) },
       include: {
         usuario_creacion: { select: { id: true, username: true } },
         usuario_anulacion: { select: { id: true, username: true } },
         ascensos: {
+          where: visibles ?? undefined,
           include: includeAscenso,
           orderBy: { id: 'asc' },
           skip: (page - 1) * pageSize,
@@ -271,7 +399,7 @@ export class OrdenesAscensoService {
     if (!orden) throw new NotFoundException(`No existe la orden de ascenso ${id}`);
 
     const todos = await this.prisma.ascensos.findMany({
-      where: { orden_ascenso_id: orden.id },
+      where: { orden_ascenso_id: orden.id, ...(visibles ?? {}) },
       orderBy: { id: 'asc' },
       select: {
         id: true,
@@ -304,12 +432,33 @@ export class OrdenesAscensoService {
    * Todo o nada: si alguno de sus ascensos ya no se puede revertir, no se anula
    * ninguno y el error dice cuál traba.
    */
-  async anularOrden(id: number, motivo: string, usuarioId: bigint | null) {
+  async anularOrden(
+    id: number,
+    motivo: string,
+    usuarioId: bigint | null,
+    alcance?: AlcanceResuelto,
+  ) {
     const orden = await this.prisma.ascensos_ordenes.findUnique({
       where: { id: BigInt(id) },
-      include: { ascensos: { select: { id: true, anulado_en: true } } },
+      include: { ascensos: { select: { id: true, anulado_en: true, persona_id: true } } },
     });
     if (!orden) throw new NotFoundException(`No existe la orden de ascenso ${id}`);
+
+    // Con alcance de unidad: si la orden no tiene funcionarios de sus unidades, 404 (como en
+    // el detalle); si tiene funcionarios de otras unidades, no se puede anular entera.
+    const visibles = this.filtroAscensosPorAlcance(alcance);
+    if (visibles) {
+      const enAlcance = await this.prisma.ascensos.count({
+        where: { orden_ascenso_id: orden.id, ...visibles },
+      });
+      if (enAlcance === 0) throw new NotFoundException(`No existe la orden de ascenso ${id}`);
+      if (enAlcance < orden.ascensos.length) {
+        throw new ForbiddenException(
+          'La orden incluye funcionarios de unidades fuera de tu alcance: solo la puede anular alguien con alcance sobre todos ellos.',
+        );
+      }
+    }
+
     if (orden.anulada_en) {
       throw new ConflictException(
         `La orden ${orden.numero_orden ?? orden.boletin} ya está anulada`,
@@ -319,6 +468,10 @@ export class OrdenesAscensoService {
     const vigentes = orden.ascensos.filter((a) => a.anulado_en == null);
 
     await this.prisma.$transaction(async (tx) => {
+      await this.registro.bloquearPersonas(
+        tx,
+        vigentes.flatMap((a) => (a.persona_id != null ? [a.persona_id] : [])),
+      );
       // En orden inverso al alta.
       for (const ascenso of [...vigentes].reverse()) {
         await this.registro.anularEnTransaccion(tx, ascenso.id, {
@@ -337,18 +490,32 @@ export class OrdenesAscensoService {
       });
     });
 
-    return this.obtener(id);
+    return this.obtener(id, {}, alcance);
   }
 
   /** Anula un ascenso puntual, sin tocar el resto de la orden. */
-  async anularAscenso(ascensoId: number, motivo: string, usuarioId: bigint | null) {
+  async anularAscenso(
+    ascensoId: number,
+    motivo: string,
+    usuarioId: bigint | null,
+    alcance?: AlcanceResuelto,
+  ) {
+    // Fuera del alcance responde igual que si no existiera (spec 002 §7).
+    const visibles = this.filtroAscensosPorAlcance(alcance);
+    if (visibles) {
+      const enAlcance = await this.prisma.ascensos.count({
+        where: { id: BigInt(ascensoId), ...visibles },
+      });
+      if (enAlcance === 0) throw new NotFoundException(`No existe el ascenso ${ascensoId}`);
+    }
+
     const ascenso = await this.registro.anular(BigInt(ascensoId), {
       motivo,
       usuario_id: usuarioId,
     });
 
     return ascenso.orden_ascenso_id
-      ? this.obtener(Number(ascenso.orden_ascenso_id))
+      ? this.obtener(Number(ascenso.orden_ascenso_id), {}, alcance)
       : this.mapAscenso(
           (await this.prisma.ascensos.findUnique({
             where: { id: ascenso.id },

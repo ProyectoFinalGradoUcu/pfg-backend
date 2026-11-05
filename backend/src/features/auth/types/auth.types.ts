@@ -10,8 +10,10 @@ export interface AuthPayload {
   permisos: string[];
   /** Unidades asignadas al usuario. Array vacío si no tiene ninguna. */
   unidades: UnidadInfo[];
-  /** Emitido en segundos (lo agrega jsonwebtoken). Se compara con `sesiones_invalidas_desde`. */
+  /** Emitido en segundos (lo agrega jsonwebtoken). Respaldo para tokens sin `iatMs`. */
   iat?: number;
+  /** Emitido en milisegundos. Se compara con `sesiones_invalidas_desde`. */
+  iatMs?: number;
 }
 
 export interface AuthenticatedUser {

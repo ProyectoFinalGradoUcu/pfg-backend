@@ -103,12 +103,13 @@ export class AscensosController {
       'Detalle de una orden: sus funcionarios (paginados) y la foto de evaluación de cada uno',
   })
   @ApiParam({ name: 'id', type: Number })
-  @RequirePermissions('ascensos.ver')
+  @RequireAlcance('ascensos.ver')
   obtenerOrden(
     @Param('id', ParseIntPipe) id: number,
     @Query() query: DetalleOrdenQueryDto,
+    @Alcance() alcance: AlcanceResuelto,
   ) {
-    return this.ordenes.obtener(id, query);
+    return this.ordenes.obtener(id, query, alcance);
   }
 
   @Post('ordenes')
@@ -118,17 +119,25 @@ export class AscensosController {
       'Registra una orden con N funcionarios. Cierra la relación vigente de cada uno y abre la nueva con el grado que usa liquidación.',
   })
   @RequirePermissions('ascensos.registrar')
+  // Además del permiso de registrar: los funcionarios de la orden tienen que
+  // estar dentro de lo que el usuario puede ver (global o sus unidades).
+  @RequireAlcance('ascensos.ver')
   @Auditar({
     contexto: 'Ascensos',
     entidad: 'Orden de ascenso',
     accion: 'ascenso.registrar',
     incluirRespuesta: true,
   })
-  crearOrden(@Body() dto: CreateOrdenDto, @CurrentUser() user: AuthenticatedUser) {
+  crearOrden(
+    @Body() dto: CreateOrdenDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
     return this.ordenes.crear(
       dto,
       user?.id != null ? BigInt(user.id) : null,
       user?.permisos ?? [],
+      alcance,
     );
   }
 
@@ -139,13 +148,21 @@ export class AscensosController {
   })
   @ApiParam({ name: 'id', type: Number })
   @RequirePermissions('ascensos.anular')
+  // Además del permiso de anular: los funcionarios tienen que estar en su alcance.
+  @RequireAlcance('ascensos.ver')
   @Auditar({ contexto: 'Ascensos', entidad: 'Orden de ascenso', accion: 'orden_ascenso.anular' })
   anularOrden(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AnularDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Alcance() alcance: AlcanceResuelto,
   ) {
-    return this.ordenes.anularOrden(id, dto.motivo, user?.id != null ? BigInt(user.id) : null);
+    return this.ordenes.anularOrden(
+      id,
+      dto.motivo,
+      user?.id != null ? BigInt(user.id) : null,
+      alcance,
+    );
   }
 
   @Post(':ascensoId/anular')
@@ -153,16 +170,19 @@ export class AscensosController {
   @ApiOperation({ summary: 'Anula un ascenso puntual sin tocar el resto de la orden' })
   @ApiParam({ name: 'ascensoId', type: Number })
   @RequirePermissions('ascensos.anular')
+  @RequireAlcance('ascensos.ver')
   @Auditar({ contexto: 'Ascensos', entidad: 'Ascenso', accion: 'ascenso.anular' })
   anularAscenso(
     @Param('ascensoId', ParseIntPipe) ascensoId: number,
     @Body() dto: AnularDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.ordenes.anularAscenso(
       ascensoId,
       dto.motivo,
       user?.id != null ? BigInt(user.id) : null,
+      alcance,
     );
   }
 }

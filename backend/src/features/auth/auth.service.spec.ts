@@ -214,7 +214,7 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.assertUsuarioActivo('1', enSegundos(invalidacion) + 60),
+        service.assertUsuarioActivo('1', { iat: enSegundos(invalidacion) + 60 }),
       ).resolves.toBeUndefined();
     });
 
@@ -227,11 +227,11 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.assertUsuarioActivo('1', enSegundos(invalidacion) - 60),
-      ).rejects.toThrow('Sesión expirada por cambio de permisos');
+        service.assertUsuarioActivo('1', { iat: enSegundos(invalidacion) - 60 }),
+      ).rejects.toThrow('Tu sesión ya no es válida');
     });
 
-    it('acepta un token emitido en el mismo segundo de la invalidación (comparación truncada)', async () => {
+    it('un token viejo sin iatMs emitido en el mismo segundo se acepta (comparación truncada)', async () => {
       const invalidacion = new Date('2026-01-01T10:00:00.750Z');
       prisma.usuarios.findUnique.mockResolvedValue({
         estado: 'activo',
@@ -240,7 +240,40 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.assertUsuarioActivo('1', enSegundos(invalidacion)),
+        service.assertUsuarioActivo('1', { iat: enSegundos(invalidacion) }),
+      ).resolves.toBeUndefined();
+    });
+
+    // Sign-out y cambio de contraseña en el mismo segundo del login.
+    it('con iatMs rechaza un token emitido milisegundos antes de la invalidación', async () => {
+      const invalidacion = new Date('2026-01-01T10:00:00.750Z');
+      prisma.usuarios.findUnique.mockResolvedValue({
+        estado: 'activo',
+        bloqueado_hasta: null,
+        sesiones_invalidas_desde: invalidacion,
+      });
+
+      await expect(
+        service.assertUsuarioActivo('1', {
+          iat: enSegundos(invalidacion),
+          iatMs: invalidacion.getTime() - 200,
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('con iatMs acepta el token reemitido justo después de la invalidación', async () => {
+      const invalidacion = new Date('2026-01-01T10:00:00.750Z');
+      prisma.usuarios.findUnique.mockResolvedValue({
+        estado: 'activo',
+        bloqueado_hasta: null,
+        sesiones_invalidas_desde: invalidacion,
+      });
+
+      await expect(
+        service.assertUsuarioActivo('1', {
+          iat: enSegundos(invalidacion),
+          iatMs: invalidacion.getTime() + 1,
+        }),
       ).resolves.toBeUndefined();
     });
 
@@ -252,7 +285,7 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.assertUsuarioActivo('1', 1000),
+        service.assertUsuarioActivo('1', { iat: 1000 }),
       ).resolves.toBeUndefined();
     });
 
@@ -263,7 +296,7 @@ describe('AuthService', () => {
         sesiones_invalidas_desde: null,
       });
 
-      await expect(service.assertUsuarioActivo('1', 1000)).rejects.toThrow(
+      await expect(service.assertUsuarioActivo('1', { iat: 1000 })).rejects.toThrow(
         UnauthorizedException,
       );
     });
@@ -319,6 +352,49 @@ describe('AuthService', () => {
       expect(prisma.usuarios.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ password_hash: 'hash' }) }),
       );
+    });
+
+    it('invalida las sesiones abiertas en el mismo update del hash', async () => {
+      prisma.usuarios.findUnique.mockResolvedValue(makeUsuario());
+
+      await service.changePassword('1', dto);
+
+      expect(prisma.usuarios.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ sesiones_invalidas_desde: expect.any(Date) }),
+        }),
+      );
+    });
+  });
+
+  // ─── cerrarSesiones / reemitirSesion ────────────────────────────────────────
+
+  describe('cerrarSesiones', () => {
+    it('marca sesiones_invalidas_desde del usuario', async () => {
+      await service.cerrarSesiones('1');
+
+      expect(prisma.usuarios.updateMany).toHaveBeenCalledWith({
+        where: { id: 1n },
+        data: { sesiones_invalidas_desde: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('reemitirSesion', () => {
+    it('firma un token con iatMs para que sobreviva a la invalidación recién hecha', async () => {
+      prisma.usuarios.findUnique.mockResolvedValue(makeUsuario());
+      const antes = Date.now();
+
+      const { token } = await service.reemitirSesion('1');
+
+      const payload = jwt.decode(token) as { iatMs?: number };
+      expect(payload.iatMs).toBeGreaterThanOrEqual(antes);
+    });
+
+    it('no reemite si el usuario ya no está activo', async () => {
+      prisma.usuarios.findUnique.mockResolvedValue(makeUsuario({ estado: 'bloqueado' }));
+
+      await expect(service.reemitirSesion('1')).rejects.toThrow(UnauthorizedException);
     });
   });
 });
