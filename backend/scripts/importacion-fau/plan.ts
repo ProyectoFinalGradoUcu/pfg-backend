@@ -90,6 +90,8 @@ export interface Plan {
   motivosRelacion: Array<{ relacionId: string; motivo: Ref }>;
   /** conducta para períodos de baja que ya estaban en la base sin ella. */
   conductasRelacion: Array<{ relacionId: string; conducta: string }>;
+  /** tipo_funcionario para activos que ya existían sin él. */
+  tiposRelacion: Array<{ relacionId: string; tipo: 'oficial' | 'subalterno' }>;
   /** Retiros de los períodos de baja. `relacion` es un id de la base o "rel:N" (relación N del plan). */
   retiros: Array<{ persona: Ref; relacion: string; fecha: string; motivoBaja: Ref; motivo: string;
     numeroOrden: string | null; boletin: string | null; observaciones: string }>;
@@ -124,7 +126,7 @@ export async function armarPlan(
   const plan: Plan = {
     personasNuevas: new Map(), completar: [], relaciones: [], destinos: [], vuelos: [], derechas: [], historial: [],
     legajos: [], cursos: [], ascensos: [], motivosNuevos: new Set(), motivosRelacion: [], conductasRelacion: [], retiros: [],
-    familiares: [],
+    familiares: [], tiposRelacion: [],
     misiones: new Map(), incidencias: [], conteo: {},
   };
   const contar = (k: string, n = 1) => (plan.conteo[k] = (plan.conteo[k] ?? 0) + n);
@@ -139,11 +141,12 @@ export async function armarPlan(
   const relacionesDb = (await db.query(
     `SELECT id::text, persona_id::text AS persona, fecha_inicio::text AS inicio, grado_id::text AS grado,
             escalafon_id::text AS escalafon, unidad_id::text AS unidad, estado, derecha, numor,
-            fecha_ultimo_ascenso::text AS fua, motivo_baja_id::text AS motivo, fecha_fin::text AS fin, conducta
+            fecha_ultimo_ascenso::text AS fua, motivo_baja_id::text AS motivo, fecha_fin::text AS fin, conducta,
+            tipo_funcionario AS tipo, (SELECT g.es_oficial FROM grados g WHERE g.id = grado_id) AS "gradoOficial"
        FROM relaciones_laborales`,
   )).rows as Array<{ id: string | null; persona: string; inicio: string; grado: string; escalafon: string; unidad: string;
     estado: string; derecha: number | null; numor: number | null; fua?: string | null; motivo?: string | null;
-    fin?: string | null; conducta?: string | null }>;
+    fin?: string | null; conducta?: string | null; tipo?: string | null; gradoOficial?: boolean | null }>;
   const yaImportada = new Set(relacionesDb.map((r) => `${r.persona}|${r.inicio}|${r.grado}`));
   const relacionPorClave = new Map(relacionesDb.map((r) => [`${r.persona}|${r.inicio}|${r.grado}`, r]));
   // Relaciones que ya tienen su retiro (no anulado): a cada período de baja le corresponde uno.
@@ -176,7 +179,8 @@ export async function armarPlan(
     `SELECT persona_id::text AS persona, unidad_id::text AS unidad, fecha_inicio::text AS inicio,
             fecha_fin IS NULL AS activo FROM destinos`,
   )).rows as Array<{ persona: string; unidad: string; inicio: string | null; activo: boolean }>;
-  const destinoExiste = new Set(destinosDb.map((d) => `${d.persona}|${d.unidad}|${d.inicio}`));
+  // Con abierto/cerrado en la clave: el Access a veces trae un período activo y otro de baja con el mismo ingreso y unidad.
+  const destinoExiste = new Set(destinosDb.map((d) => `${d.persona}|${d.unidad}|${d.inicio}|${d.activo}`));
   const destinoActivo = new Set(destinosDb.filter((d) => d.activo).map((d) => d.persona));
   const vuelosDb = new Set((await db.query(
     `SELECT p.anio || '-' || p.numero || '|' || r.persona_id AS k FROM registros_vuelo r
@@ -745,7 +749,7 @@ export async function armarPlan(
           incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
             motivo: `ya tiene un período activo en la base; difiere en ${difs.join(' y ')} con el Access (no se modifica)` });
         }
-        contar('activos que ya existían (no se tocan)');
+        contar('activos que ya existían');
         // La fecha de grado cambia la permanencia que calcula liquidación: en un activo ajeno solo se avisa.
         if (existente.id && !existente.fua && r.campos.fecha_ultimo_ascenso) {
           incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
@@ -759,6 +763,29 @@ export async function armarPlan(
           if (orden.derecha !== null || orden.numor !== null) {
             plan.derechas.push({ relacionId: existente.id, ...orden });
             contar('Derecha/Numor completados en activos existentes');
+          }
+        }
+        // Tipo de funcionario y destino son del módulo de personal: se completan solo si el Access y la base coinciden.
+        if (existente.id) {
+          const tipoAccess = r.campos.tipo_funcionario as 'oficial' | 'subalterno';
+          if (!existente.tipo) {
+            if (existente.gradoOficial != null && (existente.gradoOficial ? 'oficial' : 'subalterno') === tipoAccess) {
+              plan.tiposRelacion.push({ relacionId: existente.id, tipo: tipoAccess });
+              existente.tipo = tipoAccess;
+              contar('tipos de funcionario completados en activos existentes');
+            } else {
+              incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
+                motivo: `su período activo no tiene tipo de funcionario y su grado en la base no es de ${tipoAccess}, como dice el Access: no se completa (cargarlo a mano)` });
+            }
+          }
+          if (!destinoActivo.has(persona)) {
+            if (existente.unidad === r.unidad) {
+              agregarDestino(persona, r.unidad, r.destino, r.origen);
+              contar('destinos creados para activos existentes');
+            } else {
+              incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
+                motivo: 'su período activo no tiene destino abierto y su unidad en la base no es la del Access: no se crea el destino (cargarlo a mano)' });
+            }
           }
         }
         return;
@@ -800,13 +827,17 @@ export async function armarPlan(
     // Destino: uno por período. Solo puede haber un destino abierto por persona.
     const d = r.destino;
     const abierto = d.fechaFin === null;
-    if (destinoExiste.has(`${persona}|${r.unidad}|${d.fechaInicio}`) || (abierto && (!r.activo || destinoActivo.has(persona)))) return ref;
-    destinoExiste.add(`${persona}|${r.unidad}|${d.fechaInicio}`);
-    if (abierto) destinoActivo.add(persona);
-    plan.destinos.push({ persona, unidad: r.unidad, fechaInicio: d.fechaInicio, fechaFin: d.fechaFin, numeroOrden: d.numeroOrden,
-      posicion: d.posicion, observaciones: observaciones(`Importado de ${r.origen}`, {}) + (d.observaciones ? `; ${d.observaciones}` : '') });
-    contar('destinos a crear');
+    if (destinoExiste.has(`${persona}|${r.unidad}|${d.fechaInicio}|${abierto}`) || (abierto && (!r.activo || destinoActivo.has(persona)))) return ref;
+    agregarDestino(persona, r.unidad, d, r.origen);
     return ref;
+  }
+
+  function agregarDestino(persona: Ref, unidad: Ref, d: Parameters<typeof agregarRelacion>[0]['destino'], origen: string) {
+    destinoExiste.add(`${persona}|${unidad}|${d.fechaInicio}|${d.fechaFin === null}`);
+    if (d.fechaFin === null) destinoActivo.add(persona);
+    plan.destinos.push({ persona, unidad, fechaInicio: d.fechaInicio, fechaFin: d.fechaFin, numeroOrden: d.numeroOrden,
+      posicion: d.posicion, observaciones: observaciones(`Importado de ${origen}`, {}) + (d.observaciones ? `; ${d.observaciones}` : '') });
+    contar('destinos a crear');
   }
 
   // Horas de vuelo (Excel) ───────────────────────────────────────────────────
@@ -855,6 +886,10 @@ export async function armarPlan(
           continue;
         }
         persona = r.persona;
+        // Medido en las hojas con cédula, la unión por nombre se equivoca en pocas filas: cada una queda para verificar.
+        incidencia({ nivel: 'aviso', origen, cedula: porId.get(persona)?.cedula ?? persona.replace(/^nueva:/, ''), nombre: nombreTxt,
+          motivo: 'la hoja no trae cédula: las horas se cargaron a la persona de esta cédula por el nombre (verificar)' });
+        contar('filas de vuelo unidas por nombre (a verificar)');
       }
       const k = `${hoja.periodo.anio}-${hoja.periodo.numero}|${persona}`;
       if (vistos.has(k)) {
