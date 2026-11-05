@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { PoolClient } from 'pg';
 import { Catalogos, Ref } from './catalogos.js';
+import { CURSOS_DE_ASCENSO } from './complementos.js';
 import { MOTIVOS_NUEVOS } from './motivos.js';
 import { Opciones, Plan } from './plan.js';
 
@@ -17,6 +18,7 @@ export interface Resultado {
   relaciones: number;
   destinos: number;
   periodosVuelo: number;
+  periodosVueloCerrados: number;
   vuelos: number;
   derechasCompletadas: number;
   historialDerecha: number;
@@ -25,6 +27,7 @@ export interface Resultado {
   ascensos: number;
   motivosCompletados: number;
   conductasCompletadas: number;
+  tiposCompletados: number;
   retiros: number;
   familiares: number;
   misiones: number;
@@ -40,8 +43,8 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     if (!v) throw new Error(`Referencia sin crear: ${ref}`);
     return v;
   };
-  const res: Resultado = { catalogosCreados: {}, personas: 0, completadas: 0, relaciones: 0, destinos: 0, periodosVuelo: 0,
-    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, retiros: 0, familiares: 0, misiones: 0,
+  const res: Resultado = { catalogosCreados: {}, personas: 0, completadas: 0, relaciones: 0, destinos: 0, periodosVuelo: 0, periodosVueloCerrados: 0,
+    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, retiros: 0, familiares: 0, misiones: 0,
     participaciones: 0 };
 
   // Catálogos, en orden de dependencia ──────────────────────────────────────
@@ -122,6 +125,14 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
   }
   const relacion = (ref: string) => (ref.startsWith('rel:') ? relaciones[Number(ref.slice(4))] : ref);
 
+  for (const t of plan.tiposRelacion) {
+    const r = await db.query(
+      "UPDATE relaciones_laborales SET tipo_funcionario = $2 WHERE id = $1 AND tipo_funcionario IS NULL AND estado = 'activo'",
+      [t.relacionId, t.tipo],
+    );
+    res.tiposCompletados += r.rowCount ?? 0;
+  }
+
   // Motivo de baja y retiro de cada período de baja ─────────────────────────
   for (const c of plan.conductasRelacion) {
     // Igual que el motivo: solo períodos de baja que siguen sin conducta.
@@ -167,15 +178,24 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
   }
 
   // Horas de vuelo ───────────────────────────────────────────────────────────
+  // Un período con otro posterior ya terminó: se crea cerrado (en la aplicación se puede reabrir).
+  // El más reciente puede estar en curso y queda abierto.
+  const clavePeriodo = (p: { anio: number; numero: number }) => p.anio * 10 + p.numero;
+  const ultimoPeriodo = Math.max(0, ...plan.vuelos.map((v) => clavePeriodo(v.periodo)),
+    Number((await db.query('SELECT max(anio * 10 + numero) AS m FROM periodos_vuelo')).rows[0].m ?? 0));
   const periodos = new Map<string, string>();
   for (const v of plan.vuelos) {
     const k = `${v.periodo.anio}-${v.periodo.numero}`;
     if (!periodos.has(k)) {
+      const cerrado = clavePeriodo(v.periodo) < ultimoPeriodo;
       const creado = await db.query(
-        `INSERT INTO periodos_vuelo (anio, numero) VALUES ($1, $2) ON CONFLICT (anio, numero) DO NOTHING RETURNING id::text`,
-        [v.periodo.anio, v.periodo.numero],
+        `INSERT INTO periodos_vuelo (anio, numero, cerrado) VALUES ($1, $2, $3) ON CONFLICT (anio, numero) DO NOTHING RETURNING id::text`,
+        [v.periodo.anio, v.periodo.numero, cerrado],
       );
-      if (creado.rows.length) res.periodosVuelo++;
+      if (creado.rows.length) {
+        res.periodosVuelo++;
+        if (cerrado) res.periodosVueloCerrados++;
+      }
       periodos.set(k, creado.rows[0]?.id ??
         (await db.query('SELECT id::text FROM periodos_vuelo WHERE anio = $1 AND numero = $2', [v.periodo.anio, v.periodo.numero])).rows[0].id);
     }
@@ -222,9 +242,9 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     res.legajos += r.rowCount ?? 0;
   }
 
-  // Cursos aprobados (pasaje de grado y Nivel 7/9) ────────────────────────
+  // Cursos aprobados (pasaje de grado, Nivel 7/9 y especialidades) ─────────
   // El curso se busca por nombre (el de seed_ascensos.sql); si la base no lo tiene, se crea
-  // igual que en el seed: sin unidad, porque es requisito de ascenso para toda la fuerza.
+  // igual que en el seed: sin unidad. Las especialidades no son requisito para toda la fuerza.
   const cursos = new Map<string, string>();
   for (const c of plan.cursos) {
     let cursoId = cursos.get(c.curso);
@@ -232,8 +252,8 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
       cursoId = (await db.query('SELECT id::text FROM cursos WHERE nombre_curso = $1 ORDER BY id LIMIT 1', [c.curso])).rows[0]?.id;
       if (!cursoId) {
         cursoId = (await db.query(
-          'INSERT INTO cursos (nombre_curso, institucion, es_obligatorio, unidad_id) VALUES ($1, $2, true, NULL) RETURNING id::text',
-          [c.curso, c.institucion],
+          'INSERT INTO cursos (nombre_curso, institucion, es_obligatorio, unidad_id) VALUES ($1, $2, $3, NULL) RETURNING id::text',
+          [c.curso, c.institucion, CURSOS_DE_ASCENSO.has(c.curso)],
         )).rows[0].id as string;
         res.catalogosCreados.cursos = (res.catalogosCreados.cursos ?? 0) + 1;
       }

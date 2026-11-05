@@ -15,8 +15,9 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 | Personas (cédula, nombre, nacimiento, contacto) | `personas` | Si la cédula no existe. Si ya existe, **solo se completan los campos vacíos**; nunca se pisa un dato. |
 | Períodos de baja (historial) | `relaciones_laborales`, inactivas | Siempre. Liquidación no liquida relaciones inactivas. |
 | Períodos en actividad | `relaciones_laborales`, activas | **Solo con `--crear-activos`**, y solo si la persona no tiene ya uno activo. |
-| Destino de cada período | `destinos` | Junto con su período. |
-| Horas de vuelo (Excel 2020-2026; `Horasvlo`, la última planilla de cada oficial, sobre todo 2002-2005; y la planilla de `xescala` cuando es anterior a 2020) | `periodos_vuelo`, `registros_vuelo`, `unidades_vuelo` | Siempre. Son tablas solo del módulo de personal. |
+| Destino de cada período | `destinos` | Junto con su período. En un activo que ya existía, solo si no tiene destino abierto y su unidad en la base es la del Access. |
+| Tipo de funcionario de un activo que ya existía | `relaciones_laborales.tipo_funcionario` | Si está vacío y su grado en la base corresponde a lo que dice el Access (oficial o subalterno). Liquidación no usa esta columna. |
+| Horas de vuelo (Excel 2020-2026; `Horasvlo`, la última planilla de cada oficial, sobre todo 2002-2005; y la planilla de `xescala` cuando es anterior a 2020) | `periodos_vuelo`, `registros_vuelo`, `unidades_vuelo` | Siempre. Son tablas solo del módulo de personal. Los períodos que crea quedan **cerrados**, salvo el más reciente, que puede estar en curso; en la aplicación se pueden reabrir. |
 | Fecha en que llegó al grado (`FEC_GRA`, subalternos) | `relaciones_laborales.fecha_ultimo_ascenso` | En los períodos que crea. **Liquidación calcula la permanencia desde esta fecha.** En un período activo que ya existía no se completa: solo se avisa. |
 | Texto libre sin campo propio: motivo de baja, comisiones, destinos anteriores (en subalternos, también `AÑOS ANTERIORES`, `LICENCIA SIN GOCE DE SUELDO`, `PERIODO DESDE HASTA` y `COMISIONES DEL SERVICIO`) | Observaciones del período | En los períodos que crea. El motivo de baja también va al catálogo (fila de abajo). |
 | Motivo de baja (`MOTIVO`) | `relaciones_laborales.motivo_baja_id` y un registro en `retiros` por período de baja | En los períodos de baja. Si el período ya estaba sin motivo, se le completa. Los motivos que faltan en el catálogo se crean vigentes, solo con `--crear-catalogos`. |
@@ -37,7 +38,7 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 ## Qué no hace nunca
 
 - **No modifica personas que ya existen**: solo completa campos vacíos.
-- **No cambia lo que liquidación usa de los períodos activos existentes.** Si una persona ya tiene un período activo (porque liquidación ya le paga), no se le crea otro. Si el grado o la unidad del Access no coinciden con los de la base, se informa y no se corrige. La fecha de último ascenso tampoco se completa: solo se avisa. Lo único que se completa en un activo existente son Derecha y Numor, y solo si los dos están vacíos (son columnas del módulo de personal).
+- **No cambia lo que liquidación usa de los períodos activos existentes.** Si una persona ya tiene un período activo (porque liquidación ya le paga), no se le crea otro. Si el grado o la unidad del Access no coinciden con los de la base, se informa y no se corrige. La fecha de último ascenso tampoco se completa: solo se avisa. Lo único que se completa en un activo existente son datos del módulo de personal, que liquidación no usa: Derecha y Numor (solo si los dos están vacíos), el tipo de funcionario y el destino (ver la tabla de arriba).
 - **No crea un período activo con un grado sin remuneración cargada**, porque haría fallar la liquidación de esa persona.
 - **No adivina.** Una fila de vuelo sin cédula que no se puede unir con certeza a una persona por su nombre no se carga: va al informe.
 - **No modifica ni borra registros de catálogos existentes.** Solo agrega los que faltan, y únicamente con `--crear-catalogos`.
@@ -46,7 +47,7 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 
 | Opción | Qué hace |
 |---|---|
-| *(ninguna)* | **Simulación.** Hace todo dentro de una transacción y la deshace al final. Así se prueban de verdad las restricciones de la base y no queda nada escrito. |
+| *(ninguna)* | **Simulación.** Hace todo dentro de una transacción y la deshace al final. Así se prueban de verdad las restricciones de la base, incluidas las de Derecha y Numor que la base controla recién al confirmar, y no queda nada escrito. |
 | `--aplicar` | Confirma la transacción: ahora sí escribe. Si algo falla, no escribe nada. |
 | `--crear-activos` | Crea los períodos activos de las personas que no tienen uno. **Esas personas pasan a liquidarse en la próxima liquidación**: acordarlo antes con el equipo de liquidación. |
 | `--crear-catalogos` | Agrega a la base las unidades, sub-unidades, escalafones, grados y motivos de baja que falten. Son tablas de liquidación: acordarlo antes. Con los archivos actuales, lo nuevo es: el grado `AT_3RA`; los escalafones `ADM` (no vigente), `CADETE` y `SIN_DATO`; las unidades CIRFA (no vigente), D.C.I., D.S.O., ESMADE, la Banda y la Dirección de Personal, con las categorías A, B y C como sub-unidades; y los motivos `BAJA_SOLICITADA`, `CUMPLIDO_SOLICITADA`, `NO_ADAPTACION` y `NO_APTO`. La lista exacta de cada corrida sale en el resumen, en "Catálogos que faltan en la base". |
@@ -108,6 +109,7 @@ Los alias de grados, escalafones y destinos están en `catalogos.ts`. En resumen
 - **Fechas:** se aceptan `dd/mm/aaaa` y las variantes `d/m/aa` y `dd//aaaa`. Los años fuera de 1900-2100 son errores de tipeo: la fecha queda vacía.
 - **Excel de horas de vuelo:** las columnas se leen por nombre, con alias, no por posición: los encabezados cambian entre hojas. Solo las hojas de 2020 traen cédula; el resto se une por nombre.
 - **Unión por nombre en el Excel:** nombre completo, apellidos y primer nombre, o apellidos e inicial, siempre que el resultado sea una sola persona; si hay más de una, la fila va al informe. Si solo coincide el primer apellido y el nombre, queda como sugerencia: medido sobre datos de 2020, ese criterio se equivoca el 18% de las veces.
+  - Aun con una sola persona, la unión por nombre no es segura: medida sobre las hojas que traen cédula, se equivoca en el 0,6% de las filas. Por eso **cada fila que se carga por nombre queda en `incidencias.csv`** como aviso, con la cédula de la persona a la que se le cargaron las horas, para verificar.
 - **Cédulas cruzadas:** en las hojas que traen cédula, si el nombre no coincide con la persona de esa cédula, la fila no se carga y va al informe. En 2020 hay parejas de personas con la cédula de la otra.
 - **Derecha y Numor:** se cargan solo si no los tiene ya otra persona (son únicos). Si no, quedan vacíos y se avisa.
 
@@ -189,7 +191,7 @@ El nivel de pericia (`NIVEL_PER`) 7 o 9 se obtiene aprobando su curso o presenta
 
 ### Especialidades y CURSOS ETA
 
-El sistema no tiene un campo de especialidad, y la especialidad se obtiene aprobando un curso: se carga como curso aprobado "Especialidad: …".
+El sistema no tiene un campo de especialidad, y la especialidad se obtiene aprobando un curso: se carga como curso aprobado "Especialidad: …". Los cursos que faltan en la base se crean **optativos**; solo los de pasaje de grado y Nivel 7/9 se crean obligatorios, como en `seed_ascensos.sql`, porque son requisito de ascenso para toda la fuerza.
 - Son texto libre con cientos de variantes. `especialidades.ts` tiene un catálogo curado: cada patrón agrupa las formas de escribir la misma especialidad. Un texto que nombra dos ("POLICIA AEREA DEFENSA DE INSTALACIONES") carga las dos.
 - Lo que no coincide con ningún patrón va al informe como aviso. Para sumar una variante, agregarla al patrón que corresponda.
 - No se cargan ni se informan los títulos profesionales (Doctor en Medicina, Abogada…) ni "NO TIENE C.I.R." / "SIN CURSO".

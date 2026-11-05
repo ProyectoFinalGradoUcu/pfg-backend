@@ -74,6 +74,12 @@ async function main() {
     if (faltan.length) throw new Error(`Faltan datos básicos en la base: ${faltan.join(', ')}.`);
     const plan = await armarPlan(db, cat, bases, hojas, op);
     const res = await aplicar(db, cat, plan, op);
+    // Las restricciones de Derecha y Numor se controlan al confirmar: la simulación las fuerza antes de deshacer.
+    if (!op.aplicar) {
+      await db.query('SET CONSTRAINTS ALL IMMEDIATE').catch((e: Error) => {
+        throw new Error(`la simulación falló al controlar las restricciones diferidas; con --aplicar fallaría igual: ${e.message}`);
+      });
+    }
     await db.query(op.aplicar ? 'COMMIT' : 'ROLLBACK');
     console.log(escribirInforme(op.informe, plan, cat, res, op, archivos.map((a) => a.split(/[\\/]/).pop()!)));
     console.log(`\nInforme completo en: ${op.informe}`);

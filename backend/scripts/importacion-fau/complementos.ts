@@ -151,6 +151,9 @@ function actaDeTexto(t: string): string | null {
 const INSTRUCTORES = { nombre: 'Curso de Formación de Instructores (Nivel 7)', institucion: 'Escuela Técnica de Aeronáutica' };
 const SUPERVISORES = { nombre: 'Curso de Formación de Supervisores (Nivel 9)', institucion: 'Escuela Técnica de Aeronáutica' };
 
+/** Requisitos de ascenso para toda la fuerza: los únicos que se crean obligatorios, como en el seed. */
+export const CURSOS_DE_ASCENSO = new Set([...Object.values(CURSOS_PASAJE), INSTRUCTORES, SUPERVISORES].map((c) => c.nombre));
+
 /**
  * NIVEL_PER (nivel de pericia 3/5/7/9) → cursos aprobados. El nivel 7 o 9 se obtiene aprobando su
  * curso o presentando el certificado de uno equivalente (lo confirmó el usuario): las dos cosas
