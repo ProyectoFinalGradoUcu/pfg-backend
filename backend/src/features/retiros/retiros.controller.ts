@@ -88,7 +88,12 @@ export class RetirosController {
   @ApiOperation({
     summary: 'Corregir un retiro cargado mal',
     description:
-      'Campos declarativos. Si cambia fecha_retiro, propaga a relaciones_laborales.fecha_fin. No reajusta los destinos ni las inscripciones que ya cerró.',
+      'Campos declarativos. Si cambia fecha_retiro, propaga a relaciones_laborales.fecha_fin y a la fecha del movimiento del retiro. No reajusta los destinos ni las inscripciones que ya cerró.',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'fecha_retiro futura, anterior al inicio de la relación que cierra o a su último movimiento, o no anterior a la reincorporación.',
   })
   @ApiResponse({ status: 409, description: 'El retiro está anulado.' })
   @ApiBody({ type: UpdateRetiroRequestDto })
@@ -115,6 +120,7 @@ export class RetirosController {
   })
   @ApiBody({ type: AnularRetiroRequestDto })
   @RequirePermissions('retiros.registrar')
+  @Auditar({ contexto: 'Retiros', entidad: 'Retiro', accion: 'retiro.anular' })
   anular(
     @Param('retiroId', ParseIntPipe) retiroId: number,
     @Body('service_request') dto: AnularRetiroDto,
@@ -155,6 +161,30 @@ export class RetirosController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.retirosService.reincorporar(retiroId, dto, BigInt(user.id));
+  }
+
+  @Delete(':retiroId/reincorporacion')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Anular una reincorporación cargada por error',
+    description:
+      'Borra la relación laboral que abrió la reincorporación (con su situación SIT16/SIT17 y su movimiento), borra el destino que asignó, reabre el que cerró y saca al funcionario de la derecha. Después se puede anular el retiro.',
+  })
+  @ApiResponse({ status: 200, description: 'Reincorporación anulada; informa qué revirtió.' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Retiro anulado, sin reincorporación, o la reincorporación ya tiene ascensos, un retiro posterior, otros movimientos, destinos posteriores o liquidaciones.',
+  })
+  @ApiBody({ type: AnularRetiroRequestDto })
+  @RequirePermissions('retiros.registrar')
+  @Auditar({ contexto: 'Retiros', entidad: 'Reincorporación', accion: 'reincorporacion.anular' })
+  anularReincorporacion(
+    @Param('retiroId', ParseIntPipe) retiroId: number,
+    @Body('service_request') dto: AnularRetiroDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.retirosService.anularReincorporacion(retiroId, dto, BigInt(user.id));
   }
 
   @Patch(':retiroId/reincorporacion')

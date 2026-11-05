@@ -4,11 +4,21 @@ import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { RetirosService } from './retiros.service';
 import { DerechaService } from '../derecha/derecha.service';
 
-export type CierresElegidos = { destino: boolean; inscripciones: number[]; usuario: boolean };
+export type CierresElegidos = {
+  destino: boolean;
+  inscripciones: number[];
+  comisiones?: number[];
+  usuario: boolean;
+};
 
 export type ResultadoCierre = {
   retiroId: bigint;
-  cerrado: { destino: string | null; inscripciones: string[]; usuario: string | null };
+  cerrado: {
+    destino: string | null;
+    inscripciones: string[];
+    comisiones: string[];
+    usuario: string | null;
+  };
 };
 
 export type ParamsCierre = {
@@ -73,6 +83,18 @@ export class CierreCarreraService {
       );
     }
 
+    const comisionesValidas = impacto.comisiones.map((a: any) => a.id.toString());
+    const comisionesPedidas = (params.cierres.comisiones ?? []).map(String);
+    const comisionesInvalidas = comisionesPedidas.filter((id) => !comisionesValidas.includes(id));
+    if (comisionesInvalidas.length > 0) {
+      throw new UnprocessableEntityException(
+        `Pertenencias a comisiones inválidas para este funcionario: ${comisionesInvalidas.join(', ')}`,
+      );
+    }
+    const comisionesACerrar = impacto.comisiones.filter((a: any) =>
+      (forzar ? comisionesValidas : comisionesPedidas).includes(a.id.toString()),
+    );
+
     const cerrarDestino = (forzar || params.cierres.destino) && impacto.destino != null;
     const cerrarUsuario = (forzar || params.cierres.usuario) && impacto.usuario != null;
     const inscripcionesACerrar = forzar ? idsValidos : pedidas;
@@ -130,6 +152,13 @@ export class CierreCarreraService {
         });
       }
 
+      for (const a of comisionesACerrar) {
+        await tx.asignaciones_comision.update({
+          where: { id: a.id },
+          data: { fecha_fin: params.fechaRetiro },
+        });
+      }
+
       if (cerrarUsuario) {
         // El CHECK de usuarios no admite 'inactivo'.
         await tx.usuarios.update({
@@ -141,6 +170,7 @@ export class CierreCarreraService {
       const cerrado = {
         destino: cerrarDestino ? impacto.destino.id.toString() : null,
         inscripciones: inscripcionesACerrar,
+        comisiones: comisionesACerrar.map((a: any) => a.id.toString()),
         usuario: cerrarUsuario ? impacto.usuario.id.toString() : null,
       };
 
@@ -159,6 +189,11 @@ export class CierreCarreraService {
           cierres_aplicados: {
             destino_id: cerrado.destino,
             inscripciones_ids: cerrado.inscripciones,
+            // Con la fecha_fin que tenían, para que anular el retiro las deje como estaban.
+            comisiones: comisionesACerrar.map((a: any) => ({
+              id: a.id.toString(),
+              fecha_fin_anterior: a.fecha_fin ? a.fecha_fin.toISOString().split('T')[0] : null,
+            })),
             usuario_id: cerrado.usuario,
           },
           registrado_por: params.autorId,
