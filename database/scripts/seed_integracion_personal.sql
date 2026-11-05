@@ -40,6 +40,8 @@ SELECT nombre, descripcion, 'personal' FROM (VALUES
   -- Destinos
   ('destinos.ver',                    'Consultar destinos y asignaciones'),
   ('destinos.gestionar',              'Crear y modificar destinos y asignaciones'),
+  ('comisiones.ver',                 'Consultar comisiones e integrantes'),
+  ('comisiones.gestionar',           'Gestionar comisiones y asignaciones'),
   -- Misiones
   ('misiones.ver',                    'Consultar misiones'),
   ('misiones.gestionar',              'Crear y modificar misiones'),
@@ -117,6 +119,7 @@ JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'reglas_ascenso.ver', 'reglas_ascenso.gestionar',
   'retiros.ver', 'retiros.registrar',
   'destinos.ver', 'destinos.gestionar',
+  'comisiones.ver', 'comisiones.gestionar',
   'misiones.ver', 'misiones.gestionar',
   'vuelos.ver', 'vuelos.gestionar',
   'cursos.ver', 'cursos.gestionar',
@@ -139,6 +142,7 @@ JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'reglas_ascenso.ver',
   'retiros.ver',
   'destinos.ver',
+  'comisiones.ver',
   'misiones.ver',
   'vuelos.ver',
   'cursos.ver',
@@ -211,6 +215,7 @@ SELECT nombre, descripcion FROM (VALUES
   ('Personas',            'Gestión de personas'),
   ('Subalternos',         'Gestión de subalternos'),
   ('Misiones',            'Gestión de misiones'),
+  ('Comisiones',          'Gestión de comisiones y sus integrantes'),
   ('Cursos',              'Gestión de cursos, módulos y designaciones'),
   ('Historial de cursos', 'Registro histórico de cursos por funcionario'),
   ('Catálogos',           'Catálogos del sistema'),

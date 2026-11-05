@@ -7,7 +7,7 @@ export const fichaPersonalReporte: DefinicionReporte = {
   descripcion: 'Datos personales y de contacto del funcionario.',
   categoria: 'Personal',
 
-   
+
 
   parametros: [
     {
@@ -26,12 +26,23 @@ export const fichaPersonalReporte: DefinicionReporte = {
 
     const p = await prisma.personas.findUnique({
       where: { id: BigInt(filtros.persona_id) },
+      include: {
+        dependientes: {
+          where: { activo: true },
+          orderBy: { fecha_nacimiento: 'asc' },
+        },
+      },
     });
     if (!p) return { columnas: COLUMNAS_CAMPO_VALOR, filas: [] };
+
+    const hijos = p.dependientes.filter((d) =>
+      d.tipo.toLowerCase().includes('hijo'),
+    );
 
     const filas = [
       campo('Apellido y nombre', unir(p.primer_apellido, p.segundo_apellido) + ', ' + unir(p.primer_nombre, p.segundo_nombre)),
       campo('Cédula', p.cedula),
+      campo('Credencial Cívica', p.credencial_civica),
       campo('Fecha de nacimiento', fmtFecha(p.fecha_nacimiento)),
       campo('Lugar de nacimiento', p.lugar_nacimiento),
       campo('Dirección', p.direccion),
@@ -39,6 +50,8 @@ export const fichaPersonalReporte: DefinicionReporte = {
       campo('E-mail', p.email),
       campo('Departamento / Localidad', unir(p.departamento, p.localidad)),
       campo('Sección Judicial', p.seccional),
+      campo('Nivel de idoneidad', p.nivel_idoneidad != null ? `Nivel ${p.nivel_idoneidad}` : null),
+      campo('Hijos', hijos.map((h) => h.nombre).join(', ') || null),
     ];
 
     return { columnas: COLUMNAS_CAMPO_VALOR, filas };

@@ -47,6 +47,7 @@ describe('SubalternosService', () => {
       },
       legajo_militar: { deleteMany: jest.fn() },
       registros_vuelo: { deleteMany: jest.fn() },
+      asignaciones_comision: { deleteMany: jest.fn() },
       relaciones_familiares: { count: jest.fn().mockResolvedValue(0) },
       personas_documentos: { deleteMany: jest.fn() },
       $transaction: jest.fn((cb) => cb(prisma)),

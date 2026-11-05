@@ -22,3 +22,6 @@ database/scripts/migration_archivos.sql
 database/scripts/migration_derecha_numor.sql
 
 database/scripts/migration_vuelos.sql
+database/scripts/migration_campos_reportes.sql
+database/scripts/migration_comisiones.sql
+database/scripts/migration_comisiones_cargo.sql

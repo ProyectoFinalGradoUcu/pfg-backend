@@ -105,6 +105,22 @@ export class CreatePersonalDto {
   @MaxLength(100)
   seccional?: string;
 
+  @ApiPropertyOptional({ example: 'CC 1.234.567', maxLength: 20 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  credencial_civica?: string;
+
+  @ApiPropertyOptional({
+    example: 5,
+    enum: [3, 5, 7, 9],
+    description: 'Nivel de pericia/idoneidad otorgado por la ETA al personal subalterno',
+  })
+  @IsOptional()
+  @IsInt()
+  @IsIn([3, 5, 7, 9])
+  nivel_idoneidad?: number;
+
   @ApiProperty({ example: false, description: 'true si es personal civil' })
   @IsBoolean()
   es_civil: boolean;
@@ -113,6 +129,16 @@ export class CreatePersonalDto {
   @IsOptional()
   @IsString()
   observaciones?: string;
+
+  @ApiPropertyOptional({
+    example: '-1-4-7-8-',
+    maxLength: 20,
+    description: 'Códigos del legajo. Se guarda en la relación laboral.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  codigos_legajo?: string;
 
   // --- Datos laborales (requeridos solo si es_civil = false) ---
 

@@ -152,6 +152,12 @@ describe('Reporte · destinos', () => {
         fecha_destino: '30/04/2024',
         fecha_fin: '',
         numero_orden: 'O.D. 11760',
+        numero_destino: '',
+        fecha_orden: '',
+        boletin: '',
+        fecha_boletin: '',
+        numero_resolucion: '',
+        fecha_resolucion: '',
       },
     ]);
   });

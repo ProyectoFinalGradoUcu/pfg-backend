@@ -9,6 +9,7 @@ import { categoriaDeFiltros, PARAMETRO_CATEGORIA, unir } from './_helpers';
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'C.I.', tipo: 'texto' },
   { clave: 'tipo_mov', etiqueta: 'Tipo Mov.', tipo: 'texto' },
+  { clave: 'marca', etiqueta: 'Marca', tipo: 'texto' },
   { clave: 'grado', etiqueta: 'Grado', tipo: 'texto' },
   { clave: 'escalafon', etiqueta: 'Esc.', tipo: 'texto' },
   { clave: 'nombre', etiqueta: 'Nombre', tipo: 'texto' },
@@ -71,6 +72,7 @@ export const movimientosUnidadReporte: DefinicionReporte = {
       return {
         cedula: rel?.personas?.cedula ?? '',
         tipo_mov: m.tipos_movimiento?.nombre ?? '',
+        marca: m.tipos_movimiento?.marca ?? '',
         grado: rel?.grados?.denominacion ?? '',
         escalafon: rel?.escalafones?.codigo ?? '',
         nombre: unir(rel?.personas?.primer_nombre, rel?.personas?.segundo_nombre),

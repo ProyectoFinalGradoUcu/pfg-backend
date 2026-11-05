@@ -420,6 +420,8 @@ export class SubalternosService {
             etnia: dto.etnia,
             codigo_postal: dto.codigo_postal,
             seccional: dto.seccional,
+            credencial_civica: dto.credencial_civica,
+            nivel_idoneidad: dto.nivel_idoneidad,
             es_civil: true,
           },
         });
@@ -449,6 +451,8 @@ export class SubalternosService {
           etnia: persona.etnia,
           codigo_postal: persona.codigo_postal,
           seccional: persona.seccional,
+          credencial_civica: persona.credencial_civica,
+          nivel_idoneidad: persona.nivel_idoneidad,
           es_civil: true,
           observaciones: dto.observaciones ?? null,
           familiares: familiaresResueltos.map((f) => ({
@@ -507,6 +511,8 @@ export class SubalternosService {
             etnia: dto.etnia,
             codigo_postal: dto.codigo_postal,
             seccional: dto.seccional,
+            credencial_civica: dto.credencial_civica,
+            nivel_idoneidad: dto.nivel_idoneidad,
             es_civil: false,
           },
         });
@@ -530,6 +536,7 @@ export class SubalternosService {
             mutaciones: dto.mutaciones ?? undefined,
             fecha_ultimo_ascenso: dto.fecha_ultimo_ascenso ? new Date(dto.fecha_ultimo_ascenso) : undefined,
             anios_servicio_anterior: dto.anios_servicio_anterior ?? undefined,
+            codigos_legajo: dto.codigos_legajo,
           },
           include: {
             grados: { select: { denominacion: true } },
@@ -593,6 +600,8 @@ export class SubalternosService {
           etnia: persona.etnia,
           codigo_postal: persona.codigo_postal,
           seccional: persona.seccional,
+          credencial_civica: persona.credencial_civica,
+          nivel_idoneidad: persona.nivel_idoneidad,
           es_civil: false,
           familiares: familiaresResueltos.map((f) => ({
             id: Number(f.id),
@@ -702,6 +711,7 @@ export class SubalternosService {
       await this.prisma.$transaction(async (tx) => {
         await tx.relaciones_laborales.deleteMany({ where: { persona_id: personaId } });
         await tx.destinos.deleteMany({ where: { persona_id: personaId } });
+        await tx.asignaciones_comision.deleteMany({ where: { persona_id: personaId } });
         await tx.legajo_militar.deleteMany({ where: { persona_id: personaId } });
         // Solo quedan los nunca editados: los cargados bloquean el borrado.
         await tx.registros_vuelo.deleteMany({ where: { persona_id: personaId } });
