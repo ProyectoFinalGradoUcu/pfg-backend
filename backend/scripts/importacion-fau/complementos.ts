@@ -19,6 +19,10 @@ export interface MisionLeida {
     fecha_llegada: string | null;
     numero_orden: string | null;
     boletin: string | null;
+    fecha_orden: string | null;
+    numero_resolucion: string | null;
+    fecha_resolucion: string | null;
+    resolucion_cje: string | null;
     observaciones: string | null;
   };
   cedula: unknown;
@@ -29,6 +33,23 @@ const TIPOS: Record<string, string> = { PAZ: 'Paz', DIPLOMATICA: 'Diplomática',
   DIPLOMATICO: 'Diplomática', OFICIAL: 'Oficial', OFICIALES: 'Oficial' };
 
 const corto = (v: unknown, n: number) => texto(v)?.slice(0, n) ?? null;
+
+/**
+ * Credencial cívica como "SERIE NÚMERO", la forma más común en el Access de oficiales. Subalternos
+ * la traen en dos columnas (serie y número). null si no tiene tres letras y un número.
+ */
+export function credencialCivica(serie: unknown, numeroCredencial?: unknown): string | null {
+  const n = numeroCredencial === undefined ? null : normalizarEntero(numeroCredencial);
+  const t = sinTildes([texto(serie), n].filter((x) => x !== null && x !== undefined).join(' ')).toUpperCase();
+  const m = /^([A-Z])\.?([A-Z])\.?([A-Z])\.?\s*(\d{1,6})$/.exec(t);
+  return m ? `${m[1]}${m[2]}${m[3]} ${m[4]}` : null;
+}
+
+/** Nivel de pericia del Access (NIVEL_PER) como nivel de idoneidad: 3, 5, 7 o 9; 0 es que no tiene. */
+export function nivelIdoneidad(v: unknown): number | null {
+  const n = normalizarEntero(v);
+  return n !== null && [3, 5, 7, 9].includes(n) ? n : null;
+}
 /** Los números de orden en 0 son "sin dato" en el Access. */
 const numero = (v: unknown, n: number) => (normalizarEntero(v) === 0 ? null : corto(v, n));
 
@@ -58,14 +79,16 @@ export function leerMisiones(base: BaseAccess | undefined): { misiones: MisionLe
     const k = `${clave(f['CEDIN'])}|${sal}|${clave(f['PAIS'])}`;
     if (vistas.has(k)) return;
     vistas.add(k);
-    const resol = [texto(f['RESOL']) && `Resolución ${texto(f['RESOL'])}${normalizarFecha(f['FEC_RESOL']) ? ` del ${normalizarFecha(f['FEC_RESOL'])}` : ''}`,
-      texto(f['RESOL_CJEFE']) && `Resolución C. en Jefe ${texto(f['RESOL_CJEFE'])}${normalizarFecha(f['FEC_RESOL_CJ']) ? ` del ${normalizarFecha(f['FEC_RESOL_CJ'])}` : ''}`,
-      numero(f['ORDEN'], 50) && normalizarFecha(f['FEC_ORD']) && `Orden del ${normalizarFecha(f['FEC_ORD'])}`].filter(Boolean).join('; ');
+    // La fecha de la resolución del C. en Jefe no tiene campo propio.
+    const fechaCje = texto(f['RESOL_CJEFE']) && normalizarFecha(f['FEC_RESOL_CJ']);
     agregar({
       campos: {
         nombre_mision: corto(f['MISION'], 200) ?? `Salida al exterior${texto(f['PAIS']) ? ` (${texto(f['PAIS'])})` : ''}`,
         pais: corto(f['PAIS'], 100), tipo_mision: null, fecha_salida: sal, fecha_llegada: reg,
-        numero_orden: numero(f['ORDEN'], 50), boletin: numero(f['BOLETIN'], 50), observaciones: resol || null,
+        numero_orden: numero(f['ORDEN'], 50), boletin: numero(f['BOLETIN'], 50),
+        fecha_orden: normalizarFecha(f['FEC_ORD']), numero_resolucion: corto(f['RESOL'], 50),
+        fecha_resolucion: normalizarFecha(f['FEC_RESOL']), resolucion_cje: corto(f['RESOL_CJEFE'], 50),
+        observaciones: fechaCje ? `Resolución C. en Jefe del ${fechaCje}` : null,
       },
       cedula: f['CEDIN'], origen: `${tabla} fila ${i + 1}`,
     });
@@ -80,13 +103,15 @@ export function leerMisiones(base: BaseAccess | undefined): { misiones: MisionLe
     const enPais = clave(f['en el país']);
     const obs = [texto(f['Observaciones']), texto(f['Fecha Sal y Reg']) && `Salida y regreso: ${texto(f['Fecha Sal y Reg'])}`,
       texto(f['Orden Modif']) && `Orden modificativa: ${texto(f['Orden Modif'])}`,
-      numero(f['Resol'], 50) && `Resolución ${texto(f['Resol'])}${normalizarFecha(f['F-Resol']) ? ` del ${normalizarFecha(f['F-Resol'])}` : ''}`,
       enPais === 'SI' ? 'En el país' : enPais === 'NO' ? 'En el exterior' : null].filter(Boolean).join('; ');
     agregar({
       campos: {
         nombre_mision: corto(f['Misión'], 200) ?? `Misión${tipo ? ` ${tipo.toLowerCase()}` : ''}${texto(f['País']) ? ` (${texto(f['País'])})` : ''}`,
         pais: corto(f['País'], 100), tipo_mision: tipo ? tipo.slice(0, 100) : null, fecha_salida: sal, fecha_llegada: null,
-        numero_orden: numero(f['O-CGFA'], 50), boletin: numero(f['Bol-MDN'], 50), observaciones: obs || null,
+        numero_orden: numero(f['O-CGFA'], 50), boletin: numero(f['Bol-MDN'], 50),
+        fecha_orden: normalizarFecha(f['F-Orden']), numero_resolucion: numero(f['Resol'], 50),
+        fecha_resolucion: normalizarFecha(f['F-Resol']), resolucion_cje: null,
+        observaciones: obs || null,
       },
       cedula: f['CEDIN'], origen: `Misiones fila ${i + 1}`,
     });

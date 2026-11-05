@@ -12,8 +12,8 @@
 import { PoolClient } from 'pg';
 import { Catalogos, Ref } from './catalogos.js';
 import {
-  actaNivel, aniosEntre, anioAscenso, ANIOS_GRADO_OFICIAL, claveMision, cursoAprobado, CURSOS_PASAJE, cursosPorNivel,
-  departamentoNacimiento, esLaFau, gradoAnteriorSubalterno, hijosDeFila, leerMisiones, MisionLeida, nivelEducativo,
+  actaNivel, aniosEntre, anioAscenso, ANIOS_GRADO_OFICIAL, claveMision, credencialCivica, cursoAprobado, CURSOS_PASAJE, cursosPorNivel,
+  departamentoNacimiento, esLaFau, gradoAnteriorSubalterno, hijosDeFila, leerMisiones, MisionLeida, nivelEducativo, nivelIdoneidad,
 } from './complementos.js';
 import { CursoCatalogo, cursosDeEspecialidad } from './especialidades.js';
 import { conductaDeMotivo, motivoBaja, MOTIVOS_NUEVOS } from './motivos.js';
@@ -48,7 +48,16 @@ export interface RelacionNueva {
   origen: string;
 }
 
-export interface DestinoNuevo {
+/** Datos del acto del destino que el Access de oficiales trae en columnas propias. */
+export interface DatosActoDestino {
+  boletin?: string | null;
+  numeroDestino?: string | null;
+  fechaOrden?: string | null;
+  numeroResolucion?: string | null;
+  fechaResolucion?: string | null;
+}
+
+export interface DestinoNuevo extends DatosActoDestino {
   persona: Ref;
   unidad: Ref;
   fechaInicio: string | null;
@@ -116,7 +125,7 @@ interface PersonaDb {
 
 /** Datos personales que se completan si están vacíos en la base. */
 const CAMPOS_PERSONA = ['fecha_nacimiento', 'genero', 'telefono', 'direccion', 'codigo_postal', 'departamento',
-  'localidad', 'email', 'lugar_nacimiento', 'seccional', 'fecha_fallecimiento'] as const;
+  'localidad', 'email', 'lugar_nacimiento', 'seccional', 'fecha_fallecimiento', 'credencial_civica', 'nivel_idoneidad'] as const;
 
 const OFICIALES = new Set(['ALF', 'TTE_2DO', 'TTE_1RO', 'CAP', 'MAY', 'TTE_CNEL', 'CNEL', 'BRIG_GRAL', 'GRAL']);
 
@@ -268,6 +277,16 @@ export async function armarPlan(
     plan.personasNuevas.set(ced.valor, { ref: `nueva:${ced.valor}`, cedula: ced.valor, datos: { ...nombre, ...datos } });
   }
 
+  // Comisiones de quien está en actividad: el módulo pide fecha de inicio y orden o boletín, y el Access
+  // casi nunca los trae juntos, así que no se cargan solas. Quedan en el informe para cargarlas a mano.
+  function avisarComision(f: Fila, columnas: string[], origen: string, cedula: string, nombre: string) {
+    const partes = columnas.map((c) => texto(f[c]) && `${c}: ${texto(f[c])}`).filter(Boolean);
+    if (!partes.length) return;
+    incidencia({ nivel: 'aviso', origen, cedula, nombre,
+      motivo: `comisión en el Access ("${partes.join('; ')}"): cargarla a mano en el módulo de comisiones` });
+    contar('comisiones de personal en actividad para cargar a mano');
+  }
+
   // Subalternos: cada fila es un período de servicio ─────────────────────────
   // Nombre por cédula de las hojas del Excel que traen las dos cosas: sirve de respaldo cuando el
   // Access trae el nombre sin coma y no se puede separar apellido de nombre.
@@ -324,7 +343,13 @@ export async function armarPlan(
       localidad: texto(f['LOCALIDAD']),
       lugar_nacimiento: departamentoNacimiento(f['DEPT_NAC']),
       fecha_fallecimiento: fallecio ? normalizarFecha(f['FECHABAJA']) : null,
+      credencial_civica: credencialCivica(f['CCSERIE'], f['CCNUM']),
+      nivel_idoneidad: nivelIdoneidad(f['NIVEL_PER']),
     }, origen);
+    if (esUltimo && (texto(f['CCSERIE']) || texto(f['CCNUM'])) && !credencialCivica(f['CCSERIE'], f['CCNUM'])) {
+      incidencia({ nivel: 'aviso', origen, cedula: ced.valor, nombre: nombreTxt,
+        motivo: `credencial cívica "${texto(f['CCSERIE']) ?? ''} ${texto(f['CCNUM']) ?? ''}" sin serie de tres letras y número: no se carga` });
+    }
 
     // Nivel educativo (legajo, tabla nuestra): el del período más reciente que lo tenga.
     const nivelTxt = texto(f['NIVEL EDUCATIVO']);
@@ -407,6 +432,7 @@ export async function armarPlan(
     const inicio = normalizarFecha(f['FEC_INGRE']);
     const activo = Number(f['ESTA']) === 0;
     const fin = activo ? null : normalizarFecha(f['FECHABAJA']);
+    if (activo) avisarComision(f, ['COMISIONES', 'DURACION DE LA COMISION', 'COMISIONES DEL SERVICIO'], origen, ced.valor, nombreTxt);
     const problemas = [
       !grado && `grado "${texto(f['ABRE_GRA']) ?? ''}" no reconocido`,
       !escalafon && `escalafón "${texto(f['ABRE_ESC']) ?? ''}" no reconocido`,
@@ -545,7 +571,13 @@ export async function armarPlan(
       email: texto(f['E-mail'])?.slice(0, 150) ?? null,
       lugar_nacimiento: texto(f['Lugar Nac'])?.slice(0, 200) ?? null,
       seccional: texto(f['Secc_Jud_'])?.slice(0, 100) ?? null,
+      credencial_civica: credencialCivica(f['Cred_Civ_']),
     }, origen);
+    avisarComision(f, ['Comisiones', 'Nombre de la Comisión', 'Fechas de la Comisión'], origen, ced.valor, nombreTxt);
+    if (texto(f['Cred_Civ_']) && !credencialCivica(f['Cred_Civ_'])) {
+      incidencia({ nivel: 'aviso', origen, cedula: ced.valor, nombre: nombreTxt,
+        motivo: `credencial cívica "${texto(f['Cred_Civ_'])}" sin serie de tres letras y número: no se carga` });
+    }
 
     // Año en que llegó a cada grado. El Access no trae el día: va el 1/1 y la observación lo aclara.
     ANIOS_GRADO_OFICIAL.forEach(([columna, codigo], i) => {
@@ -596,11 +628,12 @@ export async function armarPlan(
         fechaInicio: normalizarFecha(f['Fecha Destino']), fechaFin: null,
         numeroOrden: texto(f['Numero OCGFA Destino'])?.slice(0, 50) ?? null,
         posicion: texto(f['Cargo'])?.slice(0, 200) ?? null,
-        observaciones: observaciones('', {
-          'Fecha de la orden': normalizarFecha(f['Fecha OCGFA Destino']),
-          'Resolución': f['Numero Resolucion Destino'], 'Fecha de resolución': normalizarFecha(f['Fecha Resolucion Destino']),
-          'Boletín': f['No_BolDES'],
-        }),
+        boletin: texto(f['No_BolDES'])?.slice(0, 50) ?? null,
+        numeroDestino: normalizarEntero(f['Numero Destino'])?.toString() ?? null,
+        fechaOrden: normalizarFecha(f['Fecha OCGFA Destino']),
+        numeroResolucion: texto(f['Numero Resolucion Destino'])?.slice(0, 50) ?? null,
+        fechaResolucion: normalizarFecha(f['Fecha Resolucion Destino']),
+        observaciones: '',
       },
     });
   }
@@ -719,7 +752,7 @@ export async function armarPlan(
     grado: Ref; escalafon: Ref; unidad: Ref; subUnidad: Ref | null;
     campos: Record<string, unknown>;
     destino: { fechaInicio: string | null; fechaFin: string | null; numeroOrden: string | null; posicion: string | null;
-      observaciones: string };
+      observaciones: string } & DatosActoDestino;
   }): string | undefined {
     const persona = refPersona(r.ced.valor);
     if (!plan.personasNuevas.has(r.ced.valor) && !personasDb.has(r.ced.valor)) {
@@ -836,7 +869,8 @@ export async function armarPlan(
     destinoExiste.add(`${persona}|${unidad}|${d.fechaInicio}|${d.fechaFin === null}`);
     if (d.fechaFin === null) destinoActivo.add(persona);
     plan.destinos.push({ persona, unidad, fechaInicio: d.fechaInicio, fechaFin: d.fechaFin, numeroOrden: d.numeroOrden,
-      posicion: d.posicion, observaciones: observaciones(`Importado de ${origen}`, {}) + (d.observaciones ? `; ${d.observaciones}` : '') });
+      posicion: d.posicion, boletin: d.boletin, numeroDestino: d.numeroDestino, fechaOrden: d.fechaOrden,
+      numeroResolucion: d.numeroResolucion, fechaResolucion: d.fechaResolucion, observaciones: observaciones(`Importado de ${origen}`, {}) + (d.observaciones ? `; ${d.observaciones}` : '') });
     contar('destinos a crear');
   }
 

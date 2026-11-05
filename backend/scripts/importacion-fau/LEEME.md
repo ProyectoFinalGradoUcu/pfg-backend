@@ -19,12 +19,15 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 | Tipo de funcionario de un activo que ya existía | `relaciones_laborales.tipo_funcionario` | Si está vacío y su grado en la base corresponde a lo que dice el Access (oficial o subalterno). Liquidación no usa esta columna. |
 | Horas de vuelo (Excel 2020-2026; `Horasvlo`, la última planilla de cada oficial, sobre todo 2002-2005; y la planilla de `xescala` cuando es anterior a 2020) | `periodos_vuelo`, `registros_vuelo`, `unidades_vuelo` | Siempre. Son tablas solo del módulo de personal. Los períodos que crea quedan **cerrados**, salvo el más reciente, que puede estar en curso; en la aplicación se pueden reabrir. |
 | Fecha en que llegó al grado (`FEC_GRA`, subalternos) | `relaciones_laborales.fecha_ultimo_ascenso` | En los períodos que crea. **Liquidación calcula la permanencia desde esta fecha.** En un período activo que ya existía no se completa: solo se avisa. |
-| Texto libre sin campo propio: motivo de baja, comisiones, destinos anteriores (en subalternos, también `AÑOS ANTERIORES`, `LICENCIA SIN GOCE DE SUELDO`, `PERIODO DESDE HASTA` y `COMISIONES DEL SERVICIO`) | Observaciones del período | En los períodos que crea. El motivo de baja también va al catálogo (fila de abajo). |
+| Texto libre sin campo propio: motivo de baja, comisiones (ver "Comisiones"), destinos anteriores (en subalternos, también `AÑOS ANTERIORES`, `LICENCIA SIN GOCE DE SUELDO`, `PERIODO DESDE HASTA` y `COMISIONES DEL SERVICIO`) | Observaciones del período | En los períodos que crea. El motivo de baja también va al catálogo (fila de abajo). |
 | Motivo de baja (`MOTIVO`) | `relaciones_laborales.motivo_baja_id` y un registro en `retiros` por período de baja | En los períodos de baja. Si el período ya estaba sin motivo, se le completa. Los motivos que faltan en el catálogo se crean vigentes, solo con `--crear-catalogos`. |
 | Familia de los oficiales (esposa e hijos con cédula) | `relaciones_familiares` y, para hijos civiles, `personas` con `es_civil` | Si el vínculo no existe. Ver "Familiares". |
 | Cargo (oficiales) | `destinos.posicion_destino` | En el destino actual que crea. |
-| Sub-unidad (subalternos) y resolución/boletín del destino (oficiales) | Observaciones del destino | En los destinos que crea. |
+| Datos del acto del destino (oficiales): número de destino (`Numero Destino`), fecha de la orden, número y fecha de resolución, boletín | `destinos.numero_destino`, `fecha_orden`, `numero_resolucion`, `fecha_resolucion`, `boletin` | En los destinos que crea. |
+| Sub-unidad (subalternos) | Observaciones del destino | En los destinos que crea. |
 | Seccional (`Secc_Jud_`, oficiales) | `personas.seccional` | Si está vacía. |
+| Credencial cívica (`CCSERIE` y `CCNUM` en subalternos, `Cred_Civ_` en oficiales) | `personas.credencial_civica`, como "SERIE NÚMERO" | Si está vacía. La que no tiene tres letras y un número va al informe. |
+| Nivel de pericia (`NIVEL_PER`, subalternos) | `personas.nivel_idoneidad` (3, 5, 7 o 9; el 0 es que no tiene) | Si está vacío. El del período más reciente que lo tenga. |
 | Lugar de nacimiento de subalternos (`DEPT_NAC`: 1 a 19 = departamentos en orden alfabético) | `personas.lugar_nacimiento` | Si está vacío. |
 | Fecha de fallecimiento (baja con motivo de fallecimiento) | `personas.fecha_fallecimiento` | Si está vacía, es el período más reciente y la persona no tiene ninguno activo. |
 | Misiones y salidas al exterior (`xsalida`, `Misiones`, `OFICIALES EN MISION`) | `misiones`, `funcionarios_misiones` | Siempre, si la persona existe. |
@@ -162,10 +165,19 @@ El importador se desarrolló y se probó con copias anonimizadas de los archivos
   - Si la fila no trae texto, el nombre se arma: "Salida al exterior (País)".
   - Si la misión ya está en la base (mismo nombre, país y fechas), se le agregan los participantes que falten.
 - **`OFICIALES EN MISION`** es una versión vieja de `xsalida`: solo se toman sus filas que no estén en `xsalida`.
-- De `xsalida`, las resoluciones (con su fecha) y la fecha de la orden van en observaciones.
+- La fecha de la orden, el número y la fecha de resolución y la resolución del C. en Jefe van a sus campos de `misiones` (de `xsalida` y de `Misiones`). La fecha de la resolución del C. en Jefe no tiene campo: va en observaciones.
 - **`Misiones`** trae las misiones largas (de paz, diplomáticas, oficiales). Va en el tipo de misión. Si está en el país, la orden modificativa y la resolución van en observaciones.
 - **Una persona sin nombre en ningún archivo no se crea** (pasa con muchos retirados que solo aparecen en las salidas). Sus participaciones van al informe. Si ya existe en la base (por ejemplo, cargada por liquidación), se le asignan.
 - Con las copias anonimizadas no se pudo verificar cómo se agrupan los participantes: la anonimización corre las fechas de cada persona por separado y vacía el texto de la misión. Con los archivos reales, revisar en la simulación que el número de misiones sea razonable.
+
+## Comisiones
+
+El módulo de comisiones registra cada asignación con fecha de inicio y número de orden o boletín, que la base exige. El Access casi nunca los trae: en subalternos, `COMISIONES` es casi siempre solo el nombre o la sigla (de 561 filas, 20 traen alguna fecha y 31 una orden); `DURACION DE LA COMISION` trae fechas sueltas; en oficiales, `Nombre de la Comisión` y `Fechas de la Comisión` no traen orden ni boletín. Además, el mismo nombre aparece escrito de varias formas (con y sin puntos), así que armar el catálogo de comisiones solo sería adivinar cuáles son la misma.
+
+Por eso las comisiones **no se cargan en el módulo**:
+- Quedan como texto en las observaciones de los períodos que crea, como antes.
+- Las de quien está en actividad van a `incidencias.csv` como aviso, con el texto del Access, para cargarlas a mano en el módulo de comisiones.
+- `CODIGO DE COMISION` no se usa: es un código numérico (casi siempre 0 o 4), no una comisión.
 
 ## Nivel educativo
 
@@ -241,10 +253,9 @@ Son registros históricos: no tienen relaciones laborales ni orden de ascenso as
 ## Lo que no se importa
 
 - **`fecha_ultimo_ascenso` de oficiales** en la relación laboral: el Access trae solo el año, y liquidación calcula la permanencia desde esa fecha.
-- **Nivel de pericia** (`NIVEL_PER`) como dato propio: el sistema no tiene un campo para eso. Solo se cargan los cursos que implica (7 y 9).
 - **Esposas que no están en la base**: el nombre viene sin coma y no se puede separar con seguridad. Se cargan a mano desde la aplicación.
 - **Vivienda** y los títulos profesionales que aparecen como especialidad.
-- **Datos sin campo en el sistema:** egreso de la EMA, títulos, Liceo Militar, credencial cívica, fecha de prima técnica, fecha de retiro obligatorio, piloto principal/comandante.
+- **Datos sin campo en el sistema:** egreso de la EMA, títulos, Liceo Militar, fecha de prima técnica, fecha de retiro obligatorio, piloto principal/comandante.
 - **Fechas de ingreso y egreso de la ETA** en el legajo: falta que la FAU confirme de qué columnas salen.
 - **Tablas `HORAS DE VUELO` y `2do Período 2026` del Access de oficiales:** el Excel de horas de vuelo trae lo mismo.
 - **Registro en la bitácora de auditoría.**
