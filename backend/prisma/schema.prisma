@@ -262,15 +262,20 @@ model asignaciones_comision {
   cargo String? @db.VarChar(200)
   persona_id BigInt
   comision_id BigInt
-  fecha_inicio DateTime @db.Date
+  fecha_inicio DateTime? @db.Date
   fecha_fin DateTime? @db.Date
   numero_orden String? @db.VarChar(50)
   boletin String? @db.VarChar(50)
+  importada Boolean @default(false)
+  relacion_laboral_id BigInt?
+  texto_original String?
   personas personas @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   comisiones comisiones @relation(fields: [comision_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  relaciones_laborales relaciones_laborales? @relation(fields: [relacion_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([persona_id], map: "idx_asignaciones_comision_persona")
   @@index([comision_id], map: "idx_asignaciones_comision_comision")
+  @@index([relacion_laboral_id], map: "idx_asignaciones_comision_relacion")
 }
 
 model bancos {
@@ -1104,6 +1109,7 @@ model relaciones_laborales {
   ascensos_como_relacion_nueva                                 ascensos[]                          @relation("ascensos_relacion_nueva")
   items_liquidacion                                            items_liquidacion[]
   movimientos_laborales                                        movimientos_laborales[]
+  asignaciones_comision                                        asignaciones_comision[]
   escalafones                                                  escalafones                         @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   grados                                                       grados                              @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   grados_relaciones_laborales_grado_reincorporacion_idTogrados grados?                             @relation("relaciones_laborales_grado_reincorporacion_idTogrados", fields: [grado_reincorporacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

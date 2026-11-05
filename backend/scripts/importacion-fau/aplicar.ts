@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { PoolClient } from 'pg';
 import { Catalogos, Ref } from './catalogos.js';
-import { CURSOS_DE_ASCENSO } from './complementos.js';
+import { claveComision, CURSOS_DE_ASCENSO } from './complementos.js';
 import { MOTIVOS_NUEVOS } from './motivos.js';
 import { Opciones, Plan } from './plan.js';
 
@@ -28,6 +28,7 @@ export interface Resultado {
   motivosCompletados: number;
   conductasCompletadas: number;
   tiposCompletados: number;
+  comisiones: number;
   retiros: number;
   familiares: number;
   misiones: number;
@@ -44,7 +45,7 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     return v;
   };
   const res: Resultado = { catalogosCreados: {}, personas: 0, completadas: 0, relaciones: 0, destinos: 0, periodosVuelo: 0, periodosVueloCerrados: 0,
-    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, retiros: 0, familiares: 0, misiones: 0,
+    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
     participaciones: 0 };
 
   // Catálogos, en orden de dependencia ──────────────────────────────────────
@@ -303,6 +304,31 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
       res.participaciones += r.rowCount ?? 0;
     }
   }
+  // Comisiones importadas (--comisiones) ──────────────────────────────────
+  // Catálogo: una por clave, con el nombre más común. Vigente si alguien en actividad la tiene.
+  const comisionPorClave = new Map<string, string>(
+    (await db.query('SELECT id::text, denominacion FROM comisiones')).rows
+      .map((c: { id: string; denominacion: string }) => [claveComision(c.denominacion), c.id]),
+  );
+  for (const [clave, n] of plan.comisionesNuevas) {
+    if (comisionPorClave.has(clave)) continue;
+    const denominacion = [...n.formas].sort((a, b) => b[1] - a[1])[0][0];
+    const creada = await db.query(
+      'INSERT INTO comisiones (denominacion, vigente) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id::text', [denominacion, n.vigente],
+    );
+    comisionPorClave.set(clave, creada.rows[0]?.id
+      ?? (await db.query('SELECT id::text FROM comisiones WHERE lower(btrim(denominacion)) = lower(btrim($1))', [denominacion])).rows[0].id);
+    if (creada.rows.length) res.catalogosCreados.comisiones = (res.catalogosCreados.comisiones ?? 0) + 1;
+  }
+  for (const c of plan.comisiones) {
+    await db.query(
+      `INSERT INTO asignaciones_comision (persona_id, comision_id, relacion_laboral_id, importada, texto_original,
+         fecha_inicio, fecha_fin, numero_orden, boletin) VALUES ($1, $2, $3, true, $4, $5, $6, $7, $8)`,
+      [id(c.persona), comisionPorClave.get(c.clave), relacion(c.relacion), c.texto, c.fechaInicio, c.fechaFin, c.numeroOrden, c.boletin],
+    );
+    res.comisiones++;
+  }
+
   return res;
 }
 

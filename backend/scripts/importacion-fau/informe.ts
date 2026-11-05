@@ -29,6 +29,7 @@ export function escribirInforme(
     `- Participaciones en misiones: ${res.participaciones}`,
     `- Derecha/Numor completados en períodos activos existentes: ${res.derechasCompletadas}`,
     `- Tipo de funcionario completado en períodos activos existentes: ${res.tiposCompletados}`,
+    `- Comisiones importadas (--comisiones): ${res.comisiones}`,
     `- Altas en el historial de Derecha/Numor: ${res.historialDerecha}`,
     `- Niveles educativos (legajo): ${res.legajos}`,
     `- Cursos aprobados (pasaje de grado, Nivel 7/9, especialidades): ${res.cursos}`,

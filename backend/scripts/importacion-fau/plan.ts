@@ -12,8 +12,8 @@
 import { PoolClient } from 'pg';
 import { Catalogos, Ref } from './catalogos.js';
 import {
-  actaNivel, aniosEntre, anioAscenso, ANIOS_GRADO_OFICIAL, claveMision, credencialCivica, cursoAprobado, CURSOS_PASAJE, cursosPorNivel,
-  departamentoNacimiento, esLaFau, gradoAnteriorSubalterno, hijosDeFila, leerMisiones, MisionLeida, nivelEducativo, nivelIdoneidad,
+  actaNivel, aniosEntre, anioAscenso, ANIOS_GRADO_OFICIAL, claveComision, claveMision, credencialCivica, cursoAprobado, CURSOS_PASAJE, cursosPorNivel,
+  departamentoNacimiento, esLaFau, gradoAnteriorSubalterno, hijosDeFila, leerComision, leerMisiones, MisionLeida, nivelEducativo, nivelIdoneidad,
 } from './complementos.js';
 import { CursoCatalogo, cursosDeEspecialidad } from './especialidades.js';
 import { conductaDeMotivo, motivoBaja, MOTIVOS_NUEVOS } from './motivos.js';
@@ -26,6 +26,8 @@ import {
 export interface Opciones {
   crearActivos: boolean;
   crearCatalogos: boolean;
+  /** Carga las comisiones en el módulo, como importadas: casi nunca traen fecha ni orden. */
+  comisiones?: boolean;
 }
 
 export interface Incidencia {
@@ -99,6 +101,11 @@ export interface Plan {
   motivosRelacion: Array<{ relacionId: string; motivo: Ref }>;
   /** conducta para períodos de baja que ya estaban en la base sin ella. */
   conductasRelacion: Array<{ relacionId: string; conducta: string }>;
+  /** Comisiones importadas (--comisiones), ligadas al período en que estaban anotadas. */
+  comisiones: Array<{ persona: Ref; relacion: string; clave: string; fechaInicio: string | null; fechaFin: string | null;
+    numeroOrden: string | null; boletin: string | null; texto: string }>;
+  /** Comisiones que faltan en el catálogo, por clave: nombre más común y si alguien en actividad la tiene. */
+  comisionesNuevas: Map<string, { formas: Map<string, number>; vigente: boolean }>;
   /** tipo_funcionario para activos que ya existían sin él. */
   tiposRelacion: Array<{ relacionId: string; tipo: 'oficial' | 'subalterno' }>;
   /** Retiros de los períodos de baja. `relacion` es un id de la base o "rel:N" (relación N del plan). */
@@ -135,7 +142,7 @@ export async function armarPlan(
   const plan: Plan = {
     personasNuevas: new Map(), completar: [], relaciones: [], destinos: [], vuelos: [], derechas: [], historial: [],
     legajos: [], cursos: [], ascensos: [], motivosNuevos: new Set(), motivosRelacion: [], conductasRelacion: [], retiros: [],
-    familiares: [], tiposRelacion: [],
+    familiares: [], tiposRelacion: [], comisiones: [], comisionesNuevas: new Map(),
     misiones: new Map(), incidencias: [], conteo: {},
   };
   const contar = (k: string, n = 1) => (plan.conteo[k] = (plan.conteo[k] ?? 0) + n);
@@ -275,6 +282,51 @@ export async function armarPlan(
       return;
     }
     plan.personasNuevas.set(ced.valor, { ref: `nueva:${ced.valor}`, cedula: ced.valor, datos: { ...nombre, ...datos } });
+  }
+
+  const comisionesDb = new Set((await db.query('SELECT denominacion FROM comisiones')).rows.map((c: { denominacion: string }) => claveComision(c.denominacion)));
+  const comisionesVistas = new Set((await db.query(
+    `SELECT a.persona_id::text AS persona, c.denominacion, a.relacion_laboral_id::text AS relacion
+       FROM asignaciones_comision a JOIN comisiones c ON c.id = a.comision_id WHERE a.importada`,
+  )).rows.map((r: { persona: string; denominacion: string; relacion: string }) => `${r.persona}|${claveComision(r.denominacion)}|${r.relacion}`));
+
+  /**
+   * Con --comisiones, la comisión se carga como importada: ligada al período en que estaba anotada, con
+   * el texto original y sin inventar fechas ni orden. La FAU la completa después en el módulo.
+   */
+  function cargarComision(f: Fila, nombreCol: string, columnas: string[], origen: string, ced: Cedula, nombreTxt: string,
+    relacion: string | null | undefined, activo: boolean) {
+    const partes = columnas.map((c) => texto(f[c]) && `${c}: ${texto(f[c])}`).filter(Boolean) as string[];
+    if (!partes.length) return;
+    const leida = leerComision(f[nombreCol], ...columnas.filter((c) => c !== nombreCol).map((c) => f[c]));
+    if (!leida.nombre) {
+      incidencia({ nivel: 'aviso', origen, cedula: ced.valor, nombre: nombreTxt,
+        motivo: `comisión en el Access ("${partes.join('; ')}") sin nombre de comisión (solo una orden, una fecha o una mutación): no se carga` });
+      contar('comisiones sin nombre (no se cargan)');
+      return;
+    }
+    if (!relacion) return; // El período tuvo un error y ya está en el informe.
+    const persona = refPersona(ced.valor);
+    const clave = claveComision(leida.nombre);
+    const k = `${persona}|${clave}|${relacion}`;
+    if (comisionesVistas.has(k)) {
+      contar('comisiones ya cargadas (se saltean)');
+      return;
+    }
+    comisionesVistas.add(k);
+    if (!comisionesDb.has(clave)) {
+      const n = plan.comisionesNuevas.get(clave) ?? { formas: new Map<string, number>(), vigente: false };
+      n.formas.set(leida.nombre, (n.formas.get(leida.nombre) ?? 0) + 1);
+      n.vigente ||= activo;
+      plan.comisionesNuevas.set(clave, n);
+    }
+    plan.comisiones.push({ persona, relacion, clave, fechaInicio: leida.fechaInicio, fechaFin: leida.fechaFin,
+      numeroOrden: leida.numeroOrden, boletin: leida.boletin, texto: partes.join('; ') });
+    contar('comisiones a cargar (importadas)');
+    if (activo && (!leida.fechaInicio || (!leida.numeroOrden && !leida.boletin))) {
+      incidencia({ nivel: 'aviso', origen, cedula: ced.valor, nombre: nombreTxt,
+        motivo: `comisión "${leida.nombre}" cargada como importada, sin fecha de inicio u orden: completarla en el módulo de comisiones` });
+    }
   }
 
   // Comisiones de quien está en actividad: el módulo pide fecha de inicio y orden o boletín, y el Access
@@ -432,7 +484,7 @@ export async function armarPlan(
     const inicio = normalizarFecha(f['FEC_INGRE']);
     const activo = Number(f['ESTA']) === 0;
     const fin = activo ? null : normalizarFecha(f['FECHABAJA']);
-    if (activo) avisarComision(f, ['COMISIONES', 'DURACION DE LA COMISION', 'COMISIONES DEL SERVICIO'], origen, ced.valor, nombreTxt);
+    if (activo && !op.comisiones) avisarComision(f, ['COMISIONES', 'DURACION DE LA COMISION', 'COMISIONES DEL SERVICIO'], origen, ced.valor, nombreTxt);
     const problemas = [
       !grado && `grado "${texto(f['ABRE_GRA']) ?? ''}" no reconocido`,
       !escalafon && `escalafón "${texto(f['ABRE_ESC']) ?? ''}" no reconocido`,
@@ -517,6 +569,11 @@ export async function armarPlan(
         observaciones: observaciones('', { 'Sub-unidad': f['SUB-UNIDAD'] }) },
     });
 
+    if (op.comisiones) {
+      cargarComision(f, 'COMISIONES', ['COMISIONES', 'DURACION DE LA COMISION', 'COMISIONES DEL SERVICIO'], origen, ced, nombreTxt,
+        relacion ?? (activo ? activaDb.get(refPersona(ced.valor))?.id : undefined), activo);
+    }
+
     // Un período de baja que ya estaba en la base recibe la conducta si no la tiene.
     const previo = relacion ? relacionPorClave.get(`${refPersona(ced.valor)}|${inicio}|${grado!.ref}`) : undefined;
     if (conducta && relacion && previo?.id === relacion && previo.estado !== 'activo' && !previo.conducta && previo.fin === fin) {
@@ -573,7 +630,7 @@ export async function armarPlan(
       seccional: texto(f['Secc_Jud_'])?.slice(0, 100) ?? null,
       credencial_civica: credencialCivica(f['Cred_Civ_']),
     }, origen);
-    avisarComision(f, ['Comisiones', 'Nombre de la Comisión', 'Fechas de la Comisión'], origen, ced.valor, nombreTxt);
+    if (!op.comisiones) avisarComision(f, ['Comisiones', 'Nombre de la Comisión', 'Fechas de la Comisión'], origen, ced.valor, nombreTxt);
     if (texto(f['Cred_Civ_']) && !credencialCivica(f['Cred_Civ_'])) {
       incidencia({ nivel: 'aviso', origen, cedula: ced.valor, nombre: nombreTxt,
         motivo: `credencial cívica "${texto(f['Cred_Civ_'])}" sin serie de tres letras y número: no se carga` });
@@ -613,7 +670,7 @@ export async function armarPlan(
       contar('oficiales con error');
       continue;
     }
-    agregarRelacion({
+    const relacionOficial = agregarRelacion({
       ced, activo: true, origen, nombreTxt,
       grado: grado!.ref, escalafon: escalafon!.ref, unidad: (unidad as { ref: Ref }).ref, subUnidad: null,
       campos: {
@@ -636,6 +693,10 @@ export async function armarPlan(
         observaciones: '',
       },
     });
+    if (op.comisiones) {
+      cargarComision(f, 'Nombre de la Comisión', ['Nombre de la Comisión', 'Fechas de la Comisión', 'Comisiones'], origen, ced, nombreTxt,
+        relacionOficial ?? activaDb.get(refPersona(ced.valor))?.id, true);
+    }
   }
 
   // Familia de los oficiales (relaciones_familiares, tabla nuestra) ─────────
