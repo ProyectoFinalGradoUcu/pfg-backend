@@ -558,15 +558,25 @@ export class PersonalPerfilService {
     await this.assertExiste(id);
     const asignaciones = await this.prisma.asignaciones_comision.findMany({
       where: { persona_id: BigInt(id) },
-      include: { comisiones: { select: { denominacion: true } } },
-      orderBy: [{ fecha_inicio: 'desc' }, { id: 'desc' }],
+      include: {
+        comisiones: { select: { denominacion: true } },
+        relaciones_laborales: { select: { fecha_inicio: true, fecha_fin: true } },
+      },
+      orderBy: [{ fecha_inicio: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }],
     });
+    const fecha = (d: Date | null | undefined) => d?.toISOString().slice(0, 10) ?? null;
     return asignaciones.map(a => ({
       id: a.id, comision_id: a.comision_id, comision: a.comisiones.denominacion,
       cargo: a.cargo,
-      fecha_inicio: a.fecha_inicio.toISOString().slice(0, 10),
-      fecha_fin: a.fecha_fin?.toISOString().slice(0, 10) ?? null,
-      numero_orden: a.numero_orden, boletin: a.boletin, activo: a.fecha_fin === null,
+      fecha_inicio: fecha(a.fecha_inicio),
+      fecha_fin: fecha(a.fecha_fin),
+      numero_orden: a.numero_orden, boletin: a.boletin,
+      // Una importada sin fecha de fin sigue abierta solo mientras siga abierto su período.
+      activo: a.fecha_fin === null && (!a.relaciones_laborales || a.relaciones_laborales.fecha_fin === null),
+      importada: a.importada, texto_original: a.texto_original,
+      periodo: a.relaciones_laborales
+        ? { fecha_inicio: fecha(a.relaciones_laborales.fecha_inicio), fecha_fin: fecha(a.relaciones_laborales.fecha_fin) }
+        : null,
     }));
   }
 

@@ -29,8 +29,10 @@ services:
       - ./database/scripts/migration_archivos.sql:/docker-entrypoint-initdb.d/12_migration_archivos.sql:ro
       - ./database/scripts/migration_derecha_numor.sql:/docker-entrypoint-initdb.d/13_migration_derecha_numor.sql:ro
       - ./database/scripts/migration_vuelos.sql:/docker-entrypoint-initdb.d/14_migration_vuelos.sql:ro
-      - ./database/scripts/migration_comisiones.sql:/docker-entrypoint-initdb.d/15_migration_comisiones.sql:ro
-      - ./database/scripts/migration_comisiones_cargo.sql:/docker-entrypoint-initdb.d/16_migration_comisiones_cargo.sql:ro
+      - ./database/scripts/migration_campos_reportes.sql:/docker-entrypoint-initdb.d/15_migration_campos_reportes.sql:ro
+      - ./database/scripts/migration_comisiones.sql:/docker-entrypoint-initdb.d/16_migration_comisiones.sql:ro
+      - ./database/scripts/migration_comisiones_cargo.sql:/docker-entrypoint-initdb.d/17_migration_comisiones_cargo.sql:ro
+      - ./database/scripts/migration_comisiones_importadas.sql:/docker-entrypoint-initdb.d/18_migration_comisiones_importadas.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pfg_user -d pfg_database"]
       interval: 10s

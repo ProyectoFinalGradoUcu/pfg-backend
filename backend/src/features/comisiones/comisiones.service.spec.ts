@@ -10,6 +10,7 @@ const registro = (changes = {}) => ({
   fecha_inicio: new Date('2026-01-01'), fecha_fin: null,
   numero_orden: '001', boletin: null,
   cargo: null,
+  importada: false, relacion_laboral_id: null, texto_original: null, relaciones_laborales: null,
   personas: { id: 1n, cedula: '123', primer_nombre: 'Ana', primer_apellido: 'Pérez', relaciones_laborales: [{ tipo_funcionario: 'oficial', fecha_fin: null }] },
   comisiones: { id: 2n, denominacion: 'Evaluación', vigente: true },
   ...changes,
@@ -108,5 +109,41 @@ describe('ComisionesService', () => {
     const dto = plainToInstance(CreateAsignacionComisionDto, { persona_id: 1, comision_id: 2, fecha_inicio: '2026-02-30', numero_orden: '001', boletin: 'x'.repeat(51) });
     const errors = await validate(dto);
     expect(errors.map(e => e.property)).toEqual(expect.arrayContaining(['fecha_inicio', 'boletin']));
+  });
+
+  describe('importadas del Access', () => {
+    const importada = (periodoFin: Date | null, changes = {}) => registro({
+      importada: true, fecha_inicio: null, numero_orden: null, texto_original: 'COMISIONES: DINACIA',
+      relacion_laboral_id: 5n, relaciones_laborales: { fecha_inicio: new Date('2005-03-01'), fecha_fin: periodoFin }, ...changes,
+    });
+    // El update devuelve la misma asignación con los cambios, no un registro nuevo.
+    const conUpdateSobre = (original: ReturnType<typeof registro>) => {
+      tx.asignaciones_comision.findUnique.mockResolvedValue(original);
+      tx.asignaciones_comision.update.mockImplementation(({ data }: { data: object }) => Promise.resolve({ ...original, ...data }));
+    };
+    it('no queda abierta si su período ya cerró, aunque no tenga fecha de fin', async () => {
+      conUpdateSobre(importada(new Date('2010-06-30')));
+      const a = await service.editarAsignacion(10n, { cargo: 'Mozo' });
+      expect(a).toEqual(expect.objectContaining({ activo: false, importada: true, fecha_inicio: null, periodo: { fecha_inicio: '2005-03-01', fecha_fin: '2010-06-30' } }));
+    });
+    it('sigue abierta mientras su período siga abierto', async () => {
+      conUpdateSobre(importada(null));
+      expect((await service.editarAsignacion(10n, { cargo: null })).activo).toBe(true);
+    });
+    it('se puede editar sin fecha ni documento, y completarlos después', async () => {
+      conUpdateSobre(importada(null));
+      await expect(service.editarAsignacion(10n, { cargo: 'Mozo' })).resolves.toBeDefined();
+      const completa = await service.editarAsignacion(10n, { fecha_inicio: '2024-03-01', numero_orden: '7682' });
+      expect(completa).toEqual(expect.objectContaining({ fecha_inicio: '2024-03-01', numero_orden: '7682', importada: true }));
+    });
+    it('una asignación cargada en la app sigue exigiendo fecha y documento', async () => {
+      tx.asignaciones_comision.findUnique.mockResolvedValue(registro({ fecha_inicio: null }));
+      await expect(service.editarAsignacion(10n, { cargo: 'Vocal' })).rejects.toThrow(BadRequestException);
+    });
+    it('no deja abrir otra pertenencia si una importada sigue abierta por su período', async () => {
+      tx.asignaciones_comision.count.mockResolvedValue(1);
+      await expect(service.crearAsignacion({ persona_id: 1, comision_id: 2, fecha_inicio: '2026-02-01', numero_orden: '001' })).rejects.toThrow(ConflictException);
+      expect(tx.asignaciones_comision.create).not.toHaveBeenCalled();
+    });
   });
 });

@@ -25,3 +25,4 @@ database/scripts/migration_vuelos.sql
 database/scripts/migration_campos_reportes.sql
 database/scripts/migration_comisiones.sql
 database/scripts/migration_comisiones_cargo.sql
+database/scripts/migration_comisiones_importadas.sql
