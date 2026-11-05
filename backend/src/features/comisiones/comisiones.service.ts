@@ -46,6 +46,28 @@ export class ComisionesService {
       throw error;
     }
   }
+  /**
+   * Un retirado no puede integrar una comisión. Se considera retirado a quien tiene un
+   * retiro no anulado y ninguna relación laboral activa (un reincorporado sí puede).
+   */
+  private async assertSinRetirados(tx: Prisma.TransactionClient, personaIds: bigint[]) {
+    const retirados = await tx.personas.findMany({
+      where: {
+        id: { in: personaIds },
+        retiros: { some: { anulado: false } },
+        relaciones_laborales: { none: { fecha_fin: null } },
+      },
+      select: { primer_nombre: true, primer_apellido: true, cedula: true },
+    });
+    if (retirados.length) {
+      const nombres = retirados.map((p) => `${p.primer_nombre} ${p.primer_apellido} (${p.cedula})`).join(', ');
+      throw new ConflictException(
+        retirados.length === 1
+          ? `${nombres} está retirado: un retirado no puede integrar una comisión.`
+          : `Estas personas están retiradas y no pueden integrar una comisión: ${nombres}.`,
+      );
+    }
+  }
   private async bloquear(tx: Prisma.TransactionClient, id: bigint) {
     const rows = await tx.$queryRaw<{ id: bigint; vigente: boolean }[]>`SELECT id, vigente FROM comisiones WHERE id = ${id} FOR UPDATE`;
     if (!rows.length) throw new NotFoundException('No existe la comisión');
@@ -122,6 +144,7 @@ export class ComisionesService {
       const c = await this.bloquear(tx, BigInt(dto.comision_id));
       if (!c.vigente) throw new ConflictException('La comisión está inactiva');
       if (!await tx.personas.findUnique({ where: { id: BigInt(dto.persona_id) }, select: { id: true } })) throw new NotFoundException('No existe la persona');
+      await this.assertSinRetirados(tx, [BigInt(dto.persona_id)]);
       // El índice único no cubre las importadas, que pueden seguir abiertas por su período.
       if (!valores.fecha_fin && await tx.asignaciones_comision.count({ where: { persona_id: BigInt(dto.persona_id), comision_id: BigInt(dto.comision_id), ...abierta } })) {
         throw new ConflictException('La persona ya tiene una pertenencia abierta en esta comisión');
@@ -143,6 +166,7 @@ export class ComisionesService {
       const existentes = new Set(personas.map(p => p.id.toString()));
       const faltantes = ids.filter(id => !existentes.has(id.toString()));
       if (faltantes.length) throw new NotFoundException(`No existe personal con id ${faltantes.join(', ')}`);
+      await this.assertSinRetirados(tx, ids);
       if (!valores.fecha_fin) {
         const duplicadas = await tx.asignaciones_comision.findMany({
           where: { comision_id: comisionId, persona_id: { in: ids }, ...abierta },
@@ -169,6 +193,8 @@ export class ComisionesService {
       if (!original) throw new NotFoundException('No existe la asignación');
       const valores = this.valores(dto, original);
       if (!valores.fecha_fin && !c.vigente) throw new ConflictException('La comisión está inactiva');
+      // Reabrir la pertenencia de un retirado equivale a volver a asignarlo.
+      if (!valores.fecha_fin && original.fecha_fin) await this.assertSinRetirados(tx, [original.persona_id]);
       return this.mapAsignacion(await tx.asignaciones_comision.update({ where: { id }, data: valores, include: includeAsignacion }));
     }));
   }

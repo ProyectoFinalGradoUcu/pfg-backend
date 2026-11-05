@@ -330,7 +330,10 @@ export class DestinosService {
 
     const ordenFinal = dto.numero_orden !== undefined ? dto.numero_orden : asignacion.numero_orden;
     const boletinFinal = dto.boletin !== undefined ? dto.boletin : asignacion.boletin;
-    if (!ordenFinal && !boletinFinal) {
+    // Solo se valida si la edición cambia los documentos: hay destinos históricos sin
+    // número de orden ni boletín.
+    const tocaDocumentos = dto.numero_orden !== undefined || dto.boletin !== undefined;
+    if (tocaDocumentos && !ordenFinal && !boletinFinal) {
       throw new BadRequestException(
         'El destino debe conservar al menos número de orden o boletín',
       );
@@ -366,6 +369,16 @@ export class DestinosService {
       }
     }
 
+    // Al reabrirlo pasa a ser el destino vigente: la relación laboral toma su unidad, como en
+    // un pase.
+    const reabre = fechaFin === null && asignacion.fecha_fin !== null;
+    if (reabre && asignacion.persona_id && asignacion.unidad_id) {
+      await this.prisma.relaciones_laborales.updateMany({
+        where: { persona_id: asignacion.persona_id, fecha_fin: null },
+        data: { unidad_id: asignacion.unidad_id },
+      });
+    }
+
     const actualizado = await this.prisma.destinos.update({
       where: { id: BigInt(destinoId) },
       data: {
@@ -393,14 +406,55 @@ export class DestinosService {
     return this.mapDestino(actualizado);
   }
 
+  /**
+   * Elimina un destino cargado por error. Si es el vigente, deshace el pase: la relación
+   * laboral vuelve a la unidad del destino anterior, y ese destino se reabre si el pase lo
+   * había cerrado (terminaba el día antes o el mismo día).
+   */
   async eliminarDestino(destinoId: number) {
     const asignacion = await this.prisma.destinos.findUnique({
       where: { id: BigInt(destinoId) },
     });
     if (!asignacion) throw new NotFoundException(`No existe destino con id ${destinoId}`);
 
-    await this.prisma.destinos.delete({ where: { id: BigInt(destinoId) } });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.destinos.delete({ where: { id: asignacion.id } });
 
-    return { id: destinoId.toString(), eliminado: true };
+      // Un destino cerrado no define la unidad actual.
+      if (asignacion.fecha_fin !== null || !asignacion.persona_id) {
+        return { id: destinoId.toString(), eliminado: true, destino_reabierto: null };
+      }
+
+      const anterior = await tx.destinos.findFirst({
+        where: {
+          persona_id: asignacion.persona_id,
+          fecha_fin: { not: null, ...(asignacion.fecha_inicio ? { lte: asignacion.fecha_inicio } : {}) },
+        },
+        orderBy: [{ fecha_fin: 'desc' }, { id: 'desc' }],
+      });
+      // Sin destino anterior no se sabe dónde revistaba antes: la relación queda como está.
+      if (!anterior) {
+        return { id: destinoId.toString(), eliminado: true, destino_reabierto: null };
+      }
+
+      const contiguo =
+        !asignacion.fecha_inicio ||
+        (anterior.fecha_fin !== null && anterior.fecha_fin >= diaAnterior(asignacion.fecha_inicio));
+      if (contiguo) {
+        await tx.destinos.update({ where: { id: anterior.id }, data: { fecha_fin: null } });
+      }
+      if (anterior.unidad_id !== null) {
+        await tx.relaciones_laborales.updateMany({
+          where: { persona_id: asignacion.persona_id, fecha_fin: null },
+          data: { unidad_id: anterior.unidad_id },
+        });
+      }
+
+      return {
+        id: destinoId.toString(),
+        eliminado: true,
+        destino_reabierto: contiguo ? anterior.id.toString() : null,
+      };
+    });
   }
 }
