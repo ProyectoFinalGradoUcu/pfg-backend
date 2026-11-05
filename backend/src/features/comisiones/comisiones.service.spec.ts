@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ComisionesService } from './comisiones.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { validate } from 'class-validator';
@@ -11,7 +11,7 @@ const registro = (changes = {}) => ({
   numero_orden: '001', boletin: null,
   cargo: null,
   importada: false, relacion_laboral_id: null, texto_original: null, relaciones_laborales: null,
-  personas: { id: 1n, cedula: '123', primer_nombre: 'Ana', primer_apellido: 'Pérez', relaciones_laborales: [{ tipo_funcionario: 'oficial', fecha_fin: null }] },
+  personas: { id: 1n, cedula: '123', primer_nombre: 'Ana', primer_apellido: 'Pérez', retiros: [], relaciones_laborales: [{ tipo_funcionario: 'oficial', fecha_fin: null }] },
   comisiones: { id: 2n, denominacion: 'Evaluación', vigente: true },
   ...changes,
 });
@@ -32,6 +32,7 @@ describe('ComisionesService', () => {
         ),
       },
       comisiones: { update: jest.fn() },
+      relaciones_laborales: { findUnique: jest.fn() },
       asignaciones_comision: {
         count: jest.fn().mockResolvedValue(0),
         findUnique: jest.fn().mockResolvedValue(registro()),
@@ -48,6 +49,60 @@ describe('ComisionesService', () => {
     expect(result.activo).toBe(true);
     expect(tx.asignaciones_comision.update).not.toHaveBeenCalled();
     expect(tx.asignaciones_comision.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ persona_id: 1n, comision_id: 2n, boletin: 'B-001' }) }));
+  });
+  describe('solapamientos y alcance', () => {
+    const dto = { persona_id: 1, comision_id: 2, fecha_inicio: '2026-03-01', fecha_fin: '2026-05-01', boletin: 'OTRO', cargo: 'Presidente' };
+    it('mantiene activa una pertenencia con cierre futuro', async () => {
+      const result = await service.crearAsignacion({ ...dto, fecha_fin: '2099-12-31' });
+      expect(result.activo).toBe(true);
+    });
+    it('impide inactivar con pertenencias vigentes o futuras', async () => {
+      tx.asignaciones_comision.count.mockResolvedValue(1);
+      await expect(service.editar(2n, { vigente: false })).rejects.toThrow(ConflictException);
+      expect(tx.asignaciones_comision.count.mock.calls[0][0].where.OR).toEqual([
+        { fecha_fin: null }, { fecha_fin: { gte: expect.any(Date) } },
+      ]);
+    });
+    it.each([
+      [null, 'pertenencia abierta'],
+      [new Date('2026-03-01'), 'día límite compartido'],
+      [new Date('2026-04-01'), 'período parcial'],
+    ])('rechaza %s (%s) aunque cambien documentos y cargo', async (fin) => {
+      tx.asignaciones_comision.findMany.mockResolvedValue([registro({ fecha_fin: fin })]);
+      await expect(service.crearAsignacion(dto)).rejects.toThrow(ConflictException);
+      expect(tx.asignaciones_comision.create).not.toHaveBeenCalled();
+    });
+    it('acepta un período que comienza después del fin anterior', async () => {
+      tx.asignaciones_comision.findMany.mockResolvedValue([registro({ fecha_fin: new Date('2026-02-28') })]);
+      await expect(service.crearAsignacion(dto)).resolves.toBeDefined();
+    });
+    it('rechaza solapamientos en un lote con fecha de fin sin escribir ninguna fila', async () => {
+      tx.asignaciones_comision.findMany.mockResolvedValue([registro()]);
+      await expect(service.crearLote({ ...lote, fecha_fin: '2026-06-01' })).rejects.toThrow(ConflictException);
+      expect(tx.asignaciones_comision.create).not.toHaveBeenCalled();
+    });
+    it('valida el estado final al editar y excluye la propia asignación', async () => {
+      tx.asignaciones_comision.findMany.mockResolvedValue([registro({ id: 11n, fecha_inicio: new Date('2026-06-01') })]);
+      await expect(service.editarAsignacion(10n, { fecha_fin: '2026-06-01' })).rejects.toThrow(ConflictException);
+      expect(tx.asignaciones_comision.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { comision_id: 2n, persona_id: { in: [1n] }, id: { not: 10n } } }));
+    });
+    it('no permite extender hasta el futuro una pertenencia de un retirado', async () => {
+      tx.asignaciones_comision.findUnique.mockResolvedValue(registro({ fecha_fin: new Date('2026-03-01') }));
+      tx.personas.findMany.mockResolvedValue([{ primer_nombre: 'Ana', primer_apellido: 'Pérez', cedula: '123' }]);
+      await expect(service.editarAsignacion(10n, { fecha_fin: '2099-01-01' })).rejects.toThrow(ConflictException);
+      expect(tx.asignaciones_comision.update).not.toHaveBeenCalled();
+    });
+    it.each(['crear', 'editar', 'eliminar', 'lote'])('rechaza %s fuera de alcance sin escrituras', async accion => {
+      tx.personas.findMany.mockResolvedValue([]);
+      const alcance = { tipo: 'unidad' as const, unidadIds: ['7'] };
+      const promesa = accion === 'crear' ? service.crearAsignacion(dto, alcance)
+        : accion === 'editar' ? service.editarAsignacion(10n, { cargo: 'Vocal' }, alcance)
+        : accion === 'eliminar' ? service.eliminarAsignacion(10n, alcance)
+        : service.crearLote(lote, alcance);
+      await expect(promesa).rejects.toThrow(NotFoundException);
+      expect(tx.asignaciones_comision.create).not.toHaveBeenCalled();
+      expect(tx.asignaciones_comision.update).not.toHaveBeenCalled();
+    });
   });
   describe('un retirado no puede integrar una comisión', () => {
     const retirada = { primer_nombre: 'Ana', primer_apellido: 'Pérez', cedula: '123' };
@@ -163,6 +218,7 @@ describe('ComisionesService', () => {
     });
     // El update devuelve la misma asignación con los cambios, no un registro nuevo.
     const conUpdateSobre = (original: ReturnType<typeof registro>) => {
+      tx.relaciones_laborales.findUnique.mockResolvedValue(original.relaciones_laborales);
       tx.asignaciones_comision.findUnique.mockResolvedValue(original);
       tx.asignaciones_comision.update.mockImplementation(({ data }: { data: object }) => Promise.resolve({ ...original, ...data }));
     };
@@ -186,7 +242,7 @@ describe('ComisionesService', () => {
       await expect(service.editarAsignacion(10n, { cargo: 'Vocal' })).rejects.toThrow(BadRequestException);
     });
     it('no deja abrir otra pertenencia si una importada sigue abierta por su período', async () => {
-      tx.asignaciones_comision.count.mockResolvedValue(1);
+      tx.asignaciones_comision.findMany.mockResolvedValue([importada(null)]);
       await expect(service.crearAsignacion({ persona_id: 1, comision_id: 2, fecha_inicio: '2026-02-01', numero_orden: '001' })).rejects.toThrow(ConflictException);
       expect(tx.asignaciones_comision.create).not.toHaveBeenCalled();
     });
