@@ -10,7 +10,8 @@ import {
 export class CrearInvitacionDto {
   @ApiProperty({ example: 'silva.g@fau.mil.uy' })
   @IsEmail()
-  @MaxLength(150)
+  // Máximo 60: al aceptar, el email pasa a `usuarios.username`, que es varchar(60).
+  @MaxLength(60, { message: 'El email no puede tener más de 60 caracteres' })
   email: string;
 
   @ApiPropertyOptional({ example: '1542', description: 'ID de la persona vinculada' })

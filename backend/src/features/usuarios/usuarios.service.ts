@@ -12,13 +12,14 @@ import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { unidadesDeUsuario } from '../unidades/unidades-usuario';
 import { APLICACION } from '../../lib/aplicacion.const';
+import { assertPermisosDelActor, assertPuedeGestionarA, ROL_ADMIN } from '../auth/privilegios';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ListUsuariosQueryDto } from './dto/list-usuarios-query.dto';
 
 const DEFAULT_BCRYPT_ROUNDS = 12;
-const ROL_ADMIN = 'Administrador del sistema';
 
 const USUARIO_INCLUDE = {
   usuarios_roles: { include: { roles: true } },
@@ -165,7 +166,7 @@ export class UsuariosService {
     return this.toDetailResponse(usuario);
   }
 
-  async create(dto: CreateUsuarioDto) {
+  async create(dto: CreateUsuarioDto, actor: AuthenticatedUser) {
     const existente = await this.prisma.usuarios.findFirst({
       where: { username: dto.username, aplicacion: APLICACION },
     });
@@ -178,43 +179,61 @@ export class UsuariosService {
       if (!persona) throw new BadRequestException('La persona indicada no existe');
     }
 
+    // Se valida todo antes de escribir y el alta va en una transacción, para no dejar el
+    // usuario creado a medias.
+    const nombresRoles = Array.from(new Set(dto.roles ?? []));
+    const roles = nombresRoles.length
+      ? await this.prisma.roles.findMany({
+          where: { nombre: { in: nombresRoles }, aplicacion: APLICACION },
+          include: { roles_permisos: { include: { permisos: { select: { nombre: true } } } } },
+        })
+      : [];
+    if (roles.length !== nombresRoles.length) {
+      const faltan = nombresRoles.filter((n) => !roles.some((r) => r.nombre === n));
+      throw new BadRequestException(`Roles no encontrados: ${faltan.join(', ')}`);
+    }
+    assertPermisosDelActor(
+      actor,
+      roles.flatMap((r) => r.roles_permisos.map((rp) => rp.permisos.nombre)),
+      'crear un usuario con esos roles',
+    );
+
     const rounds = Number(process.env.BCRYPT_ROUNDS ?? DEFAULT_BCRYPT_ROUNDS);
     const passwordHash = await bcrypt.hash(dto.password, rounds);
 
-    const usuario = await this.prisma.usuarios.create({
-      data: {
-        username: dto.username,
-        password_hash: passwordHash,
-        estado: 'activo',
-        aplicacion: APLICACION,
-        persona_id: dto.personaId ? BigInt(dto.personaId) : null,
-      },
-    });
-
-    if (dto.roles && dto.roles.length > 0) {
-      const roles = await this.prisma.roles.findMany({
-        where: { nombre: { in: dto.roles }, aplicacion: APLICACION },
+    const usuario = await this.prisma.$transaction(async (tx) => {
+      const creado = await tx.usuarios.create({
+        data: {
+          username: dto.username,
+          password_hash: passwordHash,
+          estado: 'activo',
+          aplicacion: APLICACION,
+          persona_id: dto.personaId ? BigInt(dto.personaId) : null,
+        },
       });
-      if (roles.length !== dto.roles.length) {
-        throw new BadRequestException('Uno o más roles no existen');
+      if (roles.length > 0) {
+        await tx.usuarios_roles.createMany({
+          data: roles.map((r) => ({ usuario_id: creado.id, rol_id: r.id })),
+          skipDuplicates: true,
+        });
       }
-      await this.prisma.usuarios_roles.createMany({
-        data: roles.map((r) => ({ usuario_id: usuario.id, rol_id: r.id })),
-        skipDuplicates: true,
-      });
-    }
+      return creado;
+    });
 
     return this.findOne(usuario.id.toString());
   }
 
-  async update(id: string, dto: UpdateUsuarioDto, currentUserId: string) {
+  async update(id: string, dto: UpdateUsuarioDto, actor: AuthenticatedUser) {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
 
-    if (dto.estado === 'bloqueado' && id === currentUserId) {
+    if (dto.estado === 'bloqueado' && id === actor.id) {
       throw new ForbiddenException('No podés bloquear tu propio usuario');
+    }
+    if (id !== actor.id) {
+      await this.assertPuedeGestionar(actor, usuario.id, 'modificar a este usuario');
     }
 
     if (dto.personaId !== undefined && dto.personaId !== null) {
@@ -242,14 +261,15 @@ export class UsuariosService {
     return this.findOne(id);
   }
 
-  async remove(id: string, currentUserId: string) {
-    if (id === currentUserId) {
+  async remove(id: string, actor: AuthenticatedUser) {
+    if (id === actor.id) {
       throw new ForbiddenException('No podés eliminar tu propio usuario');
     }
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
+    await this.assertPuedeGestionar(actor, usuario.id, 'eliminar a este usuario');
 
     await this.prisma.usuarios.update({
       where: { id: usuario.id },
@@ -258,13 +278,22 @@ export class UsuariosService {
     return { ok: true };
   }
 
-  async asignarRol(usuarioId: string, rolId: string) {
+  async asignarRol(usuarioId: string, rolId: string, actor: AuthenticatedUser) {
     const [usuario, rol] = await Promise.all([
       this.prisma.usuarios.findFirst({ where: { id: BigInt(usuarioId), aplicacion: APLICACION } }),
-      this.prisma.roles.findFirst({ where: { id: BigInt(rolId), aplicacion: APLICACION } }),
+      this.prisma.roles.findFirst({
+        where: { id: BigInt(rolId), aplicacion: APLICACION },
+        include: { roles_permisos: { include: { permisos: { select: { nombre: true } } } } },
+      }),
     ]);
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
     if (!rol) throw new NotFoundException('Rol no encontrado');
+
+    assertPermisosDelActor(
+      actor,
+      rol.roles_permisos.map((rp) => rp.permisos.nombre),
+      `asignar el rol ${rol.nombre}`,
+    );
 
     await this.prisma.usuarios_roles.upsert({
       where: { usuario_id_rol_id: { usuario_id: usuario.id, rol_id: rol.id } },
@@ -277,7 +306,7 @@ export class UsuariosService {
     return this.findOne(usuarioId);
   }
 
-  async quitarRol(usuarioId: string, rolId: string, currentUserId: string) {
+  async quitarRol(usuarioId: string, rolId: string, actor: AuthenticatedUser) {
     const [usuario, rol] = await Promise.all([
       this.prisma.usuarios.findFirst({ where: { id: BigInt(usuarioId), aplicacion: APLICACION } }),
       this.prisma.roles.findFirst({ where: { id: BigInt(rolId), aplicacion: APLICACION } }),
@@ -285,10 +314,13 @@ export class UsuariosService {
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
     if (!rol) throw new NotFoundException('Rol no encontrado');
 
-    if (usuarioId === currentUserId && rol.nombre === ROL_ADMIN) {
+    if (usuarioId === actor.id && rol.nombre === ROL_ADMIN) {
       throw new ForbiddenException(
         'No podés quitarte tu propio rol Administrador del sistema',
       );
+    }
+    if (usuarioId !== actor.id) {
+      await this.assertPuedeGestionar(actor, usuario.id, `quitarle el rol ${rol.nombre}`);
     }
 
     await this.prisma.usuarios_roles.deleteMany({
@@ -309,7 +341,8 @@ export class UsuariosService {
    *
    * Acepta un array de unidadIds. Si es vacío, quita todas las unidades.
    */
-  async asignarUnidades(id: string, unidadIds: string[], actorId: string) {
+  async asignarUnidades(id: string, unidadIds: string[], actor: AuthenticatedUser) {
+    const actorId = actor.id;
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
     });
@@ -331,6 +364,29 @@ export class UsuariosService {
     }
 
     const anteriores = await unidadesDeUsuario(this.prisma, usuario.id);
+
+    // Las unidades heredan roles: sumar una unidad nueva también otorga permisos.
+    // Solo cuentan las que se agregan; las que el usuario ya tenía no las está otorgando el actor.
+    const agregadas = unidadIds.filter((u) => !anteriores.some((a) => a.id === u));
+    if (agregadas.length > 0) {
+      const permisosHeredados = await this.prisma.permisos.findMany({
+        where: {
+          roles_permisos: {
+            some: {
+              roles: {
+                unidades_roles: { some: { unidad_id: { in: agregadas.map((u) => BigInt(u)) } } },
+              },
+            },
+          },
+        },
+        select: { nombre: true },
+      });
+      assertPermisosDelActor(
+        actor,
+        permisosHeredados.map((p) => p.nombre),
+        'asignar esa unidad',
+      );
+    }
 
     // Reemplazar todas las asignaciones: borrar las existentes e insertar las nuevas
     await this.prisma.usuarios_unidades.deleteMany({
@@ -368,11 +424,13 @@ export class UsuariosService {
     return this.findOne(id);
   }
 
-  async resetPassword(id: string, dto: ResetPasswordDto) {
+  async resetPassword(id: string, dto: ResetPasswordDto, actor: AuthenticatedUser) {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
     });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
+    // Resetear la contraseña de alguien con más permisos permitiría entrar con su cuenta.
+    await this.assertPuedeGestionar(actor, usuario.id, 'resetear la contraseña de este usuario');
 
     const rounds = Number(process.env.BCRYPT_ROUNDS ?? DEFAULT_BCRYPT_ROUNDS);
     const passwordHash = await bcrypt.hash(dto.password, rounds);
@@ -383,10 +441,53 @@ export class UsuariosService {
         password_hash: passwordHash,
         intentos_fallidos: 0,
         bloqueado_hasta: null,
+        // El reset que hace un administrador corta las sesiones abiertas del usuario.
+        sesiones_invalidas_desde: new Date(),
       },
     });
 
     return { ok: true };
+  }
+
+  /**
+   * Roles y permisos efectivos (directos y heredados de sus unidades) de un usuario, para
+   * no dejar que alguien con menos privilegios lo gestione (ver `assertPuedeGestionarA`).
+   */
+  private async assertPuedeGestionar(
+    actor: AuthenticatedUser,
+    usuarioId: bigint,
+    accion: string,
+  ): Promise<void> {
+    if (actor.roles.includes(ROL_ADMIN)) return;
+    const rolConPermisos = {
+      select: {
+        nombre: true,
+        roles_permisos: { select: { permisos: { select: { nombre: true } } } },
+      },
+    } as const;
+    const destino = await this.prisma.usuarios.findUnique({
+      where: { id: usuarioId },
+      select: {
+        usuarios_roles: { select: { roles: rolConPermisos } },
+        usuarios_unidades: {
+          select: { unidades: { select: { unidades_roles: { select: { roles: rolConPermisos } } } } },
+        },
+      },
+    });
+    const roles = [
+      ...(destino?.usuarios_roles ?? []).map((ur) => ur.roles),
+      ...(destino?.usuarios_unidades ?? []).flatMap((uu) =>
+        uu.unidades.unidades_roles.map((ur) => ur.roles),
+      ),
+    ];
+    assertPuedeGestionarA(
+      actor,
+      {
+        roles: roles.map((r) => r.nombre),
+        permisos: roles.flatMap((r) => r.roles_permisos.map((rp) => rp.permisos.nombre)),
+      },
+      accion,
+    );
   }
 
   private toResponse(usuario: {

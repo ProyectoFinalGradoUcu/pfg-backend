@@ -40,11 +40,13 @@ export class InvitacionesController {
   @ApiOperation({ summary: 'Crear y enviar una invitación por email' })
   @ApiResponse({ status: 201, description: 'Invitación enviada' })
   @ApiResponse({ status: 409, description: 'Ya existe una invitación pendiente para ese email' })
+  @ApiResponse({ status: 400, description: 'Roles inexistentes o de otra aplicación' })
+  @ApiResponse({ status: 403, description: 'Los roles otorgan permisos que quien invita no tiene' })
   crear(
     @Body() dto: CrearInvitacionDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.invitacionesService.crear(dto, user.id);
+    return this.invitacionesService.crear(dto, user);
   }
 
   @Get()

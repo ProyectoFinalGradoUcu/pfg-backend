@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { APLICACION } from '../../lib/aplicacion.const';
@@ -28,6 +29,24 @@ const DEFAULT_BCRYPT_ROUNDS = 12;
 
 const DEFAULT_RESET_TTL_HOURS = 1;
 
+const ROLES_CON_PERMISOS = {
+  include: { roles_permisos: { include: { permisos: true } } },
+} as const;
+
+/** Lo que hace falta leer de un usuario para firmar su token: roles directos y de sus unidades. */
+const USUARIO_SESION_INCLUDE = {
+  usuarios_roles: { include: { roles: ROLES_CON_PERMISOS } },
+  usuarios_unidades: {
+    include: {
+      unidades: {
+        include: { unidades_roles: { include: { roles: ROLES_CON_PERMISOS } } },
+      },
+    },
+  },
+} satisfies Prisma.usuariosInclude;
+
+type UsuarioSesion = Prisma.usuariosGetPayload<{ include: typeof USUARIO_SESION_INCLUDE }>;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -39,34 +58,7 @@ export class AuthService {
   async signIn(dto: SignInDto): Promise<SignInResult> {
     const usuario = await this.prisma.usuarios.findFirst({
       where: { username: dto.username, aplicacion: APLICACION },
-      include: {
-        usuarios_roles: {
-          include: {
-            roles: {
-              include: {
-                roles_permisos: { include: { permisos: true } },
-              },
-            },
-          },
-        },
-        usuarios_unidades: {
-          include: {
-            unidades: {
-              include: {
-                unidades_roles: {
-                  include: {
-                    roles: {
-                      include: {
-                        roles_permisos: { include: { permisos: true } },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+      include: USUARIO_SESION_INCLUDE,
     });
 
     if (!usuario) {
@@ -106,6 +98,33 @@ export class AuthService {
       });
     }
 
+    return this.emitirSesion(usuario);
+  }
+
+  /**
+   * Cierra todas las sesiones del usuario, en todos los dispositivos. Marca
+   * `sesiones_invalidas_desde` y `assertUsuarioActivo` rechaza los tokens emitidos antes.
+   */
+  async cerrarSesiones(usuarioId: string | bigint): Promise<void> {
+    await this.prisma.usuarios.updateMany({
+      where: { id: BigInt(usuarioId) },
+      data: { sesiones_invalidas_desde: new Date() },
+    });
+  }
+
+  /** Token nuevo para un usuario ya autenticado (p. ej. después de cambiar su contraseña). */
+  async reemitirSesion(usuarioId: string): Promise<SignInResult> {
+    const usuario = await this.prisma.usuarios.findUnique({
+      where: { id: BigInt(usuarioId) },
+      include: USUARIO_SESION_INCLUDE,
+    });
+    if (!usuario || usuario.estado !== 'activo') {
+      throw new UnauthorizedException('Usuario inactivo');
+    }
+    return this.emitirSesion(usuario);
+  }
+
+  private emitirSesion(usuario: UsuarioSesion): SignInResult {
     // Unidades del usuario (relación N:M via usuarios_unidades).
     const unidadesUsuario = usuario.usuarios_unidades.map((uu) => uu.unidades);
 
@@ -136,6 +155,7 @@ export class AuthService {
       roles,
       permisos,
       unidades,
+      iatMs: Date.now(),
     };
 
     const expiresIn = process.env.JWT_EXPIRES_IN ?? DEFAULT_EXPIRES_IN;
@@ -177,9 +197,11 @@ export class AuthService {
     const rounds = Number(process.env.BCRYPT_ROUNDS ?? DEFAULT_BCRYPT_ROUNDS);
     const passwordHash = await bcrypt.hash(dto.passwordNueva, rounds);
 
+    // Cambiar la contraseña cierra todas las sesiones; el controller le emite una nueva
+    // a quien hizo el cambio.
     await this.prisma.usuarios.update({
       where: { id: usuario.id },
-      data: { password_hash: passwordHash },
+      data: { password_hash: passwordHash, sesiones_invalidas_desde: new Date() },
     });
 
     return { ok: true };
@@ -196,11 +218,17 @@ export class AuthService {
   /**
    * Se ejecuta en cada request desde `JwtAuthGuard`.
    *
-   * `emitidoEn` es el `iat` del JWT (en segundos). Se compara contra
-   * `sesiones_invalidas_desde` para forzar el re-login cuando cambiaron los permisos efectivos.
+   * Compara el momento de emisión del token contra `sesiones_invalidas_desde`, que se marca al
+   * cerrar sesión, al cambiar o resetear la contraseña y cuando cambian los permisos efectivos.
    * La columna se agrega al `select` que ya se hacía, así que no suma queries por request.
+   *
+   * Usa `iatMs` (milisegundos, lo agrega `emitirSesion`) porque `iat` está en segundos.
+   * Si el token no trae `iatMs`, se compara con `iat`.
    */
-  async assertUsuarioActivo(id: string, emitidoEn?: number): Promise<void> {
+  async assertUsuarioActivo(
+    id: string,
+    emitido: { iat?: number; iatMs?: number } = {},
+  ): Promise<void> {
     const usuario = await this.prisma.usuarios.findUnique({
       where: { id: BigInt(id) },
       select: {
@@ -218,17 +246,20 @@ export class AuthService {
       throw new UnauthorizedException('Usuario bloqueado temporalmente');
     }
 
-    if (usuario.sesiones_invalidas_desde && emitidoEn !== undefined) {
-      // `iat` viene en segundos y la columna es un timestamp: truncamos al segundo para que un
-      // token emitido en el mismo segundo del cambio se resuelva de forma determinística.
-      const invalidasDesdeSegundos = Math.floor(
-        usuario.sesiones_invalidas_desde.getTime() / 1000,
+    if (!usuario.sesiones_invalidas_desde) return;
+    const invalidasDesde = usuario.sesiones_invalidas_desde.getTime();
+
+    const invalidado =
+      typeof emitido.iatMs === 'number'
+        ? emitido.iatMs < invalidasDesde
+        : typeof emitido.iat === 'number'
+          ? emitido.iat < Math.floor(invalidasDesde / 1000)
+          : true; // Sin fecha de emisión no se puede saber si es anterior: se rechaza.
+    if (invalidado) {
+      throw new UnauthorizedException(
+        // Cubre el cierre de sesión, el cambio o reset de contraseña y el cambio de permisos.
+        'Tu sesión ya no es válida. Volvé a iniciar sesión.',
       );
-      if (emitidoEn < invalidasDesdeSegundos) {
-        throw new UnauthorizedException(
-          'Sesión expirada por cambio de permisos',
-        );
-      }
     }
   }
 
@@ -308,6 +339,8 @@ export class AuthService {
           password_hash: passwordHash,
           intentos_fallidos: 0,
           bloqueado_hasta: null,
+          // El reset corta todas las sesiones abiertas.
+          sesiones_invalidas_desde: new Date(),
         },
       }),
       this.prisma.tokens_reset_password.update({

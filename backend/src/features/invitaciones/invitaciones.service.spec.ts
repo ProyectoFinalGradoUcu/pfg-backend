@@ -86,3 +86,77 @@ describe('InvitacionesService.listar', () => {
     });
   });
 });
+
+describe('InvitacionesService.crear', () => {
+  const ADMIN = {
+    id: '1',
+    username: 'admin@fau.mil.uy',
+    roles: ['Administrador del sistema'],
+    permisos: [],
+    unidades: [],
+  };
+  const GESTOR = {
+    id: '2',
+    username: 'gestor@fau.mil.uy',
+    roles: ['Gestor'],
+    permisos: ['usuarios.gestionar'],
+    unidades: [],
+  };
+
+  const makeService = (roles: unknown[] = []) => {
+    const prisma = {
+      personas: { findUnique: jest.fn() },
+      roles: { findMany: jest.fn().mockResolvedValue(roles) },
+      usuarios: { findFirst: jest.fn().mockResolvedValue(null) },
+      invitaciones: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockImplementation(({ data }) => ({ id: 9n, creado_en: new Date(), ...data })),
+      },
+    };
+    const mailer = { sendInvitacion: jest.fn() };
+    const service = new InvitacionesService(prisma as never, mailer as never, {} as never);
+    return { service, prisma, mailer };
+  };
+
+  const rol = (nombre: string, aplicacion: string, permisos: string[] = []) => ({
+    nombre,
+    aplicacion,
+    roles_permisos: permisos.map((p) => ({ permisos: { nombre: p } })),
+  });
+
+  it('rechaza con 400 un rol que solo existe en liquidación, sin crear la invitación', async () => {
+    const { service, prisma } = makeService([rol('Liquidador', 'liquidacion')]);
+
+    await expect(
+      service.crear({ email: 'x@fau.mil.uy', roles: ['Liquidador'] }, ADMIN),
+    ).rejects.toThrow(/otra aplicación \(liquidación\).*Liquidador/);
+    expect(prisma.invitaciones.create).not.toHaveBeenCalled();
+  });
+
+  it('acepta un rol con el mismo nombre en las dos aplicaciones', async () => {
+    const { service } = makeService([rol('Usuario', 'liquidacion'), rol('Usuario', 'personal')]);
+
+    await expect(
+      service.crear({ email: 'x@fau.mil.uy', roles: ['Usuario'] }, ADMIN),
+    ).resolves.toMatchObject({ roles: ['Usuario'] });
+  });
+
+  it('el chequeo de email existente mira solo las cuentas de Personal', async () => {
+    const { service, prisma } = makeService();
+
+    await service.crear({ email: 'x@fau.mil.uy' }, ADMIN);
+
+    expect(prisma.usuarios.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { username: 'x@fau.mil.uy', aplicacion: 'personal' } }),
+    );
+  });
+
+  it('rechaza con 403 invitar con un rol que da permisos que quien invita no tiene', async () => {
+    const { service, prisma } = makeService([rol('Admin', 'personal', ['roles.gestionar'])]);
+
+    await expect(
+      service.crear({ email: 'x@fau.mil.uy', roles: ['Admin'] }, GESTOR),
+    ).rejects.toThrow(/roles\.gestionar/);
+    expect(prisma.invitaciones.create).not.toHaveBeenCalled();
+  });
+});
