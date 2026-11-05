@@ -8,6 +8,11 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service.js';
 import {
+  AlcanceResuelto,
+  unidadIdsDeAlcance,
+} from '../../lib/alcance/alcance.types.js';
+import { wherePersonasPorAlcance } from '../../lib/alcance/alcance.where.js';
+import {
   CriterioSugerencia,
   ESCALAS_DERECHA,
   EscalaDerecha,
@@ -84,6 +89,8 @@ interface Integrante {
   cedula: string;
   gradoId: bigint;
   escalafonId: bigint;
+  /** Unidad de la relación: el alcance `.unidad` filtra las lecturas con esto. */
+  unidadId: bigint | null;
   derecha: number | null;
   numor: number | null;
   escala: EscalaDerecha | null;
@@ -112,6 +119,7 @@ const SELECT_INTEGRANTE = {
   persona_id: true,
   grado_id: true,
   escalafon_id: true,
+  unidad_id: true,
   derecha: true,
   numor: true,
   escala_derecha: true,
@@ -142,6 +150,7 @@ const aIntegrante = (r: FilaIntegrante): Integrante => ({
   cedula: r.personas.cedula,
   gradoId: r.grado_id,
   escalafonId: r.escalafon_id,
+  unidadId: r.unidad_id,
   derecha: r.derecha,
   numor: r.numor,
   escala: r.escala_derecha as EscalaDerecha | null,
@@ -153,6 +162,13 @@ const compararNulosAlFinal = (a: number | null, b: number | null) => {
   if (a === null) return 1;
   if (b === null) return -1;
   return a - b;
+};
+
+/** Filtro de lectura por alcance: con `.unidad`, solo los de las unidades del usuario. */
+const visiblePorAlcance = (alcance?: AlcanceResuelto) => {
+  const unidades = alcance ? unidadIdsDeAlcance(alcance) : null;
+  return (i: Pick<Integrante, 'unidadId'>) =>
+    unidades === null || (i.unidadId !== null && unidades.includes(i.unidadId));
 };
 
 const compararIds = (a: bigint, b: bigint) => (a < b ? -1 : a > b ? 1 : 0);
@@ -413,13 +429,14 @@ export class DerechaService {
   }
 
   /** Todo el padrón en el orden de la derecha: Oficiales primero, después Personal Subalterno. */
-  async listarPersonal() {
+  async listarPersonal(alcance?: AlcanceResuelto) {
     const { padron } = await this.cargarPadron(this.prisma, []);
+    const visible = visiblePorAlcance(alcance);
     const porEscala = (e: EscalaDerecha) => ESCALAS_DERECHA.indexOf(e);
     return [...padron.jerarquia]
       .sort((a, b) => porEscala(a.escala) - porEscala(b.escala) || a.posicion - b.posicion)
       .flatMap((g) =>
-        padron.integrantesDeGrado(g.id).map((i) => ({
+        padron.integrantesDeGrado(g.id).filter(visible).map((i) => ({
           persona_id: i.personaId.toString(),
           nombre: i.nombre,
           cedula: i.cedula,
@@ -434,10 +451,19 @@ export class DerechaService {
       );
   }
 
-  async obtenerGrado(gradoId: number) {
+  /**
+   * Con alcance de unidad, `items` y `escalafones` traen solo a los de sus
+   * unidades; el resumen del grado (cantidad, rango de derecha) es del grado
+   * entero, y `posicion_grado` sigue siendo la posición real en el grado.
+   */
+  async obtenerGrado(gradoId: number, alcance?: AlcanceResuelto) {
     const { padron } = await this.cargarPadron(this.prisma, []);
     const grado = padron.grado(BigInt(gradoId));
-    const integrantes = padron.integrantesDeGrado(grado.id);
+    const visible = visiblePorAlcance(alcance);
+    const integrantes = padron
+      .integrantesDeGrado(grado.id)
+      .map((i, indice) => ({ ...i, posicion: indice + 1 }))
+      .filter(visible);
 
     const escalafones = new Map<string, { id: string; codigo: string | null; cantidad: number }>();
     for (const i of integrantes) {
@@ -451,13 +477,13 @@ export class DerechaService {
       ...this.resumenGrado(padron, grado),
       escala: grado.escala,
       escalafones: [...escalafones.values()],
-      items: integrantes.map((i, indice) => ({
+      items: integrantes.map((i) => ({
         persona_id: i.personaId.toString(),
         relacion_id: i.relacionId.toString(),
         nombre: i.nombre,
         cedula: i.cedula,
         derecha: i.derecha,
-        posicion_grado: indice + 1,
+        posicion_grado: i.posicion,
         escalafon_id: i.escalafonId.toString(),
         escalafon: padron.nombreEscalafon(i.escalafonId),
         numor: i.numor,
@@ -465,23 +491,28 @@ export class DerechaService {
     };
   }
 
-  async obtenerGrupoNumor(gradoId: number, escalafonId: number) {
+  /** Igual que el grado: `cantidad` es del grupo entero, `items` solo lo visible. */
+  async obtenerGrupoNumor(gradoId: number, escalafonId: number, alcance?: AlcanceResuelto) {
     const { padron } = await this.cargarPadron(this.prisma, []);
     const grado = padron.grado(BigInt(gradoId));
     const lista = padron.grupo(grado.id, BigInt(escalafonId));
+    const visible = visiblePorAlcance(alcance);
     return {
       grado: { id: grado.id.toString(), codigo: grado.codigo, denominacion: grado.denominacion },
       escalafon: { id: String(escalafonId), codigo: padron.nombreEscalafon(BigInt(escalafonId)) },
       cantidad: lista.length,
-      items: lista.map((i, indice) => ({
-        persona_id: i.personaId.toString(),
-        relacion_id: i.relacionId.toString(),
-        nombre: i.nombre,
-        cedula: i.cedula,
-        derecha: i.derecha,
-        numor: i.numor,
-        posicion: indice + 1,
-      })),
+      items: lista
+        .map((i, indice) => ({ ...i, posicion: indice + 1 }))
+        .filter(visible)
+        .map((i) => ({
+          persona_id: i.personaId.toString(),
+          relacion_id: i.relacionId.toString(),
+          nombre: i.nombre,
+          cedula: i.cedula,
+          derecha: i.derecha,
+          numor: i.numor,
+          posicion: i.posicion,
+        })),
     };
   }
 
@@ -489,7 +520,15 @@ export class DerechaService {
    * Orden propuesto para un grado. No persiste nada: la pantalla lo deja como
    * cambio pendiente y pasa por la previsualización como cualquier reorden.
    */
-  async sugerirOrden(gradoId: number, criterio: CriterioSugerencia = 'ANTIGUEDAD') {
+  /**
+   * El orden se calcula sobre el grado entero. Con alcance de unidad, `items` y `sin_datos`
+   * solo traen a los de sus unidades; `orden` va completo (son ids) para poder aplicarlo.
+   */
+  async sugerirOrden(
+    gradoId: number,
+    criterio: CriterioSugerencia = 'ANTIGUEDAD',
+    alcance?: AlcanceResuelto,
+  ) {
     const { padron } = await this.cargarPadron(this.prisma, []);
     const grado = padron.grado(BigInt(gradoId));
     const integrantes = padron.integrantesDeGrado(grado.id);
@@ -526,15 +565,18 @@ export class DerechaService {
       );
     });
 
-    const sinDatos = fechas.filter((f) =>
-      criterio === 'ANTIGUEDAD' ? f.ingreso_grado === null : f.egreso_eta === null,
+    const visible = visiblePorAlcance(alcance);
+    const sinDatos = fechas.filter(
+      (f) =>
+        visible(f.integrante) &&
+        (criterio === 'ANTIGUEDAD' ? f.ingreso_grado === null : f.egreso_eta === null),
     );
 
     return {
       grado_id: grado.id.toString(),
       criterio,
       orden: ordenados.map((f) => f.integrante.personaId.toString()),
-      items: ordenados.map((f) => ({
+      items: ordenados.filter((f) => visible(f.integrante)).map((f) => ({
         persona_id: f.integrante.personaId.toString(),
         nombre: f.integrante.nombre,
         ingreso_grado: f.ingreso_grado,
@@ -544,10 +586,14 @@ export class DerechaService {
     };
   }
 
-  async historial(query: HistorialDerechaQueryDto) {
+  async historial(query: HistorialDerechaQueryDto, alcance?: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 20, 100);
-    const where = query.persona_id ? { persona_id: BigInt(query.persona_id) } : {};
+    // Con alcance de unidad, solo el historial de quienes hoy están en sus unidades.
+    const where: Prisma.historial_derecha_numorWhereInput = {
+      ...(query.persona_id ? { persona_id: BigInt(query.persona_id) } : {}),
+      ...(alcance ? { personas: wherePersonasPorAlcance(alcance) } : {}),
+    };
 
     const [total, filas] = await Promise.all([
       this.prisma.historial_derecha_numor.count({ where }),
@@ -587,11 +633,32 @@ export class DerechaService {
 
   // ─── Previsualización ─────────────────────────────────────────────────────
 
-  async previsualizar(dto: PrevisualizarDto): Promise<Impacto> {
+  /**
+   * Con alcance de unidad, la lista de afectados trae solo a los de sus
+   * unidades (y al funcionario nuevo de un alta); `afectados` cuenta esa lista.
+   */
+  async previsualizar(dto: PrevisualizarDto, alcance?: AlcanceResuelto): Promise<Impacto> {
     const plan = await this.planDePrevisualizacion(this.prisma, dto);
     const { padron, guardados } = await this.cargarPadron(this.prisma, plan.conservar);
     plan.aplicar(padron);
-    return this.calcularImpacto(padron, guardados).impacto;
+    const impacto = this.calcularImpacto(padron, guardados).impacto;
+
+    const unidades = alcance ? unidadIdsDeAlcance(alcance) : null;
+    if (unidades === null) return impacto;
+    const propias = new Set(
+      guardados
+        .filter((g) => g.vigente && g.unidadId !== null && unidades.includes(g.unidadId))
+        .map((g) => g.personaId.toString()),
+    );
+    const ve = (a: Afectado) => a.persona_id === null || propias.has(a.persona_id);
+    const derecha = impacto.derecha.filter(ve);
+    const numor = impacto.numor.filter(ve);
+    return {
+      ...impacto,
+      derecha,
+      numor,
+      afectados: new Set([...derecha, ...numor].map((a) => a.persona_id ?? 'nuevo')).size,
+    };
   }
 
   // ─── Operaciones ──────────────────────────────────────────────────────────
@@ -964,6 +1031,7 @@ export class DerechaService {
           cedula: '',
           gradoId: BigInt(requerir(dto.grado_id, 'grado_id o persona_id')),
           escalafonId: BigInt(requerir(dto.escalafon_id, 'escalafon_id')),
+          unidadId: null,
           derecha: null,
           numor: null,
           escala: null,

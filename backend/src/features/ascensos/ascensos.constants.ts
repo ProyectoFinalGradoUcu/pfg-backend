@@ -38,12 +38,21 @@ export const PRIMA_TECNICA_VACIA = 'VACIO';
 export const TIPO_MOVIMIENTO_CIERRE = 'Cambio de Situacion';
 export const TIPO_MOVIMIENTO_ASCENSO = 'Ascenso';
 
+/**
+ * Espacio de nombres del advisory lock por persona (`pg_advisory_xact_lock(int, int)`).
+ * El espacio de dos claves no se solapa con el de una sola que usa la derecha.
+ */
+export const LOCK_ASCENSO_PERSONA = 530_153;
+
 /** Estados de `relaciones_laborales.estado` que usa liquidación. */
 export const ESTADO_RELACION_ACTIVA = 'activo';
 export const ESTADO_RELACION_INACTIVA = 'inactivo';
 
-/** Actividad de superior y de subalterno. Es un valor por defecto, no una regla fija. */
-export const SITUACIONES_ELEGIBLES_POR_DEFECTO = ['SIT01', 'SIT07'];
+/**
+ * Situaciones de actividad (superior y subalterno), incluidas las de reincorporado
+ * (SIT16 y SIT17). Si un retiro previo bloquea lo decide la elegibilidad, no esta lista.
+ */
+export const SITUACIONES_ELEGIBLES_POR_DEFECTO = ['SIT01', 'SIT07', 'SIT16', 'SIT17'];
 
 /**
  * Licencia sin goce de sueldo, no disponible, sueldo retenido y reserva de
@@ -124,3 +133,37 @@ export const ESCALERA_FAU = [
     ],
   },
 ] as const;
+
+/**
+ * Cómo es un ascenso respecto de la escala:
+ * - `SIGUIENTE`: al grado inmediato superior de la misma escala. El caso normal.
+ * - `SALTO`: a un grado superior de la misma escala, salteando grados.
+ * - `CAMBIO_ESCALA`: a otra escala, o desde/hacia un grado que no está en ninguna
+ *   (cadetes, aprendices).
+ * - `NO_SUPERIOR`: al mismo grado o a uno inferior de la misma escala. Nunca es un ascenso.
+ *
+ * `SALTO` y `CAMBIO_ESCALA` solo se registran como excepción, con motivo.
+ */
+export type TipoAscenso = 'SIGUIENTE' | 'SALTO' | 'CAMBIO_ESCALA' | 'NO_SUPERIOR';
+
+export function clasificarAscenso(codigoActual: string, codigoDestino: string): TipoAscenso {
+  const escala = ESCALERA_FAU.find((e) =>
+    (e.grados as readonly string[]).includes(codigoActual),
+  );
+  const grados = (escala?.grados ?? []) as readonly string[];
+  const desde = grados.indexOf(codigoActual);
+  const hasta = grados.indexOf(codigoDestino);
+  if (!escala || hasta < 0) return 'CAMBIO_ESCALA';
+  if (hasta <= desde) return 'NO_SUPERIOR';
+  return hasta === desde + 1 ? 'SIGUIENTE' : 'SALTO';
+}
+
+/** Código del grado siguiente de la misma escala, o null en el tope o fuera de escala. */
+export function gradoSiguiente(codigoActual: string): string | null {
+  for (const e of ESCALERA_FAU) {
+    const grados = e.grados as readonly string[];
+    const i = grados.indexOf(codigoActual);
+    if (i >= 0) return grados[i + 1] ?? null;
+  }
+  return null;
+}

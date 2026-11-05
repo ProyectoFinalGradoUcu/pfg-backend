@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
 import { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 import {
@@ -153,6 +153,16 @@ export class ElegibilidadService {
 
     const resultado = evaluados[0];
     if (!resultado) {
+      // El motor no evalúa a los civiles: se avisa que es civil en lugar de devolver 404.
+      const civil = await this.prisma.personas.findFirst({
+        where: { id: BigInt(personaId), es_civil: true, relaciones_laborales: { some: { fecha_fin: null } } },
+        select: { primer_nombre: true, primer_apellido: true },
+      });
+      if (civil) {
+        throw new BadRequestException(
+          `${civil.primer_nombre} ${civil.primer_apellido} es personal civil: los civiles no ascienden por la escala militar y no tienen evaluación de elegibilidad.`,
+        );
+      }
       throw new NotFoundException(
         `El funcionario ${personaId} no tiene una relación laboral vigente para evaluar`,
       );
@@ -359,11 +369,34 @@ export class ElegibilidadService {
     }
 
     const legajoPorPersona = new Map(legajos.map((l) => [l.persona_id.toString(), l]));
-    const retiroPorPersona = new Map(
-      retiros
-        .filter((r) => r.persona_id != null)
-        .map((r) => [r.persona_id!.toString(), r]),
-    );
+
+    // El retiro que cuenta es el más reciente. Sin fecha, se toma como el más
+    // reciente: no se puede afirmar que una relación empezó después.
+    const peso = (f: Date | null) => (f ? f.getTime() : Number.POSITIVE_INFINITY);
+    const retiroPorPersona = new Map<string, { fecha_retiro: Date | null }>();
+    for (const r of retiros) {
+      if (r.persona_id == null) continue;
+      const clave = r.persona_id.toString();
+      const previo = retiroPorPersona.get(clave);
+      if (!previo || peso(r.fecha_retiro) > peso(previo.fecha_retiro)) {
+        retiroPorPersona.set(clave, r);
+      }
+    }
+
+    /**
+     * Un retiro bloquea solo si la relación activa no empieza después de él.
+     * No se mira ninguna marca de "reincorporado" (SIT16/SIT17): si se anula la
+     * reincorporación, la relación nueva desaparece y el retiro vuelve a bloquear.
+     */
+    const retiroVigente = (personaId: string, inicioRelacion: Date | null) => {
+      const retiro = retiroPorPersona.get(personaId);
+      if (!retiro) return null;
+      const reincorporado =
+        retiro.fecha_retiro != null &&
+        inicioRelacion != null &&
+        inicioRelacion > retiro.fecha_retiro;
+      return reincorporado ? null : retiro;
+    };
 
     return relaciones.map((r) => {
       const clave = r.personas.id.toString();
@@ -408,9 +441,10 @@ export class ElegibilidadService {
             }
           : null,
         cursos: cursosPorPersona.get(clave) ?? new Map(),
-        retiro: retiroPorPersona.get(clave)
-          ? { fecha_retiro: retiroPorPersona.get(clave)!.fecha_retiro }
-          : null,
+        retiro: (() => {
+          const retiro = retiroVigente(clave, r.fecha_inicio);
+          return retiro ? { fecha_retiro: retiro.fecha_retiro } : null;
+        })(),
       };
     });
   }

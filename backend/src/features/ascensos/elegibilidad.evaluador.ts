@@ -2,7 +2,7 @@ import {
   esMutado,
   esNivelLiceal,
 } from '../subalternos/legajo-militar.constants.js';
-import { ESCALERA_FAU } from './ascensos.constants.js';
+import { ESCALERA_FAU, TipoAscenso, clasificarAscenso } from './ascensos.constants.js';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -110,6 +110,12 @@ export interface ResultadoElegibilidad {
   antiguedad_dias: number;
   edad: number | null;
   requisitos: RequisitoEvaluado[];
+  /**
+   * Cómo es el ascenso al `grado_destino` respecto de la escala (null sin destino).
+   * `SALTO` y `CAMBIO_ESCALA` solo se registran por excepción, con motivo, aunque
+   * el estado sea PASIBLE: el front lo usa para pedir el motivo antes de enviar.
+   */
+  tipo_ascenso: TipoAscenso | null;
 }
 
 // ─── Utilidades de fecha ────────────────────────────────────────────────────
@@ -337,6 +343,20 @@ export function evaluarFuncionario(
   regla: ReglaEvaluable | null,
   opciones: OpcionesEvaluacion,
 ): ResultadoElegibilidad {
+  const resultado = evaluarContraRegla(datos, regla, opciones);
+  return {
+    ...resultado,
+    tipo_ascenso: resultado.grado_destino
+      ? clasificarAscenso(resultado.grado_actual.codigo, resultado.grado_destino.codigo)
+      : null,
+  };
+}
+
+function evaluarContraRegla(
+  datos: DatosFuncionario,
+  regla: ReglaEvaluable | null,
+  opciones: OpcionesEvaluacion,
+): Omit<ResultadoElegibilidad, 'tipo_ascenso'> {
   const fechaRef = opciones.fecha_referencia;
 
   const base = {

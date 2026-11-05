@@ -21,7 +21,8 @@ import { AplicarCambiosDto } from './dto/aplicar-cambios.dto.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types/auth.types.js';
-import { RequireAlcance } from '../../lib/alcance/alcance.decorator.js';
+import { Alcance, RequireAlcance } from '../../lib/alcance/alcance.decorator.js';
+import type { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
 
 const usuarioId = (user?: AuthenticatedUser) => (user?.id != null ? BigInt(user.id) : null);
@@ -42,16 +43,19 @@ export class DerechaController {
   @Get('personal')
   @ApiOperation({ summary: 'Todo el personal en actividad con derecha, por escala y derecha, con grado, escalafón y numor' })
   @RequireAlcance('personas.ver')
-  listarPersonal() {
-    return this.derecha.listarPersonal();
+  listarPersonal(@Alcance() alcance: AlcanceResuelto) {
+    return this.derecha.listarPersonal(alcance);
   }
 
   @Get('grados/:gradoId')
   @ApiOperation({ summary: 'Personal en actividad del grado ordenado por derecha, con su rango de derecha' })
   @ApiParam({ name: 'gradoId', type: Number })
   @RequireAlcance('personas.ver')
-  obtenerGrado(@Param('gradoId', ParseIntPipe) gradoId: number) {
-    return this.derecha.obtenerGrado(gradoId);
+  obtenerGrado(
+    @Param('gradoId', ParseIntPipe) gradoId: number,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.derecha.obtenerGrado(gradoId, alcance);
   }
 
   @Get('grados/:gradoId/sugerencia')
@@ -60,11 +64,13 @@ export class DerechaController {
   })
   @ApiParam({ name: 'gradoId', type: Number })
   @RequirePermissions('derecha.gestionar')
+  @RequireAlcance('personas.ver')
   sugerirOrden(
     @Param('gradoId', ParseIntPipe) gradoId: number,
     @Query() query: SugerenciaQueryDto,
+    @Alcance() alcance: AlcanceResuelto,
   ) {
-    return this.derecha.sugerirOrden(gradoId, query.criterio);
+    return this.derecha.sugerirOrden(gradoId, query.criterio, alcance);
   }
 
   @Get('numor/:gradoId/:escalafonId')
@@ -75,16 +81,17 @@ export class DerechaController {
   obtenerGrupoNumor(
     @Param('gradoId', ParseIntPipe) gradoId: number,
     @Param('escalafonId', ParseIntPipe) escalafonId: number,
+    @Alcance() alcance: AlcanceResuelto,
   ) {
-    return this.derecha.obtenerGrupoNumor(gradoId, escalafonId);
+    return this.derecha.obtenerGrupoNumor(gradoId, escalafonId, alcance);
   }
 
   @Post('previsualizar')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Funcionarios afectados por una operación, antes y después. No persiste nada.' })
   @RequireAlcance('personas.ver')
-  previsualizar(@Body() dto: PrevisualizarDto) {
-    return this.derecha.previsualizar(dto);
+  previsualizar(@Body() dto: PrevisualizarDto, @Alcance() alcance: AlcanceResuelto) {
+    return this.derecha.previsualizar(dto, alcance);
   }
 
   @Patch('reordenar')
@@ -120,7 +127,7 @@ export class DerechaController {
   @Get('historial')
   @ApiOperation({ summary: 'Auditoría de cambios de derecha y numor' })
   @RequireAlcance('personas.ver')
-  historial(@Query() query: HistorialDerechaQueryDto) {
-    return this.derecha.historial(query);
+  historial(@Query() query: HistorialDerechaQueryDto, @Alcance() alcance: AlcanceResuelto) {
+    return this.derecha.historial(query, alcance);
   }
 }
