@@ -866,6 +866,7 @@ export async function armarPlan(
       const nombreTxt = texto(f.nombre) ?? '';
       const grado = cat.grado(f.grado);
       let persona: Ref | null = null;
+      let porNombre = false;
       if (texto(f.cedula)) {
         const ced = normalizarCedula(f.cedula);
         persona = ced && (personasDb.has(ced.valor) || plan.personasNuevas.has(ced.valor)) ? refPersona(ced.valor) : null;
@@ -886,10 +887,7 @@ export async function armarPlan(
           continue;
         }
         persona = r.persona;
-        // Medido en las hojas con cédula, la unión por nombre se equivoca en pocas filas: cada una queda para verificar.
-        incidencia({ nivel: 'aviso', origen, cedula: porId.get(persona)?.cedula ?? persona.replace(/^nueva:/, ''), nombre: nombreTxt,
-          motivo: 'la hoja no trae cédula: las horas se cargaron a la persona de esta cédula por el nombre (verificar)' });
-        contar('filas de vuelo unidas por nombre (a verificar)');
+        porNombre = true;
       }
       const k = `${hoja.periodo.anio}-${hoja.periodo.numero}|${persona}`;
       if (vistos.has(k)) {
@@ -900,6 +898,13 @@ export async function armarPlan(
       if (vuelosDb.has(k)) {
         contar('registros de vuelo ya cargados (se saltean)');
         continue;
+      }
+      // Medido en las hojas con cédula, la unión por nombre se equivoca en pocas filas: cada una que se
+      // carga queda para verificar (después de los controles de arriba, que pueden saltear la fila).
+      if (porNombre) {
+        incidencia({ nivel: 'aviso', origen, cedula: porId.get(persona)?.cedula ?? persona.replace(/^nueva:/, ''), nombre: nombreTxt,
+          motivo: 'la hoja no trae cédula: las horas se cargaron a la persona de esta cédula por el nombre (verificar)' });
+        contar('filas de vuelo unidas por nombre (a verificar)');
       }
       const escalafon = cat.escalafon(f.escalafon, grado?.codigo);
       const horas = [f.hsAvAnio, f.hsAvTotal, f.hsObAnio, f.hsObTotal].map((h) => Math.max(0, normalizarDecimal(h) ?? 0));
