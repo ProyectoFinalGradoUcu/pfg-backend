@@ -162,18 +162,17 @@ export class AuditoriaService {
     desde?: string,
     hasta?: string,
   ): Prisma.bitacora_auditoriaWhereInput {
+    // Las fechas sin hora (YYYY-MM-DD) se toman en hora de Uruguay, UTC-3 fijo.
+    const soloFecha = /^\d{4}-\d{2}-\d{2}$/;
     const fecha: Prisma.DateTimeFilter = {};
     if (desde) {
-      const d = new Date(desde);
+      const d = new Date(soloFecha.test(desde) ? `${desde}T00:00:00.000-03:00` : desde);
       if (!Number.isNaN(d.getTime())) fecha.gte = d;
     }
     if (hasta) {
-      const h = new Date(hasta);
-      if (!Number.isNaN(h.getTime())) {
-        // Si viene solo la fecha (sin hora), incluir todo el día.
-        if (!hasta.includes('T')) h.setHours(23, 59, 59, 999);
-        fecha.lte = h;
-      }
+      // Si viene solo la fecha, incluir todo ese día en hora de Uruguay.
+      const h = new Date(soloFecha.test(hasta) ? `${hasta}T23:59:59.999-03:00` : hasta);
+      if (!Number.isNaN(h.getTime())) fecha.lte = h;
     }
     return Object.keys(fecha).length > 0 ? { fecha } : {};
   }

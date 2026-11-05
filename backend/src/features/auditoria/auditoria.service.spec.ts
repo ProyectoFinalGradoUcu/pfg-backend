@@ -86,6 +86,14 @@ describe('AuditoriaService', () => {
       expect(prisma.bitacora_auditoria.count).toHaveBeenCalledWith({ where: args.where });
     });
 
+    it('un día sin hora se interpreta en hora de Uruguay (UTC-3), no en UTC', async () => {
+      await service.listar({ desde: '2026-10-20', hasta: '2026-10-20' });
+
+      const { fecha } = prisma.bitacora_auditoria.findMany.mock.calls[0][0].where;
+      expect(fecha.gte.toISOString()).toBe('2026-10-20T03:00:00.000Z');
+      expect(fecha.lte.toISOString()).toBe('2026-10-21T02:59:59.999Z');
+    });
+
     it('sin usuario no filtra por usuario', async () => {
       await service.listar({});
 
