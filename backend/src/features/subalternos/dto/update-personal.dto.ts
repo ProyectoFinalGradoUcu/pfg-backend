@@ -18,6 +18,8 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 'Mestizo' }) @IsOptional() @IsString() @MaxLength(50) etnia?: string;
   @ApiPropertyOptional({ example: '11300' }) @IsOptional() @IsString() @MaxLength(20) codigo_postal?: string;
   @ApiPropertyOptional({ example: 'Seccional 14' }) @IsOptional() @IsString() @MaxLength(100) seccional?: string;
+  @ApiPropertyOptional({ example: 'CC 1.234.567', nullable: true }) @IsOptional() @IsString() @MaxLength(20) credencial_civica?: string | null;
+  @ApiPropertyOptional({ example: 7, enum: [3, 5, 7, 9], nullable: true, description: 'Nivel de pericia/idoneidad del personal subalterno' }) @IsOptional() @IsInt() @IsIn([3, 5, 7, 9]) nivel_idoneidad?: number | null;
 
   // Datos laborales
   @ApiPropertyOptional({ example: '2024-01-01', description: 'Fecha de alta de la relación laboral activa' }) @IsOptional() @IsDateString() fecha_inicio?: string;
@@ -36,6 +38,7 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 'A' }) @IsOptional() @IsString() @MaxLength(10) prima_tecnica?: string;
   @ApiPropertyOptional({ example: true }) @IsOptional() @IsBoolean() tiene_mando?: boolean;
   @ApiPropertyOptional({ example: 'Sin novedades' }) @IsOptional() @IsString() observaciones_laborales?: string;
+  @ApiPropertyOptional({ example: '-1-4-7-8-', nullable: true, description: 'Códigos del legajo; van a la relación laboral vigente' }) @IsOptional() @IsString() @MaxLength(20) codigos_legajo?: string | null;
 
   // Legajo militar
   @ApiPropertyOptional({ enum: NIVELES_EDUCATIVOS, example: 'BACHILLERATO_TECNOLOGICO' }) @IsOptional() @IsIn([...NIVELES_EDUCATIVOS]) nivel_educativo?: string | null;

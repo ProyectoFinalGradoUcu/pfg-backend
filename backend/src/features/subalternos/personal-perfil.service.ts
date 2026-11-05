@@ -56,6 +56,8 @@ export class PersonalPerfilService {
         etnia: true,
         codigo_postal: true,
         seccional: true,
+        credencial_civica: true,
+        nivel_idoneidad: true,
         es_civil: true,
         legajo_militar: {
           select: {
@@ -121,6 +123,8 @@ export class PersonalPerfilService {
       etnia: persona.etnia,
       codigo_postal: persona.codigo_postal,
       seccional: persona.seccional,
+      credencial_civica: persona.credencial_civica,
+      nivel_idoneidad: persona.nivel_idoneidad,
       es_civil: persona.es_civil,
       legajo_militar: {
         nivel_educativo: nivelEducativo,
@@ -549,6 +553,23 @@ export class PersonalPerfilService {
     }));
   }
 
+  async findComisiones(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+    await this.assertExiste(id);
+    const asignaciones = await this.prisma.asignaciones_comision.findMany({
+      where: { persona_id: BigInt(id) },
+      include: { comisiones: { select: { denominacion: true } } },
+      orderBy: [{ fecha_inicio: 'desc' }, { id: 'desc' }],
+    });
+    return asignaciones.map(a => ({
+      id: a.id, comision_id: a.comision_id, comision: a.comisiones.denominacion,
+      cargo: a.cargo,
+      fecha_inicio: a.fecha_inicio.toISOString().slice(0, 10),
+      fecha_fin: a.fecha_fin?.toISOString().slice(0, 10) ?? null,
+      numero_orden: a.numero_orden, boletin: a.boletin, activo: a.fecha_fin === null,
+    }));
+  }
+
   // ─── PATCH /personas/:id ──────────────────────────────────────────────────
   async update(
     id: number,
@@ -637,6 +658,12 @@ export class PersonalPerfilService {
           etnia: dto.etnia,
           codigo_postal: dto.codigo_postal,
           seccional: dto.seccional,
+          ...(dto.credencial_civica !== undefined && {
+            credencial_civica: dto.credencial_civica ?? null,
+          }),
+          ...(dto.nivel_idoneidad !== undefined && {
+            nivel_idoneidad: dto.nivel_idoneidad ?? null,
+          }),
           ...(dto.fecha_fallecimiento !== undefined && {
             fecha_fallecimiento: new Date(dto.fecha_fallecimiento),
           }),
@@ -647,7 +674,8 @@ export class PersonalPerfilService {
         dto.fecha_inicio || dto.grado_id || dto.unidad_id || dto.situacion_id || dto.regimen_id ||
         dto.programa_id || dto.escalafon_id || dto.sub_unidad_id !== undefined ||
         dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined ||
-        dto.observaciones_laborales !== undefined || dto.mutaciones !== undefined;
+        dto.observaciones_laborales !== undefined || dto.mutaciones !== undefined ||
+        dto.codigos_legajo !== undefined;
 
       // La derecha se mueve antes de cambiar la relación: el servicio parte de su ubicación actual.
       const cambiaGrado = relacionActiva && dto.grado_id && BigInt(dto.grado_id) !== relacionActiva.grado_id;
@@ -693,6 +721,7 @@ export class PersonalPerfilService {
             ...(dto.tiene_mando !== undefined && { tiene_mando: dto.tiene_mando }),
             ...(dto.observaciones_laborales !== undefined && { observaciones: dto.observaciones_laborales }),
             ...(dto.mutaciones !== undefined && { mutaciones: dto.mutaciones ?? null }),
+            ...(dto.codigos_legajo !== undefined && { codigos_legajo: dto.codigos_legajo ?? null }),
           },
         });
       }

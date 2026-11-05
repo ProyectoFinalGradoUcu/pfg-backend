@@ -278,7 +278,17 @@ describe('MisionesService', () => {
       await service.crearMision({ nombre_mision: 'Líbano (FINUL)', pais: 'Líbano' });
 
       expect(prisma.misiones.create).toHaveBeenCalledWith({
-        data: { nombre_mision: 'Líbano (FINUL)', pais: 'Líbano' },
+        data: {
+          nombre_mision: 'Líbano (FINUL)',
+          pais: 'Líbano',
+          numero_orden: null,
+          fecha_orden: null,
+          boletin: null,
+          fecha_boletin: null,
+          numero_resolucion: null,
+          fecha_resolucion: null,
+          resolucion_cje: null,
+        },
       });
     });
   });

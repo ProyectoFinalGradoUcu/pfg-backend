@@ -68,6 +68,8 @@ export const legajoOficialReporte: DefinicionReporte = {
       filas: [
         campo('Apellido y nombre', unir(p.primer_apellido, p.segundo_apellido) + ', ' + unir(p.primer_nombre, p.segundo_nombre)),
         campo('Cédula', p.cedula),
+        campo('Credencial Cívica', p.credencial_civica),
+        campo('Códigos', activa?.codigos_legajo),
         campo('Sexo', p.genero),
         campo('Fecha de nacimiento', fmtFecha(p.fecha_nacimiento)),
         campo('Lugar de nacimiento', p.lugar_nacimiento),

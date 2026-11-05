@@ -74,6 +74,13 @@ export class MisionesService {
         id: m.id.toString(),
         nombre_mision: m.nombre_mision,
         pais: m.pais,
+        numero_orden: m.numero_orden,
+        fecha_orden: m.fecha_orden ? m.fecha_orden.toISOString().split('T')[0] : null,
+        boletin: m.boletin,
+        fecha_boletin: m.fecha_boletin ? m.fecha_boletin.toISOString().split('T')[0] : null,
+        numero_resolucion: m.numero_resolucion,
+        fecha_resolucion: m.fecha_resolucion ? m.fecha_resolucion.toISOString().split('T')[0] : null,
+        resolucion_cje: m.resolucion_cje,
         total_convocatorias: m._count.convocatorias,
       })),
       total,
@@ -98,6 +105,13 @@ export class MisionesService {
       id: mision.id.toString(),
       nombre_mision: mision.nombre_mision,
       pais: mision.pais,
+      numero_orden: mision.numero_orden,
+      fecha_orden: mision.fecha_orden ? mision.fecha_orden.toISOString().split('T')[0] : null,
+      boletin: mision.boletin,
+      fecha_boletin: mision.fecha_boletin ? mision.fecha_boletin.toISOString().split('T')[0] : null,
+      numero_resolucion: mision.numero_resolucion,
+      fecha_resolucion: mision.fecha_resolucion ? mision.fecha_resolucion.toISOString().split('T')[0] : null,
+      resolucion_cje: mision.resolucion_cje,
       total_convocatorias: mision._count.convocatorias,
     };
   }
@@ -109,7 +123,17 @@ export class MisionesService {
     if (existe) throw new ConflictException(`Ya existe una misión con nombre "${dto.nombre_mision}"`);
 
     const mision = await this.prisma.misiones.create({
-      data: { nombre_mision: dto.nombre_mision, pais: dto.pais },
+      data: {
+        nombre_mision: dto.nombre_mision,
+        pais: dto.pais,
+        numero_orden: dto.numero_orden ?? null,
+        fecha_orden: dto.fecha_orden ? new Date(dto.fecha_orden) : null,
+        boletin: dto.boletin ?? null,
+        fecha_boletin: dto.fecha_boletin ? new Date(dto.fecha_boletin) : null,
+        numero_resolucion: dto.numero_resolucion ?? null,
+        fecha_resolucion: dto.fecha_resolucion ? new Date(dto.fecha_resolucion) : null,
+        resolucion_cje: dto.resolucion_cje ?? null,
+      },
     });
 
     return { id: mision.id.toString(), nombre_mision: mision.nombre_mision, pais: mision.pais };
@@ -134,6 +158,17 @@ export class MisionesService {
       data: {
         nombre_mision: dto.nombre_mision ?? undefined,
         pais: dto.pais ?? undefined,
+        ...(dto.fecha_orden !== undefined && {
+          fecha_orden: dto.fecha_orden ? new Date(dto.fecha_orden) : null,
+        }),
+        ...(dto.fecha_boletin !== undefined && {
+          fecha_boletin: dto.fecha_boletin ? new Date(dto.fecha_boletin) : null,
+        }),
+        ...(dto.numero_resolucion !== undefined && { numero_resolucion: dto.numero_resolucion }),
+        ...(dto.fecha_resolucion !== undefined && {
+          fecha_resolucion: dto.fecha_resolucion ? new Date(dto.fecha_resolucion) : null,
+        }),
+        ...(dto.resolucion_cje !== undefined && { resolucion_cje: dto.resolucion_cje }),
       },
     });
 
@@ -141,6 +176,13 @@ export class MisionesService {
       id: actualizado.id.toString(),
       nombre_mision: actualizado.nombre_mision,
       pais: actualizado.pais,
+      numero_orden: actualizado.numero_orden,
+      fecha_orden: actualizado.fecha_orden ? actualizado.fecha_orden.toISOString().split('T')[0] : null,
+      boletin: actualizado.boletin,
+      fecha_boletin: actualizado.fecha_boletin ? actualizado.fecha_boletin.toISOString().split('T')[0] : null,
+      numero_resolucion: actualizado.numero_resolucion,
+      fecha_resolucion: actualizado.fecha_resolucion ? actualizado.fecha_resolucion.toISOString().split('T')[0] : null,
+      resolucion_cje: actualizado.resolucion_cje,
     };
   }
 

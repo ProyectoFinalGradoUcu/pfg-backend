@@ -224,6 +224,13 @@ export class PersonasController {
     return this.perfilService.findDestinos(id);
   }
 
+  @Get(':id/comisiones')
+  @ApiOperation({ summary: 'Historial de comisiones de la persona' })
+  @RequireAlcance('personas.ver')
+  findComisiones(@Param('id', ParseIntPipe) id: number, @Alcance() alcance: AlcanceResuelto) {
+    return this.perfilService.findComisiones(id, alcance);
+  }
+
   // ─── Editar ───────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Editar datos personales y/o laborales' })
