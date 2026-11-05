@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { HistorialCursosService } from './historial-cursos.service';
 import { PrismaService } from '../../lib/prisma.service';
 
@@ -39,8 +39,10 @@ const makeRegistro = (overrides: Partial<any> = {}) => ({
 const makePrismaMock = () => ({
   personas: {
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
   },
   cursos: {
+    findFirst: jest.fn(),
     create: jest.fn(),
   },
   funcionarios_cursos: {
@@ -164,6 +166,88 @@ describe('HistorialCursosService', () => {
   // ─── create ───────────────────────────────────────────────────────────────
 
   describe('create', () => {
+    const dto = {
+      personaId: 10,
+      nombre: 'Primeros Auxilios',
+      institucion: 'Cruz Roja',
+      tipo: 'obligatorio',
+    };
+
+    it('rechaza un nombre existente sin crear curso ni inscripción', async () => {
+      prisma.personas.findUnique.mockResolvedValue(makePersona());
+      prisma.cursos.findFirst.mockResolvedValue(makeCurso());
+
+      await expect(service.create(dto)).rejects.toThrow(ConflictException);
+      expect(prisma.cursos.create).not.toHaveBeenCalled();
+      expect(prisma.funcionarios_cursos.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza fechas invertidas antes de iniciar escrituras', async () => {
+      await expect(service.create({
+        ...dto, fechaInicio: '2026-06-01', fechaFin: '2026-05-31',
+      })).rejects.toThrow(BadRequestException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.cursos.create).not.toHaveBeenCalled();
+    });
+
+    it('acepta inicio y fin en el mismo día y conserva curso general con alcance global', async () => {
+      prisma.personas.findUnique.mockResolvedValue(makePersona());
+      prisma.cursos.create.mockResolvedValue(makeCurso());
+      prisma.funcionarios_cursos.create.mockResolvedValue(makeRegistro());
+
+      await service.create({
+        ...dto, fechaInicio: '2026-06-01', fechaFin: '2026-06-01',
+      }, { tipo: 'global' });
+
+      expect(prisma.cursos.create).toHaveBeenCalledWith({ data: {
+        nombre_curso: dto.nombre, institucion: dto.institucion,
+        es_obligatorio: true, unidad_id: null,
+      } });
+    });
+
+    it('asigna la unidad del alcance y verifica la pertenencia de la persona', async () => {
+      prisma.personas.findFirst.mockResolvedValue({ id: 10n });
+      prisma.personas.findUnique.mockResolvedValue(makePersona());
+      prisma.cursos.create.mockResolvedValue(makeCurso());
+      prisma.funcionarios_cursos.create.mockResolvedValue(makeRegistro());
+
+      await service.create(dto, { tipo: 'unidad', unidadIds: ['7'] });
+
+      expect(prisma.personas.findFirst).toHaveBeenCalledWith({
+        where: { id: 10n, relaciones_laborales: {
+          some: { fecha_fin: null, unidad_id: { in: [7n] } },
+        } }, select: { id: true },
+      });
+      expect(prisma.cursos.create).toHaveBeenCalledWith({ data: {
+        nombre_curso: dto.nombre, institucion: dto.institucion,
+        es_obligatorio: true, unidad_id: 7n,
+      } });
+    });
+
+    it('rechaza personas fuera de alcance sin escribir', async () => {
+      prisma.personas.findFirst.mockResolvedValue(null);
+
+      await expect(service.create(dto, { tipo: 'unidad', unidadIds: ['7'] }))
+        .rejects.toThrow(NotFoundException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('ejecuta ambas escrituras con el cliente transaccional y propaga un fallo de inscripción', async () => {
+      prisma.personas.findUnique.mockResolvedValue(makePersona());
+      const error = new Error('No se pudo inscribir');
+      const tx = {
+        cursos: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue(makeCurso()) },
+        funcionarios_cursos: { create: jest.fn().mockRejectedValue(error) },
+      };
+      prisma.$transaction.mockImplementation((callback) => callback(tx));
+
+      await expect(service.create(dto)).rejects.toThrow(error);
+      expect(tx.cursos.create).toHaveBeenCalledTimes(1);
+      expect(tx.funcionarios_cursos.create).toHaveBeenCalledTimes(1);
+      expect(prisma.cursos.create).not.toHaveBeenCalled();
+      expect(prisma.funcionarios_cursos.create).not.toHaveBeenCalled();
+    });
+
     it('crea un curso y lo asigna a la persona en una transacción', async () => {
       prisma.personas.findUnique.mockResolvedValue(makePersona());
       prisma.cursos.create.mockResolvedValue(makeCurso());

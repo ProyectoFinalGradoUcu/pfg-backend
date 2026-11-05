@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
 import {
   AlcanceResuelto,
@@ -10,6 +10,7 @@ import {
 } from '../../lib/alcance/alcance.where';
 import { CreateHistorialCursoDto } from './dto/create-historial-curso.dto';
 import { ListHistorialCursosQueryDto } from './dto/list-historial-cursos-query.dto';
+import { crearCurso } from '../cursos/crear-curso';
 
 @Injectable()
 export class HistorialCursosService {
@@ -53,6 +54,10 @@ export class HistorialCursosService {
   }
 
   async create(dto: CreateHistorialCursoDto, alcance?: AlcanceResuelto) {
+    if (dto.fechaInicio && dto.fechaFin && new Date(dto.fechaFin) < new Date(dto.fechaInicio)) {
+      throw new BadRequestException('La fecha de fin no puede ser anterior a la fecha de inicio');
+    }
+
     if (alcance) {
       await assertPersonaEnAlcance(this.prisma, BigInt(dto.personaId), alcance);
     }
@@ -65,13 +70,11 @@ export class HistorialCursosService {
     }
 
     const registro = await this.prisma.$transaction(async (tx) => {
-      const curso = await tx.cursos.create({
-        data: {
-          nombre_curso: dto.nombre,
-          institucion: dto.institucion,
-          es_obligatorio: dto.tipo === 'obligatorio',
-        },
-      });
+      const curso = await crearCurso(tx, {
+        nombre_curso: dto.nombre,
+        institucion: dto.institucion,
+        es_obligatorio: dto.tipo === 'obligatorio',
+      }, alcance);
 
       const designacion = await tx.funcionarios_cursos.create({
         data: {

@@ -4,16 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
-import {
-  AlcanceResuelto,
-  unidadIdDeAlcance,
-} from '../../lib/alcance/alcance.types';
+import { AlcanceResuelto } from '../../lib/alcance/alcance.types';
 import {
   assertCursoGestionableEnAlcance,
   assertCursoVisibleEnAlcance,
   whereCursosVisiblesPorAlcance,
 } from '../../lib/alcance/alcance.where';
 import { CursoDto } from './dto/curso.dto';
+import { crearCurso } from './crear-curso';
 import { ListCursosQueryDto } from './dto/list-cursos-query.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
 import { MarcarCompletacionDto } from './dto/completacion-modulo.dto';
@@ -33,26 +31,8 @@ export class CursosService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CursoDto, alcance?: AlcanceResuelto) {
-    const existe = await this.prisma.cursos.findFirst({
-      where: { nombre_curso: dto.nombre_curso },
-    });
-    if (existe) {
-      throw new ConflictException(
-        `Ya existe un curso con nombre ${dto.nombre_curso}`,
-      );
-    }
-
     return this.prisma.$transaction(async (tx) => {
-      const curso = await tx.cursos.create({
-        data: {
-          nombre_curso: dto.nombre_curso,
-          institucion: dto.institucion,
-          es_obligatorio: dto.es_obligatorio ?? true,
-          // Con alcance de unidad el curso queda bajo la unidad del usuario.
-          // Con alcance global queda como curso general de la fuerza (`unidad_id` nulo).
-          unidad_id: alcance ? unidadIdDeAlcance(alcance) : null,
-        },
-      });
+      const curso = await crearCurso(tx, dto, alcance);
 
       return {
         id: curso.id.toString(),
