@@ -45,6 +45,36 @@ export function credencialCivica(serie: unknown, numeroCredencial?: unknown): st
   return m ? `${m[1]}${m[2]}${m[3]} ${m[4]}` : null;
 }
 
+/** Misma comisión aunque cambien puntos, espacios, mayúsculas o tildes ("D.G.A.C." y "DGAC"). */
+export const claveComision = (s: string) => sinTildes(s).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+const FECHA_COMISION = /\b\d{1,2}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{2,4}\b/g;
+const ORDEN_COMISION = /\b(?:O\.?\s?C\.?\s?G\.?\s?F\.?\s?A\.?|ORDEN)\s*(?:N\s*[º°O.]*\s*)?(\d[\d.]*\d|\d)/;
+const BOLETIN_COMISION = /\b(?:B\.?\s?M\.?\s?D\.?\s?N\.?|BOL(?:ETIN)?\.?)\s*(?:N\s*[º°O.]*\s*)?(\d[\d.]*\d|\d)/;
+
+/**
+ * Comisión del Access: el nombre sale de su columna sin las fechas, la orden ni el boletín que a veces
+ * vienen escritos ahí. Fechas solo si hay exactamente dos (desde y hasta): una sola no dice si es de
+ * inicio o de fin. Un texto sin nombre ("OCGFA 8223") o que es una mutación no es una comisión.
+ */
+export function leerComision(nombre: unknown, ...otros: unknown[]) {
+  const todo = sinTildes([nombre, ...otros].map((v) => texto(v) ?? '').join(' | ')).toUpperCase();
+  const fechas = [...todo.matchAll(FECHA_COMISION)]
+    .map((m) => normalizarFecha(m[0].replace(/\s/g, '').replace(/[.-]/g, '/'))).filter(Boolean) as string[];
+  const rango = fechas.length === 2 && fechas[1] >= fechas[0];
+  const orden = ORDEN_COMISION.exec(todo)?.[1] ?? null;
+  const boletin = BOLETIN_COMISION.exec(todo)?.[1] ?? null;
+  const limpio = (texto(nombre) ?? '')
+    .replace(FECHA_COMISION, ' ').replace(new RegExp(ORDEN_COMISION.source, 'i'), ' ').replace(new RegExp(BOLETIN_COMISION.source, 'i'), ' ')
+    .replace(/\s+/g, ' ').replace(/^[\s.,;:/-]+|[\s,;:/-]+$/g, '').trim();
+  const esNombre = (limpio.match(/[A-Za-zÁÉÍÓÚÑáéíóúñ]/g)?.length ?? 0) >= 2 && !/^MUT/i.test(sinTildes(limpio));
+  return {
+    nombre: esNombre ? limpio.slice(0, 200) : null,
+    fechaInicio: rango ? fechas[0] : null, fechaFin: rango ? fechas[1] : null,
+    numeroOrden: orden ? `O.C.G.F.A. ${orden}`.slice(0, 50) : null, boletin: boletin?.slice(0, 50) ?? null,
+  };
+}
+
 /** Nivel de pericia del Access (NIVEL_PER) como nivel de idoneidad: 3, 5, 7 o 9; 0 es que no tiene. */
 export function nivelIdoneidad(v: unknown): number | null {
   const n = normalizarEntero(v);

@@ -54,6 +54,7 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 | `--aplicar` | Confirma la transacción: ahora sí escribe. Si algo falla, no escribe nada. |
 | `--crear-activos` | Crea los períodos activos de las personas que no tienen uno. **Esas personas pasan a liquidarse en la próxima liquidación**: acordarlo antes con el equipo de liquidación. |
 | `--crear-catalogos` | Agrega a la base las unidades, sub-unidades, escalafones, grados y motivos de baja que falten. Son tablas de liquidación: acordarlo antes. Con los archivos actuales, lo nuevo es: el grado `AT_3RA`; los escalafones `ADM` (no vigente), `CADETE` y `SIN_DATO`; las unidades CIRFA (no vigente), D.C.I., D.S.O., ESMADE, la Banda y la Dirección de Personal, con las categorías A, B y C como sub-unidades; y los motivos `BAJA_SOLICITADA`, `CUMPLIDO_SOLICITADA`, `NO_ADAPTACION` y `NO_APTO`. La lista exacta de cada corrida sale en el resumen, en "Catálogos que faltan en la base". |
+| `--comisiones` | Carga las comisiones en el módulo de comisiones, como **importadas**: sin la fecha ni la orden que el Access no trae, ligadas al período en que estaban anotadas. Acordarlo antes con la FAU: es aceptar comisiones incompletas, que después se completan desde la aplicación. Ver "Comisiones". |
 | `--informe <carpeta>` | Dónde dejar el informe. Por defecto, `informe-importacion-<fecha>` en la carpeta actual. |
 | `--database-url <url>` | Base de datos. Por defecto, la variable `DATABASE_URL`. |
 
@@ -174,10 +175,19 @@ El importador se desarrolló y se probó con copias anonimizadas de los archivos
 
 El módulo de comisiones registra cada asignación con fecha de inicio y número de orden o boletín, que la base exige. El Access casi nunca los trae: en subalternos, `COMISIONES` es casi siempre solo el nombre o la sigla (de 561 filas, 20 traen alguna fecha y 31 una orden); `DURACION DE LA COMISION` trae fechas sueltas; en oficiales, `Nombre de la Comisión` y `Fechas de la Comisión` no traen orden ni boletín. Además, el mismo nombre aparece escrito de varias formas (con y sin puntos), así que armar el catálogo de comisiones solo sería adivinar cuáles son la misma.
 
-Por eso las comisiones **no se cargan en el módulo**:
+Por eso, **sin opciones las comisiones no se cargan en el módulo**:
 - Quedan como texto en las observaciones de los períodos que crea, como antes.
 - Las de quien está en actividad van a `incidencias.csv` como aviso, con el texto del Access, para cargarlas a mano en el módulo de comisiones.
 - `CODIGO DE COMISION` no se usa: es un código numérico (casi siempre 0 o 4), no una comisión.
+
+**Con `--comisiones`** se cargan en el módulo como importadas. El módulo las acepta sin fecha ni orden (las que se cargan desde la aplicación siguen exigiendo las dos cosas), y la FAU las completa después:
+- Cada una queda ligada al **período** en que estaba anotada, con el texto original del Access. Si el período ya terminó, la comisión figura cerrada; si sigue en actividad, figura abierta. Que una comisión anotada en un período en actividad sea la actual es lo que hay que confirmar con la FAU antes de usar la opción.
+- **Nombre:** el de la columna, sin las fechas, la orden o el boletín que a veces vienen escritos ahí. Los que solo cambian en puntos, espacios o mayúsculas son la misma comisión ("D.G.A.C." y "DGAC"); queda el nombre más común. Las comisiones nuevas del catálogo quedan vigentes si alguien en actividad la tiene, y no vigentes si solo aparecen en períodos terminados.
+- **Fechas:** solo si el texto trae exactamente dos (desde y hasta). Una fecha suelta no se usa: no dice si es de inicio o de fin. Queda en el texto original.
+- **Orden y boletín:** solo si vienen escritos en el texto ("O.C.G.F.A. Nº 7682", "B.M.D.N. Nº …").
+- No se cargan los textos que no son una comisión: solo una orden ("OCGFA 8223"), solo una fecha o una mutación ("MUTO A (S.G.)…"). Van al informe.
+- Las de quien está en actividad que quedan sin fecha de inicio o sin orden van al informe, para completarlas en el módulo.
+- Se puede correr más de una vez: una comisión ya cargada para la misma persona y período no se repite.
 
 ## Nivel educativo
 

@@ -2,7 +2,7 @@
  * Importador de las bases Access de la FAU y del Excel de horas de vuelo.
  *
  * Uso (desde pfg-backend/backend):
- *   npx tsx scripts/importacion-fau/main.ts <archivos...> [--aplicar] [--crear-activos] [--crear-catalogos]
+ *   npx tsx scripts/importacion-fau/main.ts <archivos...> [--aplicar] [--crear-activos] [--crear-catalogos] [--comisiones]
  *       [--informe <carpeta>] [--database-url <url>]
  *
  *   <archivos>: SUBALTERNO*.mdb, la base de personal superior (.accdb) y/o el Excel de horas
@@ -20,13 +20,14 @@ import { BaseAccess, HojaVuelo, leerAccess, leerExcelVuelo } from './leer.js';
 import { armarPlan } from './plan.js';
 
 function argumentos(argv: string[]) {
-  const op = { aplicar: false, crearActivos: false, crearCatalogos: false, informe: '', databaseUrl: process.env.DATABASE_URL ?? '' };
+  const op = { aplicar: false, crearActivos: false, crearCatalogos: false, comisiones: false, informe: '', databaseUrl: process.env.DATABASE_URL ?? '' };
   const archivos: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--aplicar') op.aplicar = true;
     else if (a === '--crear-activos') op.crearActivos = true;
     else if (a === '--crear-catalogos') op.crearCatalogos = true;
+    else if (a === '--comisiones') op.comisiones = true;
     else if (a === '--informe') op.informe = argv[++i];
     else if (a === '--database-url') op.databaseUrl = argv[++i];
     else if (a.startsWith('--')) throw new Error(`Opción desconocida: ${a}`);
