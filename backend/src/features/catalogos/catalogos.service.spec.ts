@@ -108,20 +108,29 @@ describe('CatalogosService · catálogos de liquidación', () => {
   // El destino es la sub-unidad; el comando (unidad_id) va para agrupar en los selectores.
 
   describe('findSubUnidades', () => {
-    it('devuelve las vigentes con su comando', async () => {
+    it('devuelve las vigentes con su comando, ordenadas por comando', async () => {
       prisma.sub_unidades.findMany.mockResolvedValue([
-        { id: 1n, codigo: 'BAI', denominacion: 'B.A.I.', unidad_id: 1n },
-        { id: 8n, codigo: 'EMA', denominacion: 'E.M.A.', unidad_id: 2n },
+        { id: 1n, codigo: 'BAI', denominacion: 'B.A.I.', unidad_id: 1n, unidades: { codigo: 'CAO', denominacion: 'C.A.O.' } },
+        { id: 8n, codigo: 'EMA', denominacion: 'E.M.A.', unidad_id: 2n, unidades: { codigo: 'CAP', denominacion: 'C.A.P.' } },
       ]);
 
       const result = await service.findSubUnidades();
 
       expect(prisma.sub_unidades.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { vigente: true } }),
+        expect.objectContaining({
+          where: { vigente: true },
+          orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
+        }),
       );
       expect(result).toEqual([
-        { id: 1, codigo: 'BAI', denominacion: 'B.A.I.', unidad_id: 1 },
-        { id: 8, codigo: 'EMA', denominacion: 'E.M.A.', unidad_id: 2 },
+        {
+          id: 1, codigo: 'BAI', denominacion: 'B.A.I.', unidad_id: 1,
+          comando: { id: 1, codigo: 'CAO', denominacion: 'C.A.O.' },
+        },
+        {
+          id: 8, codigo: 'EMA', denominacion: 'E.M.A.', unidad_id: 2,
+          comando: { id: 2, codigo: 'CAP', denominacion: 'C.A.P.' },
+        },
       ]);
     });
   });

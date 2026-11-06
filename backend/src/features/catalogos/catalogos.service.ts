@@ -106,15 +106,26 @@ export class CatalogosService {
   async findSubUnidades() {
     const items = await this.prisma.sub_unidades.findMany({
       where: { vigente: true },
-      orderBy: { denominacion: 'asc' },
-      select: { id: true, codigo: true, denominacion: true, unidad_id: true },
+      orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
+      select: {
+        id: true,
+        codigo: true,
+        denominacion: true,
+        unidad_id: true,
+        unidades: { select: { codigo: true, denominacion: true } },
+      },
     });
-    // unidad_id: el comando al que pertenece, para filtrar o agrupar en los selectores.
+    // El comando va para agrupar y para mostrar la base como "B.A.I. (C.A.O.)".
     return items.map((i) => ({
       id: Number(i.id),
       codigo: i.codigo,
       denominacion: i.denominacion,
       unidad_id: Number(i.unidad_id),
+      comando: {
+        id: Number(i.unidad_id),
+        codigo: i.unidades.codigo,
+        denominacion: i.unidades.denominacion,
+      },
     }));
   }
 }

@@ -22,18 +22,32 @@ export class RolDeUnidadDto {
   permisos: PermisoDeRolDto[];
 }
 
+export class ComandoDeUnidadDto {
+  @ApiProperty({ example: '1' })
+  id: string;
+
+  @ApiProperty({ example: 'CAO' })
+  codigo: string;
+
+  @ApiProperty({ example: 'C.A.O.' })
+  denominacion: string;
+}
+
 export class UnidadListItemDto {
   @ApiProperty({ example: '1' })
   id: string;
 
-  @ApiProperty({ example: 'CG' })
+  @ApiProperty({ example: 'BAI' })
   codigo: string;
 
-  @ApiProperty({ example: 'Cuartel General' })
+  @ApiProperty({ example: 'B.A.I.' })
   denominacion: string;
 
   @ApiProperty({ example: true })
   vigente: boolean;
+
+  @ApiProperty({ type: ComandoDeUnidadDto })
+  comando: ComandoDeUnidadDto;
 
   @ApiProperty({ example: 2 })
   cantidadRoles: number;
@@ -46,14 +60,17 @@ export class UnidadDetalleDto {
   @ApiProperty({ example: '1' })
   id: string;
 
-  @ApiProperty({ example: 'CG' })
+  @ApiProperty({ example: 'BAI' })
   codigo: string;
 
-  @ApiProperty({ example: 'Cuartel General' })
+  @ApiProperty({ example: 'B.A.I.' })
   denominacion: string;
 
   @ApiProperty({ example: true })
   vigente: boolean;
+
+  @ApiProperty({ type: ComandoDeUnidadDto })
+  comando: ComandoDeUnidadDto;
 
   @ApiProperty({ type: [RolDeUnidadDto] })
   roles: RolDeUnidadDto[];
