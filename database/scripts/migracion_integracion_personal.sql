@@ -261,22 +261,23 @@ CREATE TABLE IF NOT EXISTS public.funcionarios_misiones (
 
 -- ─── 3.5 destinos ───────────────────────────────────────────────────────────
 
+-- El destino es la asignación de un funcionario a una unidad de liquidación
+-- ("José Pérez está o estuvo en esa unidad"). Nace directo con la forma final:
+-- antes se creaba un catálogo propio de lugares + asignaciones_funcionario y
+-- migration_destinos_v2.sql los convertía, lo que rompía al reaplicar el paquete.
+-- migration_destinos_v2.sql queda solo para bases con el modelo viejo.
+-- Los campos de reportes (numero_destino, fechas de orden/boletín/resolución)
+-- los agrega migration_campos_reportes.sql.
+
 CREATE TABLE IF NOT EXISTS public.destinos (
-    id           BIGSERIAL PRIMARY KEY,
-    ubicacion    VARCHAR(200),
-    numero_orden VARCHAR(50),
-    tipo_destino VARCHAR(100)
-);
-
--- ─── 3.6 asignaciones_funcionario ──────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS public.asignaciones_funcionario (
     id               BIGSERIAL PRIMARY KEY,
     persona_id       BIGINT REFERENCES public.personas(id),
-    destino_id       BIGINT REFERENCES public.destinos(id),
+    unidad_id        BIGINT REFERENCES public.unidades(id),
     fecha_inicio     DATE,
     fecha_fin        DATE,
     posicion_destino VARCHAR(200),
+    numero_orden     VARCHAR(50),
+    boletin          VARCHAR(50),
     observaciones    TEXT
 );
 
