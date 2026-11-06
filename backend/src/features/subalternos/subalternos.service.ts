@@ -8,8 +8,7 @@ import {
 import { PrismaService } from '../../lib/prisma.service.js';
 import {
   AlcanceResuelto,
-  unidadIdDeAlcance,
-  unidadIdsDeAlcance,
+  subUnidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types.js';
 import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
 import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
@@ -66,48 +65,54 @@ export class SubalternosService {
   ) {}
 
   /**
-   * Con alcance de unidad, la persona se crea en alguna de las unidades del usuario.
-   * Si el body trae una unidad que no está en su alcance, se rechaza con 400.
-   * Si no se declara unidad y el usuario tiene exactamente una, se fuerza esa.
+   * La base (sub-unidad) es obligatoria para el personal militar y el comando sale de ella.
+   * Si llega un `unidad_id` que no es el comando de la base, se rechaza.
+   *
+   * Con alcance de unidad la base tiene que ser una de las del usuario; si no indica
+   * ninguna y tiene una sola, se usa esa.
    */
-  private aplicarUnidadDeAlcance<T extends { unidad_id?: number | string }>(
+  private async resolverBase<T extends { unidad_id?: number; sub_unidad_id?: number }>(
     dto: T,
     alcance?: AlcanceResuelto,
-  ): T {
-    if (!alcance) return dto;
-    const unidadesForzadas = unidadIdsDeAlcance(alcance);
-    if (unidadesForzadas === null) return dto;
+  ): Promise<T> {
+    const propias = alcance ? subUnidadIdsDeAlcance(alcance) : null;
 
-    if (
-      dto.unidad_id !== undefined &&
-      dto.unidad_id !== null &&
-      !unidadesForzadas.map(String).includes(String(dto.unidad_id))
-    ) {
-      throw new BadRequestException(
-        'Solo podés dar de alta personal en tus propias unidades',
-      );
-    }
-
-    // Si no declara unidad y tiene exactamente una, la forzamos.
-    if (dto.unidad_id === undefined || dto.unidad_id === null) {
-      if (unidadesForzadas.length === 1) {
-        return { ...dto, unidad_id: Number(unidadesForzadas[0]) };
+    let subUnidadId = dto.sub_unidad_id;
+    if (subUnidadId == null) {
+      if (propias?.length !== 1) {
+        throw new BadRequestException('Falta la base del funcionario (sub_unidad_id)');
       }
-      throw new BadRequestException(
-        'Debés indicar la unidad de destino (tenés acceso a más de una)',
-      );
+      subUnidadId = Number(propias[0]);
     }
 
-    return dto;
+    if (propias && !propias.some((id) => id === BigInt(subUnidadId))) {
+      throw new BadRequestException('Solo podés dar de alta personal en tus propias bases');
+    }
+
+    const base = await this.prisma.sub_unidades.findUnique({
+      where: { id: BigInt(subUnidadId) },
+      select: { unidad_id: true, vigente: true },
+    });
+    if (!base) {
+      throw new BadRequestException('sub_unidad_id no existe en la tabla de sub-unidades');
+    }
+    if (!base.vigente) {
+      throw new BadRequestException('La base elegida no está vigente');
+    }
+    if (dto.unidad_id != null && BigInt(dto.unidad_id) !== base.unidad_id) {
+      throw new BadRequestException('El comando no corresponde a la base elegida');
+    }
+
+    return { ...dto, sub_unidad_id: subUnidadId, unidad_id: Number(base.unidad_id) };
   }
 
   async findAllPersonas(query: ListPersonasQueryDto, alcance?: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
-    // Con alcance de unidad la unidad se fuerza y se IGNORA `query.destino`: el filtro no es
+    // Con alcance de unidad las bases se fuerzan y se IGNORA `query.destino`: el filtro no es
     // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
-    const unidadesForzadas = alcance ? unidadIdsDeAlcance(alcance) : null;
+    const basesForzadas = alcance ? subUnidadIdsDeAlcance(alcance) : null;
 
     // Un retirado tiene fecha_fin, así que por defecto queda fuera del listado.
     // `incluir_inactivos` lo trae de vuelta con relacion_estado = 'inactivo'.
@@ -124,10 +129,10 @@ export class SubalternosService {
     const where = {
       relaciones_laborales: { some: relacionWhere },
       ...(query.categoria && { AND: [wherePersonaPorCategoria(query.categoria)] }),
-      // Con alcance de unidad se fuerza el filtro por destino a las unidades del usuario.
+      // Con alcance de unidad se fuerza el filtro por destino a las bases del usuario.
       // Sin alcance, se puede filtrar por query.destino opcionalmente.
-      ...(unidadesForzadas !== null
-        ? { destinos: { some: { unidad_id: { in: unidadesForzadas }, fecha_fin: null } } }
+      ...(basesForzadas !== null
+        ? { destinos: { some: { sub_unidad_id: { in: basesForzadas }, fecha_fin: null } } }
         : query.destino?.length && {
             destinos: { some: { unidad_id: enIds(query.destino), fecha_fin: null } },
           }),
@@ -253,7 +258,7 @@ export class SubalternosService {
   async create(dto: CreateSubalternoDto, alcance?: AlcanceResuelto) {
     assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
 
-    dto = this.aplicarUnidadDeAlcance(dto, alcance);
+    dto = await this.resolverBase(dto, alcance);
 
     const existe = await this.prisma.personas.findUnique({
       where: { cedula: dto.cedula },
@@ -288,7 +293,7 @@ export class SubalternosService {
         data: {
           persona_id: persona.id,
           regimen_id: BigInt(dto.regimen_id),
-          unidad_id: BigInt(dto.unidad_id),
+          unidad_id: BigInt(dto.unidad_id!),
           programa_id: BigInt(dto.programa_id),
           situacion_id: BigInt(dto.situacion_id),
           escalafon_id: BigInt(dto.escalafon_id),
@@ -296,9 +301,7 @@ export class SubalternosService {
           fecha_inicio: new Date(dto.fecha_inicio),
           estado: 'activo',
           tipo_funcionario: 'subalterno',
-          sub_unidad_id: dto.sub_unidad_id
-            ? BigInt(dto.sub_unidad_id)
-            : undefined,
+          sub_unidad_id: BigInt(dto.sub_unidad_id),
           observaciones: dto.observaciones,
         },
       });
@@ -308,8 +311,8 @@ export class SubalternosService {
       await tx.destinos.create({
         data: {
           persona_id: persona.id,
-          unidad_id: BigInt(dto.unidad_id),
-          sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null,
+          unidad_id: BigInt(dto.unidad_id!),
+          sub_unidad_id: BigInt(dto.sub_unidad_id),
           fecha_inicio: new Date(dto.fecha_inicio),
         },
       });
@@ -350,7 +353,8 @@ export class SubalternosService {
     usuario?: { id: bigint | null; permisos: string[] },
     opciones: { omitirDerecha?: boolean } = {},
   ) {
-    dto = this.aplicarUnidadDeAlcance(dto, alcance);
+    // El personal civil no tiene relación laboral ni base.
+    if (!dto.es_civil) dto = await this.resolverBase(dto, alcance);
 
     if (
       (dto.posicion_derecha != null || dto.posicion_numor != null) &&
@@ -481,7 +485,7 @@ export class SubalternosService {
   /** Con `omitirDerecha` la derecha la asigna quien llama, como la carga masiva con todo el lote junto. */
   private async createPersonalMilitar(dto: CreatePersonalDto, usuarioId: bigint | null, omitirDerecha = false) {
     const camposFaltantes = (
-      ['tipo_funcionario', 'regimen_id', 'unidad_id', 'programa_id', 'situacion_id', 'escalafon_id', 'grado_id', 'fecha_inicio'] as const
+      ['tipo_funcionario', 'regimen_id', 'sub_unidad_id', 'programa_id', 'situacion_id', 'escalafon_id', 'grado_id', 'fecha_inicio'] as const
     ).filter((campo) => dto[campo] == null);
 
     if (camposFaltantes.length > 0) {
@@ -535,7 +539,7 @@ export class SubalternosService {
             fecha_inicio: new Date(dto.fecha_inicio!),
             estado: 'activo',
             tipo_funcionario: dto.tipo_funcionario,
-            sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : undefined,
+            sub_unidad_id: BigInt(dto.sub_unidad_id!),
             prima_tecnica: dto.prima_tecnica,
             tiene_mando: dto.tiene_mando,
             observaciones: dto.observaciones,
@@ -569,7 +573,7 @@ export class SubalternosService {
           data: {
             persona_id: persona.id,
             unidad_id: BigInt(dto.unidad_id!),
-            sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null,
+            sub_unidad_id: BigInt(dto.sub_unidad_id!),
             fecha_inicio: new Date(dto.fecha_inicio!),
           },
         });
