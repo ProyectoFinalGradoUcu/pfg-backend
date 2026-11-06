@@ -106,7 +106,7 @@ const makePrismaMock = () => {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
-    // Por defecto cada funcionario pedido es militar, Cbo. 2.ª, en la unidad 5.
+    // Por defecto cada funcionario pedido es militar, Cbo. 2.ª, en la base 50 del comando 5.
     relaciones_laborales: {
       findMany: jest.fn(({ where }: any) =>
         Promise.resolve(
@@ -114,6 +114,7 @@ const makePrismaMock = () => {
             id: 500n + id,
             persona_id: id,
             unidad_id: 5n,
+            sub_unidad_id: 50n,
             grados: { codigo: 'CBO_2DA', denominacion: 'Cbo. 2ª' },
           })),
         ),
@@ -502,15 +503,22 @@ describe('OrdenesAscensoService', () => {
 
     // ─── Alcance ──────────────────────────────────────────────────────────────
 
-    it('con alcance de unidad, un funcionario de otra unidad responde como inexistente', async () => {
+    it('con alcance de unidad, un funcionario de otra base responde como inexistente', async () => {
       await expect(
-        service.crear(dtoBase(), 8n, [], { tipo: 'unidad', unidadIds: ['6'] }),
+        service.crear(dtoBase(), 8n, [], { tipo: 'unidad', subUnidadIds: ['60'], comandoIds: ['6'] }),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
     });
 
-    it('con alcance de unidad, registra a los de su unidad', async () => {
-      await service.crear(dtoBase(), 8n, [], { tipo: 'unidad', unidadIds: ['5'] });
+    it('con alcance de unidad, un funcionario de otra base del mismo comando también queda afuera', async () => {
+      await expect(
+        service.crear(dtoBase(), 8n, [], { tipo: 'unidad', subUnidadIds: ['51'], comandoIds: ['5'] }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
+    });
+
+    it('con alcance de unidad, registra a los de su base', async () => {
+      await service.crear(dtoBase(), 8n, [], { tipo: 'unidad', subUnidadIds: ['50'], comandoIds: ['5'] });
 
       expect(registro.registrarEnTransaccion).toHaveBeenCalledTimes(1);
     });
@@ -534,18 +542,18 @@ describe('OrdenesAscensoService', () => {
       });
     });
 
-    it('con alcance de unidad solo trae órdenes que tocan esas unidades', async () => {
-      await service.listar({}, { tipo: 'unidad', unidadIds: ['5'] });
+    it('con alcance de unidad solo trae órdenes que tocan esas bases', async () => {
+      await service.listar({}, { tipo: 'unidad', subUnidadIds: ['5'], comandoIds: [] });
 
       const args = prisma.ascensos_ordenes.findMany.mock.calls[0][0];
       const visibles = {
         OR: [
-          { relacion_laboral_nueva: { unidad_id: { in: [5n] } } },
-          { relacion_laboral_anterior: { unidad_id: { in: [5n] } } },
+          { relacion_laboral_nueva: { sub_unidad_id: { in: [5n] } } },
+          { relacion_laboral_anterior: { sub_unidad_id: { in: [5n] } } },
         ],
       };
       expect(args.where.ascensos.some.AND).toEqual([visibles]);
-      // Y de cada orden, solo los funcionarios de esas unidades.
+      // Y de cada orden, solo los funcionarios de esas bases.
       expect(args.include.ascensos.where).toEqual(visibles);
     });
 
@@ -579,10 +587,10 @@ describe('OrdenesAscensoService', () => {
       expect(res.stats.por_excepcion).toBe(1);
     });
 
-    it('con alcance de unidad, los totales cuentan solo lo de sus unidades', async () => {
+    it('con alcance de unidad, los totales cuentan solo lo de sus bases', async () => {
       prisma.ascensos_ordenes.findMany.mockResolvedValue([]);
 
-      await service.listar({}, { tipo: 'unidad', unidadIds: ['6'] });
+      await service.listar({}, { tipo: 'unidad', subUnidadIds: ['6'], comandoIds: [] });
 
       const stats = prisma.ascensos_ordenes.findMany.mock.calls[1][0];
       expect(stats.where.ascensos.some.OR).toBeDefined();
@@ -662,15 +670,15 @@ describe('OrdenesAscensoService', () => {
       await expect(service.obtener(70)).rejects.toThrow(NotFoundException);
     });
 
-    it('con alcance de unidad pide una orden con funcionarios de esas unidades y solo los muestra a ellos', async () => {
+    it('con alcance de unidad pide una orden con funcionarios de esas bases y solo los muestra a ellos', async () => {
       prisma.ascensos_ordenes.findUnique.mockResolvedValue(makeOrdenFila());
 
-      await service.obtener(70, {}, { tipo: 'unidad', unidadIds: ['6'] });
+      await service.obtener(70, {}, { tipo: 'unidad', subUnidadIds: ['6'], comandoIds: [] });
 
       const visibles = {
         OR: [
-          { relacion_laboral_nueva: { unidad_id: { in: [6n] } } },
-          { relacion_laboral_anterior: { unidad_id: { in: [6n] } } },
+          { relacion_laboral_nueva: { sub_unidad_id: { in: [6n] } } },
+          { relacion_laboral_anterior: { sub_unidad_id: { in: [6n] } } },
         ],
       };
       const args = prisma.ascensos_ordenes.findFirst.mock.calls[0][0];
@@ -679,11 +687,11 @@ describe('OrdenesAscensoService', () => {
       expect(prisma.ascensos.findMany.mock.calls[0][0].where).toMatchObject(visibles);
     });
 
-    it('una orden sin funcionarios de sus unidades responde 404', async () => {
+    it('una orden sin funcionarios de sus bases responde 404', async () => {
       prisma.ascensos_ordenes.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.obtener(70, {}, { tipo: 'unidad', unidadIds: ['6'] }),
+        service.obtener(70, {}, { tipo: 'unidad', subUnidadIds: ['6'], comandoIds: [] }),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -757,7 +765,7 @@ describe('OrdenesAscensoService', () => {
   });
 
   describe('anulaciones con alcance de unidad', () => {
-    const UNIDAD_6 = { tipo: 'unidad' as const, unidadIds: ['6'] };
+    const UNIDAD_6 = { tipo: 'unidad' as const, subUnidadIds: ['6'], comandoIds: [] };
     const ordenDe = (n: number) => ({
       id: 70n,
       numero_orden: 'X',
@@ -765,7 +773,7 @@ describe('OrdenesAscensoService', () => {
       ascensos: Array.from({ length: n }, (_, i) => ({ id: 900n + BigInt(i), anulado_en: null })),
     });
 
-    it('una orden sin funcionarios de sus unidades responde 404 y no anula nada', async () => {
+    it('una orden sin funcionarios de sus bases responde 404 y no anula nada', async () => {
       prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(1));
       prisma.ascensos.count.mockResolvedValue(0);
 
@@ -773,7 +781,7 @@ describe('OrdenesAscensoService', () => {
       expect(registro.anularEnTransaccion).not.toHaveBeenCalled();
     });
 
-    it('una orden con funcionarios de otras unidades no se puede anular entera', async () => {
+    it('una orden con funcionarios de otras bases no se puede anular entera', async () => {
       prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
       prisma.ascensos.count.mockResolvedValue(1);
 
@@ -781,7 +789,7 @@ describe('OrdenesAscensoService', () => {
       expect(registro.anularEnTransaccion).not.toHaveBeenCalled();
     });
 
-    it('una orden con todos sus funcionarios en sus unidades se anula', async () => {
+    it('una orden con todos sus funcionarios en sus bases se anula', async () => {
       prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
       prisma.ascensos_ordenes.findUnique.mockResolvedValue(makeOrdenFila());
       prisma.ascensos.count.mockResolvedValue(2);
@@ -792,7 +800,7 @@ describe('OrdenesAscensoService', () => {
       expect(prisma.ascensos.count.mock.calls[0][0].where.OR).toBeDefined();
     });
 
-    it('un ascenso de otra unidad responde 404 y no se anula', async () => {
+    it('un ascenso de otra base responde 404 y no se anula', async () => {
       prisma.ascensos.count.mockResolvedValue(0);
 
       await expect(service.anularAscenso(900, 'motivo', 8n, UNIDAD_6)).rejects.toThrow(NotFoundException);

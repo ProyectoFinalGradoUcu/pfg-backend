@@ -1,5 +1,13 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsNumberString,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ListUnidadesQueryDto {
@@ -22,6 +30,11 @@ export class ListUnidadesQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({ example: '2', description: 'Solo las bases de ese comando' })
+  @IsOptional()
+  @IsNumberString()
+  unidad_id?: string;
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()

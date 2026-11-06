@@ -634,11 +634,13 @@ describe('ElegibilidadService', () => {
       expect(r.estado).toBe('BLOQUEADO');
     });
 
-    it('con alcance de unidad filtra por las unidades del usuario', async () => {
-      await service.listarPasibles({}, { tipo: 'unidad', unidadIds: ['5', '7'] });
+    it('con alcance de unidad filtra por las bases del usuario', async () => {
+      await service.listarPasibles({}, { tipo: 'unidad', subUnidadIds: ['5', '7'], comandoIds: ['1'] });
 
       const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
-      expect(where.unidad_id).toEqual({ in: [5n, 7n] });
+      expect(where.sub_unidad_id).toEqual({ in: [5n, 7n] });
+      // El comando no entra en el filtro: el alcance es por base.
+      expect(where.unidad_id).toBeUndefined();
     });
 
     it('no consulta los cursos si no hay nadie en la nómina', async () => {

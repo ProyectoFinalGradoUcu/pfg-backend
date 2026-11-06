@@ -1,3 +1,4 @@
+import { whereRelacionPorAlcance } from '../alcance-reportes';
 import {
   ColumnaReporte,
   ContextoEjecucion,
@@ -72,6 +73,7 @@ export const porcentajeMujeresReporte: DefinicionReporte = {
       where: {
         estado: 'activo',
         ...(unidadId ? { unidad_id: unidadId } : {}),
+        ...whereRelacionPorAlcance(filtros),
         ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       select: {

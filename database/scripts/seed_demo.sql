@@ -1,233 +1,44 @@
 -- ============================================================================
 -- SEED DE DEMOSTRACIÓN: Datos ficticios para testing y presentación
 --
--- Prerrequisitos:
---   1. migracion_integracion_personal.sql ya ejecutada
---   2. seed_integracion_personal.sql ya ejecutada
+-- Prerrequisitos: la base de liquidación (db-init.sql + sus migraciones) con el
+-- paquete de Personal aplicado encima (database/paquete-personal.txt).
+-- Corre SOLO en local, último: `make reset`.
 --
--- Este script carga datos de prueba para demostrar todas las funcionalidades
--- del sistema, incluyendo:
---   - Estructura organizativa realista de la FAU (12 unidades)
---   - 30+ funcionarios distribuidos en distintas unidades
---   - 7 usuarios con distintos roles y alcances
---   - Misiones, ascensos, cursos, destinos, retiros
+-- NO carga catálogos. Unidades, sub-unidades, grados, escalafones, situaciones,
+-- regímenes, programas y motivos de baja son los de liquidación y se buscan por
+-- código. Si un código no existe allá, este script falla en vez de inventarlo.
+--
+-- Estructura (la de liquidación): la unidad es el comando y el destino real es
+-- la sub-unidad.
+--   CAO → BAI, BAII, BAIII, SMETEO, SSRRAA, COA
+--   CAP → ETA, EMA, ECEMA, CIAA, CIAB, SSFA
+--   CAL → SABAST, SMANT, SINFRA, SCOM
+--   CG  → DCG, BANDA
+--
+-- Carga 30 funcionarios repartidos en los 4 comandos, cursos, misiones,
+-- ascensos, un retiro, destinos y 8 usuarios con distintos alcances.
 --
 -- NO debe ejecutarse en producción.
 -- Idempotente: puede ejecutarse más de una vez sin efectos secundarios.
 --
--- Usuarios de demo (contraseña de todos: FAUdemo1!):
---   admin@fau.mil.uy        → Administrador (ya creado por seed_integracion)
---   jefe.personal@fau.mil.uy → Oficina de Personal (alcance global)
---   jefe.ba1@fau.mil.uy     → Control de cursos (alcance Base Aérea Nº 1)
---   jefe.ba2@fau.mil.uy     → Control de cursos (alcance Base Aérea Nº 2)
---   jefe.eta@fau.mil.uy     → Control de cursos (alcance Escuela Técnica)
---   consulta.coa@fau.mil.uy → Usuario lectura (alcance Comando Operaciones)
---   operador.cpfa@fau.mil.uy → Operador con permisos mixtos (Comando Personal)
+-- Usuarios de demo (contraseña de todos: FAUdemo1!). El alcance de unidad es
+-- por base (usuarios_sub_unidades). Los usuarios "de comando" tienen asignadas
+-- todas las bases de su comando:
+--   admin@fau.mil.uy            → Administrador (lo crea seed_integracion_personal)
+--   jefe.personal@fau.mil.uy    → Oficina de Personal (alcance global)
+--   jefe.cao@fau.mil.uy         → Control de cursos (bases del C.A.O.)
+--   jefe.cap@fau.mil.uy         → Control de cursos (bases del C.A.P.)
+--   consulta.cg@fau.mil.uy      → Consulta, solo lectura (bases del C.G.)
+--   operador.cal@fau.mil.uy     → Operador de Personal (bases del C.A.L.)
+--   supervisor.cao.cap@fau.mil.uy → Control de cursos (bases del C.A.O. y del C.A.P.)
+--   jefe.bai@fau.mil.uy         → Operador de Personal (solo B.A.I.)
+--   supervisor.bai.eta@fau.mil.uy → Control de cursos (B.A.I. y E.T.A.)
 -- ============================================================================
 
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- SECCIÓN 1: Estructura organizativa de la FAU
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Unidades principales (incluye CG que es referencia base)
-INSERT INTO public.unidades (codigo, denominacion) VALUES
-  ('CG',    'Cuartel General'),
-  ('EMGFA', 'Estado Mayor General de la Fuerza Aérea'),
-  ('COA',   'Comando Aéreo de Operaciones'),
-  ('CPFA',  'Comando de Personal de la Fuerza Aérea'),
-  ('BA1',   'Base Aérea Nº 1 "Cnel. Av. César L. Berisso"'),
-  ('BA2',   'Base Aérea Nº 2 "Cap. Av. Cesáreo L. Berisso"'),
-  ('EMA',   'Escuela Militar de Aeronáutica'),
-  ('ETA',   'Escuela Técnica de Aeronáutica'),
-  ('ECEMA', 'Escuela de Comando y Estado Mayor Aéreo'),
-  ('BRAI',  'Brigada Aérea I'),
-  ('GA3',   'Grupo de Aviación Nº 3 (Transporte)'),
-  ('GA5',   'Grupo de Aviación Nº 5 (Helicópteros)')
-ON CONFLICT (codigo) DO NOTHING;
-
--- Sub-unidades de ejemplo
-INSERT INTO public.sub_unidades (unidad_id, codigo, denominacion)
-SELECT u.id, s.codigo, s.denominacion
-FROM (VALUES
-  ('BA1', 'BA1-OPS',  'Sección Operaciones'),
-  ('BA1', 'BA1-MANT', 'Sección Mantenimiento'),
-  ('BA1', 'BA1-PERS', 'Oficina de Personal'),
-  ('BA2', 'BA2-OPS',  'Sección Operaciones'),
-  ('BA2', 'BA2-LOG',  'Sección Logística'),
-  ('COA', 'COA-PLA',  'División Planificación'),
-  ('COA', 'COA-INT',  'División Inteligencia')
-) AS s(unidad_codigo, codigo, denominacion)
-JOIN unidades u ON u.codigo = s.unidad_codigo
-ON CONFLICT (unidad_id, codigo) DO NOTHING;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- SECCIÓN 2: Catálogos de referencia para demo
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Regímenes (leyes)
-INSERT INTO public.regimenes (id, numero_ley, denominacion, vigente, es_ley_vieja)
-SELECT CASE WHEN (SELECT count(*) FROM regimenes) = 0 THEN v.id ELSE nextval(pg_get_serial_sequence('public.regimenes', 'id')) END,
-       v.numero_ley, v.denominacion, v.vigente, v.es_ley_vieja
-FROM (VALUES
-  (1, '14.157', 'Ley Vieja', true, true),
-  (2, '19.695', 'Ley Nueva', true, false)
-) AS v(id, numero_ley, denominacion, vigente, es_ley_vieja)
-WHERE NOT EXISTS (SELECT 1 FROM regimenes x WHERE x.numero_ley = v.numero_ley);
-SELECT setval(pg_get_serial_sequence('public.regimenes', 'id'), GREATEST((SELECT max(id) FROM regimenes), 1));
-
--- Programas presupuestales
-INSERT INTO public.programas (id, codigo, denominacion, vigente)
-SELECT CASE WHEN (SELECT count(*) FROM programas) = 0 THEN v.id ELSE nextval(pg_get_serial_sequence('public.programas', 'id')) END,
-       v.codigo, v.denominacion, v.vigente
-FROM (VALUES
-  (1, '300', 'Programa 300', true),
-  (2, '460', 'Programa 460', true)
-) AS v(id, codigo, denominacion, vigente)
-WHERE NOT EXISTS (SELECT 1 FROM programas x WHERE x.codigo = v.codigo);
-SELECT setval(pg_get_serial_sequence('public.programas', 'id'), GREATEST((SELECT max(id) FROM programas), 1));
-
--- Situaciones
-
-INSERT INTO public.situaciones (id, codigo, denominacion, calculador, afecta_cobro, sistema_salud)
-SELECT CASE WHEN (SELECT count(*) FROM situaciones) = 0 THEN v.id ELSE nextval(pg_get_serial_sequence('public.situaciones', 'id')) END,
-       v.codigo, v.denominacion, v.calculador, v.afecta_cobro, v.sistema_salud
-FROM (VALUES
-  (1, 'SIT01', 'Personal Superior en actividad.', 'Sit10Calculator', true, 'ssffaa'),
-  (2, 'SIT02', 'Personal Superior en disponibilidad.', 'Sit20Calculator', true, 'ssffaa'),
-  (3, 'SIT03', 'Licencia sin goce de sueldo.', 'SinCalculador', false, 'ssffaa'),
-  (4, 'SIT04', 'Personal Superior no disponible.', 'SinCalculador', false, 'ssffaa'),
-  (5, 'SIT05', 'Personal Superior reservistas.', 'ReservaSuperiorCalculator', true, 'ssffaa'),
-  (6, 'SIT06', 'Personal Superior sueldo retenido.', 'SinCalculador', false, 'ssffaa'),
-  (7, 'SIT07', 'Personal Subalterno en actividad.', 'Sit30Calculator', true, 'ssffaa'),
-  (8, 'SIT08', 'Reservistas tropa.', 'ReservaCalculator', true, 'ssffaa'),
-  (9, 'SIT09', 'Personal Subalterno con licencia s/goce de sueldo.', 'SinCalculador', false, 'ssffaa'),
-  (10, 'SIT10', 'Reserva de cargo.', 'SinCalculador', false, 'ssffaa'),
-  (11, 'SIT11', 'Personal Subalterno sueldo retenido.', 'SinCalculador', false, 'ssffaa'),
-  (12, 'SIT12', 'Aspirantes y cadetes.', 'Sit40Calculator', true, 'ssffaa'),
-  (13, 'SIT13', 'Aprendiz.', 'Sit40Calculator', true, 'ssffaa'),
-  (14, 'SIT14', 'Baja del mes Señores Oficiales (para aguinaldo).', 'AguinaldoCalculator', true, 'ssffaa'),
-  (15, 'SIT15', 'Baja del mes Personal Subalterno (para aguinaldo).', 'AguinaldoCalculator', true, 'ssffaa'),
-  (16, 'SIT16', 'Personal Superior reincorporado.', 'Sit50Calculator', true, 'ssffaa'),
-  (17, 'SIT17', 'Personal Subalterno reincorporado.', 'Sit50Calculator', true, 'ssffaa'),
-  (18, 'SIT18', 'Aguinaldo baja reincorporado.', 'AguinaldoCalculator', true, 'ssffaa'),
-  (19, 'SIT19', 'Civil presupuestado sin equiparar.', 'CivilCalculator', true, 'ssffaa'),
-  (20, 'SIT20', 'Baja del mes civil presupuestado sin equiparar.', 'AguinaldoCalculator', true, 'ssffaa'),
-  (21, 'SIT21', 'Civil contratado sin equiparar.', 'CivilCalculator', true, 'ssffaa'),
-  (22, 'SIT22', 'Subsidio transitorio.', 'SubsidioCalculator', true, 'ssffaa')
-) AS v(id, codigo, denominacion, calculador, afecta_cobro, sistema_salud)
-WHERE NOT EXISTS (SELECT 1 FROM situaciones x WHERE x.codigo = v.codigo);
-SELECT setval(pg_get_serial_sequence('public.situaciones', 'id'), GREATEST((SELECT max(id) FROM situaciones), 1));
-
--- Escalafones
-INSERT INTO public.escalafones (id, codigo, denominacion)
-SELECT CASE WHEN (SELECT count(*) FROM escalafones) = 0 THEN v.id ELSE nextval(pg_get_serial_sequence('public.escalafones', 'id')) END,
-       v.codigo, v.denominacion
-FROM (VALUES
-  (1, 'AV', '(Av.)'),
-  (2, 'NAV', '(Nav.)'),
-  (3, 'TP', '(T.P.)'),
-  (4, 'ESP', '(Esp.)'),
-  (5, 'SG', '(S.G.)'),
-  (6, 'AA', '(A.A.)'),
-  (7, 'RVA', '(Rva.)'),
-  (8, 'MANT', '(Mant.)'),
-  (9, 'CYE', '(C.y E.)'),
-  (10, 'MET', '(Met.)'),
-  (11, 'SA', '(S.A.)'),
-  (12, 'BM', '(B.M.)'),
-  (13, 'ST', '(S.T.)'),
-  (14, 'AT', '(A.T.)'),
-  (15, 'ESC_3', 'Escalafón 3 (pendiente identificar)'),
-  (16, 'ESC_9', 'Escalafón 9 (pendiente identificar)'),
-  (17, 'ESC_11', 'Escalafón 11 (pendiente identificar)')
-) AS v(id, codigo, denominacion)
-WHERE NOT EXISTS (SELECT 1 FROM escalafones x WHERE x.codigo = v.codigo);
-SELECT setval(pg_get_serial_sequence('public.escalafones', 'id'), GREATEST((SELECT max(id) FROM escalafones), 1));
-
-INSERT INTO public.grados (id, codigo, denominacion, orden, es_oficial, es_subalterno)
-SELECT CASE WHEN (SELECT count(*) FROM grados) = 0 THEN v.id ELSE nextval(pg_get_serial_sequence('public.grados', 'id')) END,
-       v.codigo, v.denominacion, v.orden, v.es_oficial, v.es_subalterno
-FROM (VALUES
-  (1, 'SDO_1RA', 'Sdo. 1ª', 1, false, true),
-  (2, 'CBO_2DA', 'Cbo. 2ª', 2, false, true),
-  (3, 'CBO_1RA', 'Cbo. 1ª', 3, false, true),
-  (4, 'SGTO', 'Sgto.', 4, false, true),
-  (5, 'SGTO_1RO', 'Sgto. 1°', 5, false, true),
-  (6, 'SOM', 'S.O.M.', 6, false, true),
-  (7, 'ALF', 'Alf.', 7, true, false),
-  (8, 'TTE_2DO', 'Tte. 2°', 8, true, false),
-  (9, 'TTE_1RO', 'Tte. 1°', 9, true, false),
-  (10, 'CAP', 'Cap.', 10, true, false),
-  (11, 'MAY', 'May.', 11, true, false),
-  (12, 'TTE_CNEL', 'Tte. Cnel.', 12, true, false),
-  (13, 'CNEL', 'Cnel.', 13, true, false),
-  (14, 'BRIG_GRAL', 'Brig. Gral.', 14, true, false),
-  (15, 'GRAL', 'Gral. Del Aire', 15, true, false),
-  (16, 'CAD_ASP', 'Cad. Asp.', 16, false, false),
-  (17, 'CAD_1RO', 'Cad. 1°', 17, false, false),
-  (18, 'CAD_2DO', 'Cad. 2°', 18, false, false),
-  (19, 'CAD_3RO', 'Cad. 3°', 19, false, false),
-  (20, 'AT_2DA', 'At. 2ª', 20, false, false),
-  (21, 'AT_1RA', 'At. 1ª', 21, false, false),
-  (22, 'AT_PPAL', 'At. Ppal.', 22, false, false),
-  (23, 'INST_AT', 'Inst. At.', 23, false, false),
-  (24, 'SUP_AT', 'Sup. At.', 24, false, false),
-  (25, 'SDO_2DA', 'Sdo. 2ª', 0, false, true),
-  (26, 'APRENDIZ', 'Aprendiz', 0, false, true),
-  (27, 'CADETE_1RA', 'Cadete 1ª y Equivalentes', 0, false, true),
-  (28, 'CADETE_2DA', 'Cadete 2ª y Equivalentes', 0, false, true),
-  (29, 'CADETE_3RA', 'Cadete 3ª y Equivalentes', 0, false, true),
-  (30, 'CADETE_ASP', 'Cadete - Aspirante', 0, false, true),
-  (31, 'CADETE_EQV', 'Cadete Equivalente', 0, false, true)
-) AS v(id, codigo, denominacion, orden, es_oficial, es_subalterno)
-WHERE NOT EXISTS (SELECT 1 FROM grados x WHERE x.codigo = v.codigo);
-SELECT setval(pg_get_serial_sequence('public.grados', 'id'), GREATEST((SELECT max(id) FROM grados), 1));
-
--- Motivos de baja
-INSERT INTO public.motivos_baja (id, codigo, denominacion)
-SELECT CASE WHEN (SELECT count(*) FROM motivos_baja) = 0 THEN v.id ELSE nextval(pg_get_serial_sequence('public.motivos_baja', 'id')) END,
-       v.codigo, v.denominacion
-FROM (VALUES
-  (1, 'RETIRO_OBL', 'Baja por retiro obligatorio.'),
-  (2, 'RETIRO_VOL', 'Baja por retiro voluntario.'),
-  (3, 'BAJA_DEFINITIVA', 'Baja definitiva.'),
-  (4, 'FALLECIMIENTO', 'Baja por fallecimiento.'),
-  (5, 'MALA_CONDUCTA', 'Recisión por mala conducta.'),
-  (6, 'TERMINO_CONTRATO', 'Baja por término de contrato.'),
-  (7, 'INCAPACIDAD', 'Baja por incapacidad.'),
-  (8, 'CESE', 'Baja por cese.'),
-  (9, 'DESTITUCION', 'Baja por destitución.'),
-  (10, 'ESPECIAL_CADETE', 'Baja especial MDN ( baja por ser alta como cadete).'),
-  (11, 'ESPECIAL_APRENDIZ', 'Baja especial MDN ( baja por ser alta como aprendiz).')
-) AS v(id, codigo, denominacion)
-WHERE NOT EXISTS (SELECT 1 FROM motivos_baja x WHERE x.codigo = v.codigo);
-SELECT setval(pg_get_serial_sequence('public.motivos_baja', 'id'), GREATEST((SELECT max(id) FROM motivos_baja), 1));
-
--- Tipos de movimiento (el ascenso en liquidación registra "Cambio de Situacion" + "Ascenso")
-INSERT INTO public.tipos_movimiento (id, nombre, es_alta)
-SELECT CASE WHEN (SELECT count(*) FROM tipos_movimiento) = 0 THEN v.id ELSE nextval(pg_get_serial_sequence('public.tipos_movimiento', 'id')) END,
-       v.nombre, v.es_alta
-FROM (VALUES
-  (1, 'Alta por ingreso.', true),
-  (2, 'Alta reserva.', true),
-  (3, 'Alta por Ascenso', true),
-  (4, 'Pase', true),
-  (5, 'Reincorporacion', true),
-  (6, 'Reintegro', true),
-  (7, 'Baja', false),
-  (8, 'Retiro', false),
-  (9, 'Baja por Ascenso', false),
-  (10, 'Ascenso', false),
-  (11, 'Cambio de Situacion', false),
-  (12, 'Licencia Sin Goce', false)
-) AS v(id, nombre, es_alta)
-WHERE NOT EXISTS (SELECT 1 FROM tipos_movimiento x WHERE x.nombre = v.nombre);
-SELECT setval(pg_get_serial_sequence('public.tipos_movimiento', 'id'), GREATEST((SELECT max(id) FROM tipos_movimiento), 1));
-
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SECCIÓN 3: Cursos
@@ -247,17 +58,17 @@ FROM (VALUES
 ) AS v(nombre, inst, oblig)
 WHERE NOT EXISTS (SELECT 1 FROM cursos c WHERE c.nombre_curso = v.nombre);
 
--- Cursos asignados a unidades (solo visibles/gestionables por esa unidad)
+-- Cursos asignados a un comando (solo visibles/gestionables por ese comando)
 INSERT INTO cursos (nombre_curso, institucion, es_obligatorio, unidad_id)
 SELECT v.nombre, v.inst, true, u.id
 FROM (VALUES
-  ('Curso de Seguridad en Vuelo BA1',            'Base Aérea Nº 1',  'BA1'),
-  ('Curso de Mantenimiento de Aeronaves BA1',    'Base Aérea Nº 1',  'BA1'),
-  ('Curso de Operaciones Aéreas BA2',            'Base Aérea Nº 2',  'BA2'),
-  ('Curso de Navegación Instrumental BA2',       'Base Aérea Nº 2',  'BA2'),
-  ('Taller de Aviónica Nivel 1',                 'ETA',              'ETA'),
-  ('Taller de Aviónica Nivel 2',                 'ETA',              'ETA'),
-  ('Curso de Formación de Oficiales',            'EMA',              'EMA')
+  ('Curso de Seguridad en Vuelo BA1',            'Base Aérea Nº 1',  'CAO'),
+  ('Curso de Mantenimiento de Aeronaves BA1',    'Base Aérea Nº 1',  'CAO'),
+  ('Curso de Operaciones Aéreas BA2',            'Base Aérea Nº 2',  'CAO'),
+  ('Curso de Navegación Instrumental BA2',       'Base Aérea Nº 2',  'CAO'),
+  ('Taller de Aviónica Nivel 1',                 'ETA',              'CAP'),
+  ('Taller de Aviónica Nivel 2',                 'ETA',              'CAP'),
+  ('Curso de Formación de Oficiales',            'EMA',              'CAP')
 ) AS v(nombre, inst, unidad_codigo)
 JOIN unidades u ON u.codigo = v.unidad_codigo
 WHERE NOT EXISTS (SELECT 1 FROM cursos c WHERE c.nombre_curso = v.nombre);
@@ -306,23 +117,6 @@ JOIN misiones m ON m.nombre_mision = v.mision_nombre
 WHERE NOT EXISTS (
   SELECT 1 FROM convocatorias c WHERE c.mision_id = m.id AND c.numero_orden = v.orden
 );
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- SECCIÓN 5: Destinos
--- ═══════════════════════════════════════════════════════════════════════════════
-
-INSERT INTO public.destinos (ubicacion, numero_orden, tipo_destino)
-SELECT v.ubicacion, v.orden, v.tipo FROM (VALUES
-  ('Comando Aéreo de Operaciones (C.O.A.)', 'O.D. 11007', 'Unidad'),
-  ('Base Aérea Nº 1 (B.A.I)',               'O.D. 10859', 'Unidad'),
-  ('Base Aérea Nº 2 (B.A.II)',              'O.D. 10860', 'Unidad'),
-  ('Estado Mayor General (E.M.G.F.A.)',      'O.D. 11760', 'Organismo'),
-  ('Escuela Técnica de Aeronáutica',         'O.D. 10900', 'Escuela'),
-  ('Escuela Militar de Aeronáutica',         'O.D. 10901', 'Escuela'),
-  ('Grupo de Aviación Nº 3',                'O.D. 11100', 'Unidad'),
-  ('Grupo de Aviación Nº 5',                'O.D. 11102', 'Unidad')
-) AS v(ubicacion, orden, tipo)
-WHERE NOT EXISTS (SELECT 1 FROM destinos d WHERE d.ubicacion = v.ubicacion);
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SECCIÓN 6: Personas (30+ funcionarios distribuidos)
@@ -382,267 +176,116 @@ ON CONFLICT (cedula) DO UPDATE SET
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SECCIÓN 7: Relaciones laborales
 -- ═══════════════════════════════════════════════════════════════════════════════
+--
+-- Como en liquidación: cada relación lleva la unidad (comando) Y la sub-unidad
+-- (destino real). La unidad sale de la sub-unidad, así nunca quedan desalineadas.
+-- Todo se busca por código en los catálogos de liquidación: si un código no
+-- existe, la verificación del final del bloque corta el script.
 
--- Oficiales en Base Aérea 1
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, prima_tecnica, tipo_funcionario)
-SELECT per.id, reg.id, uni.id,
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT01'),
-  esc.id, gr.id, v.fecha::date, 'activo', v.prima, 'oficial'
-FROM (VALUES
-  ('60000001', 'AV', 'CNEL', 'BA1',  '19.695',  'A',     '2001-03-01'),
-  ('60000002', 'AV', 'MAY', 'BA1',  '19.695',  'VACIO', '2010-02-01'),
-  ('60000003', 'AV', 'CAP', 'BA1',  '14.157', 'B',     '2012-06-15')
-) AS v(cedula, esc_cod, grado_cod, unidad_cod, ley, prima, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN escalafones esc ON esc.codigo = v.esc_cod
-JOIN grados gr ON gr.codigo = v.grado_cod
-JOIN regimenes reg ON reg.numero_ley = v.ley
-JOIN unidades uni ON uni.codigo = v.unidad_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
+CREATE TEMP TABLE tmp_demo_relaciones (
+  cedula     VARCHAR(20),
+  sub_cod    VARCHAR(20),
+  esc_cod    VARCHAR(20),
+  grado_cod  VARCHAR(20),
+  sit_cod    VARCHAR(20),
+  ley        VARCHAR(20),
+  prima      VARCHAR(10),
+  tipo       VARCHAR(20),
+  inicio     DATE,
+  fin        DATE,
+  estado     VARCHAR(20),
+  motivo_cod VARCHAR(50)
+) ON COMMIT DROP;
 
--- Oficiales en Base Aérea 2
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, prima_tecnica, tipo_funcionario)
-SELECT per.id, reg.id, uni.id,
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT01'),
-  esc.id, gr.id, v.fecha::date, 'activo', v.prima, 'oficial'
-FROM (VALUES
-  ('60000004', 'AV', 'TTE_CNEL', 'BA2',  '19.695',  'A',     '2008-03-01'),
-  ('60000005', 'AV', 'MAY', 'BA2',  '19.695',  'A',     '2014-02-01'),
-  ('60000006', 'AV', 'CAP', 'BA2',  '19.695',  'VACIO', '2016-06-15')
-) AS v(cedula, esc_cod, grado_cod, unidad_cod, ley, prima, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN escalafones esc ON esc.codigo = v.esc_cod
-JOIN grados gr ON gr.codigo = v.grado_cod
-JOIN regimenes reg ON reg.numero_ley = v.ley
-JOIN unidades uni ON uni.codigo = v.unidad_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
+INSERT INTO tmp_demo_relaciones VALUES
+  -- Oficiales — C.A.O. / B.A.I.
+  ('60000001', 'BAI',    'AV', 'CNEL',      'SIT01', '19.695', 'A',     'oficial',    '2001-03-01', NULL, 'activo', NULL),
+  ('60000002', 'BAI',    'AV', 'MAY',       'SIT01', '19.695', 'VACIO', 'oficial',    '2010-02-01', NULL, 'activo', NULL),
+  ('60000003', 'BAI',    'AV', 'CAP',       'SIT01', '14.157', 'B',     'oficial',    '2012-06-15', NULL, 'activo', NULL),
+  -- Oficiales — C.A.O. / B.A.II.
+  ('60000004', 'BAII',   'AV', 'TTE_CNEL',  'SIT01', '19.695', 'A',     'oficial',    '2008-03-01', NULL, 'activo', NULL),
+  ('60000005', 'BAII',   'AV', 'MAY',       'SIT01', '19.695', 'A',     'oficial',    '2014-02-01', NULL, 'activo', NULL),
+  ('60000006', 'BAII',   'AV', 'CAP',       'SIT01', '19.695', 'VACIO', 'oficial',    '2016-06-15', NULL, 'activo', NULL),
+  -- Oficiales superiores — C.A.O. / C.O.A. y C.G. / D.C.G.
+  ('60000007', 'COA',    'AV', 'CNEL',      'SIT01', '19.695', 'A',     'oficial',    '2000-03-01', NULL, 'activo', NULL),
+  ('60000008', 'DCG',    'AV', 'BRIG_GRAL', 'SIT01', '19.695', 'A',     'oficial',    '1998-03-01', NULL, 'activo', NULL),
+  -- Subalternos — C.A.O. / B.A.I.
+  ('60000009', 'BAI',    'ST', 'SGTO',      'SIT07', '19.695', NULL,    'subalterno', '2012-01-15', NULL, 'activo', NULL),
+  ('60000010', 'BAI',    'ST', 'SGTO_1RO',  'SIT07', '19.695', NULL,    'subalterno', '2010-06-01', NULL, 'activo', NULL),
+  ('60000011', 'BAI',    'ST', 'CBO_1RA',   'SIT07', '19.695', NULL,    'subalterno', '2015-03-01', NULL, 'activo', NULL),
+  ('60000012', 'BAI',    'ST', 'CBO_2DA',   'SIT07', '19.695', NULL,    'subalterno', '2018-01-15', NULL, 'activo', NULL),
+  -- Subalternos — C.A.O. / B.A.II.
+  ('60000013', 'BAII',   'ST', 'CBO_1RA',   'SIT07', '19.695', NULL,    'subalterno', '2017-02-01', NULL, 'activo', NULL),
+  ('60000014', 'BAII',   'ST', 'SGTO',      'SIT07', '19.695', NULL,    'subalterno', '2014-08-15', NULL, 'activo', NULL),
+  ('60000015', 'BAII',   'ST', 'SGTO_1RO',  'SIT07', '19.695', NULL,    'subalterno', '2013-01-01', NULL, 'activo', NULL),
+  ('60000016', 'BAII',   'ST', 'CBO_2DA',   'SIT07', '19.695', NULL,    'subalterno', '2019-06-01', NULL, 'activo', NULL),
+  -- Subalternos — C.A.P. / E.T.A.
+  ('60000017', 'ETA',    'ST', 'CBO_1RA',   'SIT07', '19.695', NULL,    'subalterno', '2018-03-01', NULL, 'activo', NULL),
+  ('60000018', 'ETA',    'ST', 'CBO_2DA',   'SIT07', '19.695', NULL,    'subalterno', '2019-08-15', NULL, 'activo', NULL),
+  ('60000019', 'ETA',    'ST', 'SDO_1RA',   'SIT07', '19.695', NULL,    'subalterno', '2020-01-15', NULL, 'activo', NULL),
+  -- Subalternos — C.A.O. / C.O.A.
+  ('60000020', 'COA',    'ST', 'SOM',       'SIT07', '19.695', NULL,    'subalterno', '2008-05-01', NULL, 'activo', NULL),
+  ('60000021', 'COA',    'ST', 'SGTO',      'SIT07', '19.695', NULL,    'subalterno', '2013-02-15', NULL, 'activo', NULL),
+  -- C.A.L. / S.ABAST.
+  ('60000022', 'SABAST', 'AV', 'MAY',       'SIT01', '19.695', NULL,    'oficial',    '2010-06-01', NULL, 'activo', NULL),
+  ('60000023', 'SABAST', 'ST', 'SOM',       'SIT07', '19.695', NULL,    'subalterno', '2005-03-15', NULL, 'activo', NULL),
+  -- Mecánico C-130 — C.A.L. / S. MANT.; tripulante Bell 212 — C.A.O. / B.A.III.
+  ('60000024', 'SMANT',  'ST', 'SGTO_1RO',  'SIT07', '19.695', NULL,    'subalterno', '2011-04-01', NULL, 'activo', NULL),
+  ('60000025', 'BAIII',  'ST', 'SGTO',      'SIT07', '19.695', NULL,    'subalterno', '2012-09-15', NULL, 'activo', NULL),
+  -- Baja por retiro voluntario (60000026) y retiro obligatorio (60000027)
+  ('60000026', 'BAI',    'ST', 'SOM',       'SIT07', '19.695', NULL,    'subalterno', '1990-03-01', '2025-06-30', 'inactivo', 'RETIRO_VOL'),
+  ('60000027', 'COA',    'AV', 'CNEL',      'SIT01', '14.157', NULL,    'oficial',    '1992-02-01', '2025-01-01', 'inactivo', 'RETIRO_OBL'),
+  -- Civiles equiparados — C.A.L. / S.INFRA. y C.A.O. / B.A.I.
+  ('60000028', 'SINFRA', 'ST', 'SDO_1RA',   'SIT07', '19.695', NULL,    'subalterno', '2015-04-01', NULL, 'activo', NULL),
+  ('60000029', 'BAI',    'ST', 'SDO_1RA',   'SIT07', '19.695', NULL,    'subalterno', '2016-08-15', NULL, 'activo', NULL),
+  -- Oficial instructor — C.A.P. / E.M.A.
+  ('60000030', 'EMA',    'AV', 'TTE_CNEL',  'SIT01', '19.695', NULL,    'oficial',    '2003-02-01', NULL, 'activo', NULL);
 
--- Oficiales superiores (COA / EMGFA)
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, prima_tecnica, tipo_funcionario)
-SELECT per.id, reg.id, uni.id,
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT01'),
-  esc.id, gr.id, v.fecha::date, 'activo', v.prima, 'oficial'
-FROM (VALUES
-  ('60000007', 'AV', 'CNEL',  'COA',   '19.695', 'A',     '2000-03-01'),
-  ('60000008', 'AV', 'BRIG_GRAL',  'EMGFA', '19.695', 'A',     '1998-03-01')
-) AS v(cedula, esc_cod, grado_cod, unidad_cod, ley, prima, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN escalafones esc ON esc.codigo = v.esc_cod
-JOIN grados gr ON gr.codigo = v.grado_cod
-JOIN regimenes reg ON reg.numero_ley = v.ley
-JOIN unidades uni ON uni.codigo = v.unidad_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
+-- Si algún código no existe en el catálogo de liquidación, cortar acá: un JOIN
+-- que no matchea descartaría la fila en silencio.
+DO $$
+DECLARE faltantes TEXT;
+BEGIN
+  SELECT string_agg(DISTINCT t.cedula || ' (' || concat_ws(', ',
+           CASE WHEN su.id  IS NULL THEN 'sub-unidad ' || t.sub_cod END,
+           CASE WHEN esc.id IS NULL THEN 'escalafón '  || t.esc_cod END,
+           CASE WHEN gr.id  IS NULL THEN 'grado '      || t.grado_cod END,
+           CASE WHEN sit.id IS NULL THEN 'situación '  || t.sit_cod END,
+           CASE WHEN reg.id IS NULL THEN 'régimen '    || t.ley END,
+           CASE WHEN t.motivo_cod IS NOT NULL AND mb.id IS NULL THEN 'motivo ' || t.motivo_cod END) || ')', '; ')
+    INTO faltantes
+  FROM tmp_demo_relaciones t
+  LEFT JOIN sub_unidades su  ON su.codigo = t.sub_cod
+  LEFT JOIN escalafones  esc ON esc.codigo = t.esc_cod
+  LEFT JOIN grados       gr  ON gr.codigo = t.grado_cod
+  LEFT JOIN situaciones  sit ON sit.codigo = t.sit_cod
+  LEFT JOIN regimenes    reg ON reg.numero_ley = t.ley
+  LEFT JOIN motivos_baja mb  ON mb.codigo = t.motivo_cod
+  WHERE su.id IS NULL OR esc.id IS NULL OR gr.id IS NULL OR sit.id IS NULL OR reg.id IS NULL
+     OR (t.motivo_cod IS NOT NULL AND mb.id IS NULL)
+     OR NOT EXISTS (SELECT 1 FROM programas WHERE codigo = '300');
+  IF faltantes IS NOT NULL THEN
+    RAISE EXCEPTION 'seed_demo: códigos que no existen en el catálogo de liquidación: %', faltantes;
+  END IF;
+END $$;
 
--- Subalternos en Base Aérea 1
 INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, tipo_funcionario)
-SELECT per.id,
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  (SELECT id FROM unidades WHERE codigo = 'BA1'),
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT07'),
-  (SELECT id FROM escalafones WHERE codigo = 'ST'),
-  gr.id, v.fecha::date, 'activo', 'subalterno'
-FROM (VALUES
-  ('60000009', 'SGTO',  '2012-01-15'),
-  ('60000010', 'SGTO_1RO',  '2010-06-01'),
-  ('60000011', 'CBO_1RA',  '2015-03-01'),
-  ('60000012', 'CBO_2DA',  '2018-01-15')
-) AS v(cedula, grado_cod, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN grados gr ON gr.codigo = v.grado_cod
+  (persona_id, regimen_id, unidad_id, sub_unidad_id, programa_id, situacion_id, escalafon_id, grado_id,
+   fecha_inicio, fecha_fin, estado, prima_tecnica, motivo_baja_id, tipo_funcionario)
+SELECT per.id, reg.id, su.unidad_id, su.id,
+       (SELECT id FROM programas WHERE codigo = '300'),
+       sit.id, esc.id, gr.id,
+       t.inicio, t.fin, t.estado, t.prima, mb.id, t.tipo
+FROM tmp_demo_relaciones t
+JOIN personas      per ON per.cedula = t.cedula
+JOIN sub_unidades  su  ON su.codigo = t.sub_cod
+JOIN escalafones   esc ON esc.codigo = t.esc_cod
+JOIN grados        gr  ON gr.codigo = t.grado_cod
+JOIN situaciones   sit ON sit.codigo = t.sit_cod
+JOIN regimenes     reg ON reg.numero_ley = t.ley
+LEFT JOIN motivos_baja mb ON mb.codigo = t.motivo_cod
 WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
-
--- Subalternos en Base Aérea 2
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, tipo_funcionario)
-SELECT per.id,
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  (SELECT id FROM unidades WHERE codigo = 'BA2'),
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT07'),
-  (SELECT id FROM escalafones WHERE codigo = 'ST'),
-  gr.id, v.fecha::date, 'activo', 'subalterno'
-FROM (VALUES
-  ('60000013', 'CBO_1RA',  '2017-02-01'),
-  ('60000014', 'SGTO',  '2014-08-15'),
-  ('60000015', 'SGTO_1RO',  '2013-01-01'),
-  ('60000016', 'CBO_2DA',  '2019-06-01')
-) AS v(cedula, grado_cod, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN grados gr ON gr.codigo = v.grado_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
-
--- Subalternos en ETA
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, tipo_funcionario)
-SELECT per.id,
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  (SELECT id FROM unidades WHERE codigo = 'ETA'),
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT07'),
-  (SELECT id FROM escalafones WHERE codigo = 'ST'),
-  gr.id, v.fecha::date, 'activo', 'subalterno'
-FROM (VALUES
-  ('60000017', 'CBO_1RA',  '2018-03-01'),
-  ('60000018', 'CBO_2DA',  '2019-08-15'),
-  ('60000019', 'SDO_1RA',  '2020-01-15')
-) AS v(cedula, grado_cod, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN grados gr ON gr.codigo = v.grado_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
-
--- Subalternos en COA
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, tipo_funcionario)
-SELECT per.id,
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  (SELECT id FROM unidades WHERE codigo = 'COA'),
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT07'),
-  (SELECT id FROM escalafones WHERE codigo = 'ST'),
-  gr.id, v.fecha::date, 'activo', 'subalterno'
-FROM (VALUES
-  ('60000020', 'SOM',  '2008-05-01'),
-  ('60000021', 'SGTO',  '2013-02-15')
-) AS v(cedula, grado_cod, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN grados gr ON gr.codigo = v.grado_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
-
--- CPFA (Comando de Personal)
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, tipo_funcionario)
-SELECT per.id,
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  (SELECT id FROM unidades WHERE codigo = 'CPFA'),
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = CASE WHEN v.tipo = 'oficial' THEN 'SIT01' ELSE 'SIT07' END),
-  esc.id, gr.id, v.fecha::date, 'activo', v.tipo
-FROM (VALUES
-  ('60000022', 'AV', 'MAY', '2010-06-01', 'oficial'),
-  ('60000023', 'ST', 'SOM',  '2005-03-15', 'subalterno')
-) AS v(cedula, esc_cod, grado_cod, fecha, tipo)
-JOIN personas per ON per.cedula = v.cedula
-JOIN escalafones esc ON esc.codigo = v.esc_cod
-JOIN grados gr ON gr.codigo = v.grado_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
-
--- GA3 y GA5
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id, fecha_inicio, estado, tipo_funcionario)
-SELECT per.id,
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  uni.id,
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT07'),
-  (SELECT id FROM escalafones WHERE codigo = 'ST'),
-  gr.id, v.fecha::date, 'activo', 'subalterno'
-FROM (VALUES
-  ('60000024', 'GA3', 'SGTO_1RO', '2011-04-01'),
-  ('60000025', 'GA5', 'SGTO', '2012-09-15')
-) AS v(cedula, unidad_cod, grado_cod, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN unidades uni ON uni.codigo = v.unidad_cod
-JOIN grados gr ON gr.codigo = v.grado_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
-
--- Baja por solicitud (60000026)
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id,
-   fecha_inicio, fecha_fin, estado, motivo_baja_id, tipo_funcionario)
-SELECT
-  (SELECT id FROM personas WHERE cedula = '60000026'),
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  (SELECT id FROM unidades WHERE codigo = 'BA1'),
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT07'),
-  (SELECT id FROM escalafones WHERE codigo = 'ST'),
-  (SELECT id FROM grados WHERE codigo = 'SOM'),
-  DATE '1990-03-01', DATE '2025-06-30', 'inactivo',
-  (SELECT id FROM motivos_baja WHERE codigo = 'RETIRO_VOL'), 'subalterno'
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = (SELECT id FROM personas WHERE cedula = '60000026')
-);
-
--- Retiro obligatorio (60000027)
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id,
-   fecha_inicio, fecha_fin, estado, tipo_funcionario)
-SELECT
-  (SELECT id FROM personas WHERE cedula = '60000027'),
-  (SELECT id FROM regimenes WHERE numero_ley = '14.157'),
-  (SELECT id FROM unidades WHERE codigo = 'COA'),
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT01'),
-  (SELECT id FROM escalafones WHERE codigo = 'AV'),
-  (SELECT id FROM grados WHERE codigo = 'CNEL'),
-  DATE '1992-02-01', DATE '2025-01-01', 'inactivo', 'oficial'
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = (SELECT id FROM personas WHERE cedula = '60000027')
-);
-
--- Civiles (60000028, 60000029)
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id,
-   fecha_inicio, estado, tipo_funcionario)
-SELECT per.id,
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  uni.id,
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT07'),
-  (SELECT id FROM escalafones WHERE codigo = 'ST'),
-  (SELECT id FROM grados WHERE codigo = 'SDO_1RA'),
-  v.fecha::date, 'activo', 'subalterno'
-FROM (VALUES
-  ('60000028', 'CPFA', '2015-04-01'),
-  ('60000029', 'BA1',  '2016-08-15')
-) AS v(cedula, unidad_cod, fecha)
-JOIN personas per ON per.cedula = v.cedula
-JOIN unidades uni ON uni.codigo = v.unidad_cod
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id AND rl.estado = 'activo'
-);
-
--- EMA (oficial instructor)
-INSERT INTO relaciones_laborales
-  (persona_id, regimen_id, unidad_id, programa_id, situacion_id, escalafon_id, grado_id,
-   fecha_inicio, estado, tipo_funcionario)
-SELECT
-  (SELECT id FROM personas WHERE cedula = '60000030'),
-  (SELECT id FROM regimenes WHERE numero_ley = '19.695'),
-  (SELECT id FROM unidades WHERE codigo = 'EMA'),
-  (SELECT id FROM programas WHERE codigo = '300'),
-  (SELECT id FROM situaciones WHERE codigo = 'SIT01'),
-  (SELECT id FROM escalafones WHERE codigo = 'AV'),
-  (SELECT id FROM grados WHERE codigo = 'TTE_CNEL'),
-  DATE '2003-02-01', 'activo', 'oficial'
-WHERE NOT EXISTS (
-  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = (SELECT id FROM personas WHERE cedula = '60000030')
+  SELECT 1 FROM relaciones_laborales rl WHERE rl.persona_id = per.id
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -688,28 +331,31 @@ WHERE r.persona_id = ult.persona_id
   AND r.fecha_ultimo_ascenso IS NULL
   AND ult.fecha_ascenso >= r.fecha_inicio;
 
--- Retiro
-INSERT INTO retiros (persona_id, fecha_retiro, motivo)
-SELECT (SELECT id FROM personas WHERE cedula = '60000027'), DATE '2025-01-01', 'Retiro obligatorio por edad'
-WHERE NOT EXISTS (
-  SELECT 1 FROM retiros r WHERE r.persona_id = (SELECT id FROM personas WHERE cedula = '60000027')
-);
+-- Retiro (la relación laboral que cerró es la que se cargó inactiva arriba)
+INSERT INTO retiros (persona_id, relacion_laboral_id, fecha_retiro, motivo, motivo_baja_id)
+SELECT per.id, rl.id, DATE '2025-01-01', 'Retiro obligatorio por edad',
+       (SELECT id FROM motivos_baja WHERE codigo = 'RETIRO_OBL')
+FROM personas per
+JOIN relaciones_laborales rl ON rl.persona_id = per.id AND rl.fecha_fin = DATE '2025-01-01'
+WHERE per.cedula = '60000027'
+  AND NOT EXISTS (SELECT 1 FROM retiros r WHERE r.persona_id = per.id);
 
--- Asignaciones a destinos
-INSERT INTO asignaciones_funcionario (persona_id, destino_id, fecha_inicio, posicion_destino, observaciones)
-SELECT per.id, des.id, v.fecha::date, v.cargo, v.obs
+-- Destinos: el destino va a la misma sub-unidad que la relación laboral activa,
+-- con su comando en unidad_id.
+INSERT INTO destinos (persona_id, unidad_id, sub_unidad_id, fecha_inicio, posicion_destino, numero_orden, observaciones)
+SELECT per.id, su.unidad_id, su.id, v.fecha::date, v.cargo, v.orden, v.obs
 FROM (VALUES
-  ('60000001', 'Base Aérea Nº 1 (B.A.I)',               '2020-03-01', 'Jefe de Base',              NULL),
-  ('60000004', 'Base Aérea Nº 2 (B.A.II)',              '2021-06-01', 'Jefe de Base',              NULL),
-  ('60000007', 'Comando Aéreo de Operaciones (C.O.A.)', '2018-02-01', 'Jefe de Operaciones',      NULL),
-  ('60000008', 'Estado Mayor General (E.M.G.F.A.)',      '2015-03-01', 'Jefe del Estado Mayor',    'Designación directa'),
-  ('60000024', 'Grupo de Aviación Nº 3',                '2015-04-01', 'Mecánico de vuelo C-130',  NULL),
-  ('60000025', 'Grupo de Aviación Nº 5',                '2016-09-15', 'Tripulante Bell 212',      NULL)
-) AS v(cedula, ubicacion, fecha, cargo, obs)
+  ('60000001', 'BAI',   '2020-03-01', 'Jefe de Base',             'O.D. 10859', NULL),
+  ('60000004', 'BAII',  '2021-06-01', 'Jefe de Base',             'O.D. 10860', NULL),
+  ('60000007', 'COA',   '2018-02-01', 'Jefe de Operaciones',      'O.D. 11007', NULL),
+  ('60000008', 'DCG',   '2015-03-01', 'Jefe del Estado Mayor',    'O.D. 11760', 'Designación directa'),
+  ('60000024', 'SMANT', '2015-04-01', 'Mecánico de vuelo C-130',  'O.D. 11100', NULL),
+  ('60000025', 'BAIII', '2016-09-15', 'Tripulante Bell 212',      'O.D. 11102', NULL)
+) AS v(cedula, sub_cod, fecha, cargo, orden, obs)
 JOIN personas per ON per.cedula = v.cedula
-JOIN destinos des ON des.ubicacion = v.ubicacion
+JOIN sub_unidades su ON su.codigo = v.sub_cod
 WHERE NOT EXISTS (
-  SELECT 1 FROM asignaciones_funcionario a WHERE a.persona_id = per.id AND a.destino_id = des.id
+  SELECT 1 FROM destinos d WHERE d.persona_id = per.id AND d.fecha_inicio = v.fecha::date
 );
 
 -- Funcionarios en misiones
@@ -794,34 +440,22 @@ WHERE r.nombre = 'Consulta' AND r.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- SECCIÓN 10: Asignar roles a unidades (herencia)
+-- SECCIÓN 10: Asignar roles a las bases (herencia)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
--- Las Bases Aéreas heredan "Control de cursos"
-INSERT INTO unidades_roles (unidad_id, rol_id)
-SELECT u.id, r.id
-FROM unidades u
-CROSS JOIN roles r
-WHERE u.codigo IN ('BA1', 'BA2', 'ETA', 'EMA')
-  AND r.nombre = 'Control de cursos' AND r.aplicacion = 'personal'
-ON CONFLICT DO NOTHING;
-
--- COA hereda "Consulta"
-INSERT INTO unidades_roles (unidad_id, rol_id)
-SELECT u.id, r.id
-FROM unidades u
-CROSS JOIN roles r
-WHERE u.codigo = 'COA'
-  AND r.nombre = 'Consulta' AND r.aplicacion = 'personal'
-ON CONFLICT DO NOTHING;
-
--- CPFA hereda "Operador de Personal"
-INSERT INTO unidades_roles (unidad_id, rol_id)
-SELECT u.id, r.id
-FROM unidades u
-CROSS JOIN roles r
-WHERE u.codigo = 'CPFA'
-  AND r.nombre = 'Operador de Personal' AND r.aplicacion = 'personal'
+-- sub_unidades_roles es nuestra; las bases son las sub-unidades de liquidación.
+-- Cada rol se le da a todas las bases de un comando.
+INSERT INTO sub_unidades_roles (sub_unidad_id, rol_id)
+SELECT su.id, r.id
+FROM (VALUES
+  ('CAO', 'Control de cursos'),
+  ('CAP', 'Control de cursos'),
+  ('CG',  'Consulta'),
+  ('CAL', 'Operador de Personal')
+) AS v(comando, rol)
+JOIN unidades u     ON u.codigo = v.comando
+JOIN sub_unidades su ON su.unidad_id = u.id
+JOIN roles r        ON r.nombre = v.rol AND r.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -843,84 +477,54 @@ JOIN roles r ON r.nombre = 'Oficina de Personal' AND r.aplicacion = 'personal'
 WHERE u.username = 'jefe.personal@fau.mil.uy' AND u.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
--- 2. Jefe BA1 — Sin rol directo, hereda "Control de cursos" de la unidad BA1
-INSERT INTO usuarios (username, password_hash, estado, aplicacion, persona_id)
-SELECT 'jefe.ba1@fau.mil.uy', crypt('FAUdemo1!', gen_salt('bf', 12)), 'activo', 'personal',
-       (SELECT id FROM personas WHERE cedula = '60000001')
-WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE username = 'jefe.ba1@fau.mil.uy' AND aplicacion = 'personal');
+-- 2..8: usuarios con alcance de unidad. Heredan el rol de las bases que tienen
+-- asignadas (sub_unidades_roles); los que tienen rol directo están más abajo.
+-- `comandos` asigna todas las bases del comando; `bases`, bases sueltas.
+CREATE TEMP TABLE tmp_demo_usuarios (
+  username VARCHAR(100),
+  cedula   VARCHAR(20),
+  comandos TEXT[],
+  bases    TEXT[]
+) ON COMMIT DROP;
 
-INSERT INTO usuarios_unidades (usuario_id, unidad_id)
-SELECT u.id, uni.id FROM usuarios u
-CROSS JOIN unidades uni
-WHERE u.username = 'jefe.ba1@fau.mil.uy' AND u.aplicacion = 'personal' AND uni.codigo = 'BA1'
+INSERT INTO tmp_demo_usuarios VALUES
+  ('jefe.cao@fau.mil.uy',           '60000001', ARRAY['CAO'],        ARRAY[]::TEXT[]),       -- Control de cursos (h)
+  ('jefe.cap@fau.mil.uy',           '60000030', ARRAY['CAP'],        ARRAY[]::TEXT[]),       -- Control de cursos (h)
+  ('consulta.cg@fau.mil.uy',        '60000008', ARRAY['CG'],         ARRAY[]::TEXT[]),       -- Consulta (h)
+  ('operador.cal@fau.mil.uy',       '60000023', ARRAY['CAL'],        ARRAY[]::TEXT[]),       -- Operador de Personal (h)
+  ('supervisor.cao.cap@fau.mil.uy', '60000007', ARRAY['CAO', 'CAP'], ARRAY[]::TEXT[]),       -- Control de cursos (d)
+  ('jefe.bai@fau.mil.uy',           '60000002', ARRAY[]::TEXT[],     ARRAY['BAI']),          -- Operador de Personal (d)
+  ('supervisor.bai.eta@fau.mil.uy', '60000017', ARRAY[]::TEXT[],     ARRAY['BAI', 'ETA']);   -- Control de cursos (h)
+
+INSERT INTO usuarios (username, password_hash, estado, aplicacion, persona_id)
+SELECT t.username, crypt('FAUdemo1!', gen_salt('bf', 12)), 'activo', 'personal', per.id
+FROM tmp_demo_usuarios t
+JOIN personas per ON per.cedula = t.cedula
+WHERE NOT EXISTS (
+  SELECT 1 FROM usuarios u WHERE u.username = t.username AND u.aplicacion = 'personal'
+);
+
+INSERT INTO usuarios_sub_unidades (usuario_id, sub_unidad_id)
+SELECT u.id, su.id
+FROM tmp_demo_usuarios t
+JOIN usuarios u ON u.username = t.username AND u.aplicacion = 'personal'
+JOIN sub_unidades su ON su.codigo = ANY (t.bases)
+  OR su.unidad_id IN (SELECT id FROM unidades WHERE codigo = ANY (t.comandos))
 ON CONFLICT DO NOTHING;
 
--- 3. Jefe BA2 — Sin rol directo, hereda "Control de cursos" de la unidad BA2
-INSERT INTO usuarios (username, password_hash, estado, aplicacion, persona_id)
-SELECT 'jefe.ba2@fau.mil.uy', crypt('FAUdemo1!', gen_salt('bf', 12)), 'activo', 'personal',
-       (SELECT id FROM personas WHERE cedula = '60000004')
-WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE username = 'jefe.ba2@fau.mil.uy' AND aplicacion = 'personal');
-
-INSERT INTO usuarios_unidades (usuario_id, unidad_id)
-SELECT u.id, uni.id FROM usuarios u
-CROSS JOIN unidades uni
-WHERE u.username = 'jefe.ba2@fau.mil.uy' AND u.aplicacion = 'personal' AND uni.codigo = 'BA2'
-ON CONFLICT DO NOTHING;
-
--- 4. Jefe ETA — Sin rol directo, hereda "Control de cursos" de la unidad ETA
-INSERT INTO usuarios (username, password_hash, estado, aplicacion, persona_id)
-SELECT 'jefe.eta@fau.mil.uy', crypt('FAUdemo1!', gen_salt('bf', 12)), 'activo', 'personal',
-       (SELECT id FROM personas WHERE cedula = '60000030')
-WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE username = 'jefe.eta@fau.mil.uy' AND aplicacion = 'personal');
-
-INSERT INTO usuarios_unidades (usuario_id, unidad_id)
-SELECT u.id, uni.id FROM usuarios u
-CROSS JOIN unidades uni
-WHERE u.username = 'jefe.eta@fau.mil.uy' AND u.aplicacion = 'personal' AND uni.codigo = 'ETA'
-ON CONFLICT DO NOTHING;
-
--- 5. Consulta COA — Sin rol directo, hereda "Consulta" del COA
-INSERT INTO usuarios (username, password_hash, estado, aplicacion, persona_id)
-SELECT 'consulta.coa@fau.mil.uy', crypt('FAUdemo1!', gen_salt('bf', 12)), 'activo', 'personal',
-       (SELECT id FROM personas WHERE cedula = '60000020')
-WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE username = 'consulta.coa@fau.mil.uy' AND aplicacion = 'personal');
-
-INSERT INTO usuarios_unidades (usuario_id, unidad_id)
-SELECT u.id, uni.id FROM usuarios u
-CROSS JOIN unidades uni
-WHERE u.username = 'consulta.coa@fau.mil.uy' AND u.aplicacion = 'personal' AND uni.codigo = 'COA'
-ON CONFLICT DO NOTHING;
-
--- 6. Operador CPFA — Sin rol directo, hereda "Operador de Personal" del CPFA
-INSERT INTO usuarios (username, password_hash, estado, aplicacion, persona_id)
-SELECT 'operador.cpfa@fau.mil.uy', crypt('FAUdemo1!', gen_salt('bf', 12)), 'activo', 'personal',
-       (SELECT id FROM personas WHERE cedula = '60000023')
-WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE username = 'operador.cpfa@fau.mil.uy' AND aplicacion = 'personal');
-
-INSERT INTO usuarios_unidades (usuario_id, unidad_id)
-SELECT u.id, uni.id FROM usuarios u
-CROSS JOIN unidades uni
-WHERE u.username = 'operador.cpfa@fau.mil.uy' AND u.aplicacion = 'personal' AND uni.codigo = 'CPFA'
-ON CONFLICT DO NOTHING;
-
--- 7. Supervisor multi-unidad — Tiene BA1 Y BA2 (demuestra multi-unidad)
-INSERT INTO usuarios (username, password_hash, estado, aplicacion, persona_id)
-SELECT 'supervisor.bases@fau.mil.uy', crypt('FAUdemo1!', gen_salt('bf', 12)), 'activo', 'personal',
-       (SELECT id FROM personas WHERE cedula = '60000007')
-WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE username = 'supervisor.bases@fau.mil.uy' AND aplicacion = 'personal');
-
-INSERT INTO usuarios_unidades (usuario_id, unidad_id)
-SELECT u.id, uni.id FROM usuarios u
-CROSS JOIN unidades uni
-WHERE u.username = 'supervisor.bases@fau.mil.uy' AND u.aplicacion = 'personal'
-  AND uni.codigo IN ('BA1', 'BA2')
-ON CONFLICT DO NOTHING;
-
--- El supervisor tiene rol directo "Control de cursos" (para que tenga permisos .unidad)
+-- El supervisor tiene rol directo "Control de cursos" (para que tenga permisos .unidad
+-- en los dos comandos, sin depender de la herencia).
 INSERT INTO usuarios_roles (usuario_id, rol_id)
 SELECT u.id, r.id FROM usuarios u
 JOIN roles r ON r.nombre = 'Control de cursos' AND r.aplicacion = 'personal'
-WHERE u.username = 'supervisor.bases@fau.mil.uy' AND u.aplicacion = 'personal'
+WHERE u.username = 'supervisor.cao.cap@fau.mil.uy' AND u.aplicacion = 'personal'
+ON CONFLICT DO NOTHING;
+
+-- jefe.bai puede dar de alta y editar personal, pero solo de B.A.I.
+INSERT INTO usuarios_roles (usuario_id, rol_id)
+SELECT u.id, r.id FROM usuarios u
+JOIN roles r ON r.nombre = 'Operador de Personal' AND r.aplicacion = 'personal'
+WHERE u.username = 'jefe.bai@fau.mil.uy' AND u.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
 COMMIT;
@@ -929,32 +533,32 @@ COMMIT;
 -- RESUMEN DE ESCENARIOS DEMO
 -- ============================================================================
 --
--- USUARIO                        UNIDADES    ROL                    ALCANCE          QUÉ PUEDE HACER
--- ───────────────────────────── ─────────── ────────────────────── ──────────────── ────────────────────────────────────
--- admin@fau.mil.uy               (ninguna)   Administrador          GLOBAL           Todo
--- jefe.personal@fau.mil.uy      (ninguna)   Oficina de Personal    GLOBAL           CRUD completo de todo el personal
--- jefe.ba1@fau.mil.uy            BA1         Control de cursos (h)  UNIDAD(BA1)      Ver personal BA1 + gestionar cursos BA1
--- jefe.ba2@fau.mil.uy            BA2         Control de cursos (h)  UNIDAD(BA2)      Ver personal BA2 + gestionar cursos BA2
--- jefe.eta@fau.mil.uy            ETA         Control de cursos (h)  UNIDAD(ETA)      Ver personal ETA + gestionar cursos ETA
--- consulta.coa@fau.mil.uy       COA         Consulta (h)           UNIDAD(COA)      Solo ver personal y cursos del COA
--- operador.cpfa@fau.mil.uy      CPFA        Operador Personal (h)  UNIDAD(CPFA)     CRUD personal CPFA + reportes CPFA
--- supervisor.bases@fau.mil.uy   BA1+BA2     Control de cursos (d)  UNIDAD(BA1,BA2)  Ver personal y cursos de AMBAS bases
+-- USUARIO                         BASES             ROL                    QUÉ PUEDE HACER
+-- ─────────────────────────────── ───────────────── ────────────────────── ─────────────────────────────────────
+-- admin@fau.mil.uy                (ninguna)         Administrador          Todo (global)
+-- jefe.personal@fau.mil.uy        (ninguna)         Oficina de Personal    CRUD completo de todo el personal (global)
+-- jefe.cao@fau.mil.uy             las del C.A.O.    Control de cursos (h)  Ver personal del C.A.O. + gestionar sus cursos
+-- jefe.cap@fau.mil.uy             las del C.A.P.    Control de cursos (h)  Ver personal del C.A.P. + gestionar sus cursos
+-- consulta.cg@fau.mil.uy          las del C.G.      Consulta (h)           Solo ver personal y cursos del C.G.
+-- operador.cal@fau.mil.uy         las del C.A.L.    Operador Personal (h)  CRUD personal del C.A.L. + reportes
+-- supervisor.cao.cap@fau.mil.uy   C.A.O. + C.A.P.   Control de cursos (d)  Ver personal y cursos de AMBOS comandos
+-- jefe.bai@fau.mil.uy             B.A.I.            Operador Personal (d)  CRUD personal de B.A.I., no ve B.A.II.
+-- supervisor.bai.eta@fau.mil.uy   B.A.I. + E.T.A.   Control de cursos (h)  Ver personal de esas dos bases y ninguna otra
 --
--- (h) = heredado de la unidad   (d) = directo
+-- (h) = heredado de las bases   (d) = directo
+-- Los cursos todavía son por comando: quien tiene una base ve los cursos de su comando.
+--
+-- Funcionarios activos por comando: C.A.O. 19 (B.A.I., B.A.II., B.A.III., C.O.A.),
+-- C.A.P. 4 (E.T.A., E.M.A.), C.A.L. 4 (S.ABAST., S. MANT., S.INFRA.), C.G. 1 (D.C.G.).
+-- Más 2 de baja en el C.A.O. (60000026 retiro voluntario, 60000027 retiro obligatorio).
 --
 -- ESCENARIOS CLAVE PARA DEMOSTRAR:
--- 1. jefe.ba1 NO puede ver personal de BA2 ni gestionar cursos de BA2
--- 2. supervisor.bases SÍ puede ver personal de BA1 Y BA2 simultáneamente
+-- 1. jefe.cao NO puede ver personal del C.A.P. ni gestionar sus cursos
+-- 2. supervisor.cao.cap SÍ puede ver personal del C.A.O. y del C.A.P. a la vez
 -- 3. jefe.personal SÍ puede ver TODO (alcance global)
--- 4. consulta.coa solo puede LEER, no editar nada
--- 5. operador.cpfa puede crear/editar personas pero solo las del CPFA
+-- 4. consulta.cg solo puede LEER, no editar nada
+-- 5. operador.cal puede crear/editar personas pero solo las del C.A.L.
 -- 6. admin puede gestionar usuarios, roles y unidades
--- ============================================================================
---
--- ESCENARIOS CLAVE PARA DEMOSTRAR:
--- 1. jefe.ba1 NO puede ver personal de BA2 ni gestionar cursos de BA2
--- 2. jefe.personal SÍ puede ver TODO (alcance global)
--- 3. consulta.coa solo puede LEER, no editar nada
--- 4. operador.cpfa puede crear/editar personas pero solo las del CPFA
--- 5. admin puede gestionar usuarios, roles y unidades
+-- 7. jefe.bai NO ve a nadie de B.A.II., aunque es del mismo comando (404 en la ficha)
+-- 8. supervisor.bai.eta ve B.A.I. y E.T.A. y nada más
 -- ============================================================================

@@ -233,6 +233,8 @@ model destinos {
   id               BigInt    @id @default(autoincrement())
   persona_id       BigInt?
   unidad_id        BigInt?
+  /// Dónde revista (B.A.I., E.M.A., ...). `unidad_id` es su comando. Ver migration_destinos_sub_unidad.sql.
+  sub_unidad_id    BigInt?
   fecha_inicio     DateTime? @db.Date
   fecha_fin        DateTime? @db.Date
   posicion_destino String?   @db.VarChar(200)
@@ -245,9 +247,11 @@ model destinos {
   fecha_resolucion DateTime? @db.Date
   observaciones    String?
   unidades         unidades? @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades     sub_unidades? @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   personas         personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([unidad_id], map: "idx_destinos_unidad")
+  @@index([sub_unidad_id], map: "idx_destinos_sub_unidad")
 }
 
 model comisiones {
@@ -379,8 +383,11 @@ model sub_unidades {
   codigo               String                 @db.VarChar(30)
   denominacion         String                 @db.VarChar(150)
   vigente              Boolean                @default(true)
-  relaciones_laborales relaciones_laborales[]
-  unidades             unidades               @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  relaciones_laborales  relaciones_laborales[]
+  destinos              destinos[]
+  sub_unidades_roles    sub_unidades_roles[]
+  usuarios_sub_unidades usuarios_sub_unidades[]
+  unidades              unidades                @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([unidad_id, codigo])
 }
@@ -1206,9 +1213,9 @@ model roles {
   nombre         String           @db.VarChar(60)
   descripcion    String?          @db.VarChar(200)
   aplicacion     String           @default("liquidacion") @db.VarChar(20)
-  roles_permisos roles_permisos[]
-  unidades_roles unidades_roles[]
-  usuarios_roles usuarios_roles[]
+  roles_permisos     roles_permisos[]
+  sub_unidades_roles sub_unidades_roles[]
+  usuarios_roles     usuarios_roles[]
 
   @@unique([nombre, aplicacion])
 }
@@ -1332,28 +1339,26 @@ model unidades {
   items_lote_compensacion items_lote_compensacion[]
   relaciones_laborales    relaciones_laborales[]
   sub_unidades            sub_unidades[]
-  unidades_roles          unidades_roles[]
-  usuarios_unidades       usuarios_unidades[]
 }
 
-model unidades_roles {
-  unidad_id BigInt
-  rol_id    BigInt
-  roles     roles    @relation(fields: [rol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  unidades  unidades @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+model sub_unidades_roles {
+  sub_unidad_id BigInt
+  rol_id        BigInt
+  roles         roles        @relation(fields: [rol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades  sub_unidades @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@id([unidad_id, rol_id])
-  @@index([rol_id], map: "idx_unidades_roles_rol")
+  @@id([sub_unidad_id, rol_id])
+  @@index([rol_id], map: "idx_sub_unidades_roles_rol")
 }
 
-model usuarios_unidades {
-  usuario_id BigInt
-  unidad_id  BigInt
-  usuarios   usuarios @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  unidades   unidades @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+model usuarios_sub_unidades {
+  usuario_id    BigInt
+  sub_unidad_id BigInt
+  usuarios      usuarios     @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades  sub_unidades @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@id([usuario_id, unidad_id])
-  @@index([unidad_id], map: "idx_usuarios_unidades_unidad")
+  @@id([usuario_id, sub_unidad_id])
+  @@index([sub_unidad_id], map: "idx_usuarios_sub_unidades_sub_unidad")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1408,7 +1413,7 @@ model usuarios {
   ascensos_reglas_actualizadas                                               ascensos_reglas[]                @relation("ascensos_reglas_actualizado_por")
   personas                                                                   personas?                        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_roles                                                             usuarios_roles[]
-  usuarios_unidades                                                          usuarios_unidades[]
+  usuarios_sub_unidades                                                      usuarios_sub_unidades[]
   retiros_registrados                                                        retiros[]                        @relation("retiros_registrado_por")
   retiros_anulados                                                           retiros[]                        @relation("retiros_anulado_por")
   historial_derecha_numor                                                    historial_derecha_numor[]

@@ -5,16 +5,37 @@
 - [Docker](https://www.docker.com/)
 - [Make](https://www.gnu.org/software/make/) (en Windows se puede instalar via [Chocolatey](https://chocolatey.org/): `choco install make`)
 
+## La base de datos
+
+La base es la del sistema de liquidación, y lo nuestro va encima. En local se arma igual que
+el día de la integración:
+
+1. `database/liquidacion/db-init.sql.gz`: su esquema y sus catálogos (copia sin tocar y comprimida, ver su `LEEME.md`).
+2. Sus migraciones, con su runner (`database/liquidacion/migraciones.tar.gz`).
+3. **Nuestro paquete**: `database/paquete-personal.txt`, aplicado por `database/aplicar-paquete-personal.sh`.
+4. Solo en local: `database/scripts/seed_demo.sql` (usuarios demo, contraseña `FAUdemo1!`).
+
+Sobre la base real de liquidación se corre **solo el paso 3**, con las mismas variables que su runner:
+
+```bash
+DB_HOST=<host> DB_PORT=5432 DB_NAME=fau_liquidacion DB_USER=fau_user DB_PASSWORD=<clave> \
+  sh database/aplicar-paquete-personal.sh
+```
+
+Si tu base local es de antes de este cambio, `make up` lo detecta y pide `make reset`.
+
 ## Comandos
 
 | Comando | Descripción |
 |---|---|
-| `make up` | Genera un JWT secret aleatorio y levanta toda la infraestructura |
+| `make reset` | Desde cero: base de liquidación + paquete + demo + backend (borra los datos locales) |
+| `make up` | Levanta sin borrar datos; aplica lo pendiente de liquidación y del paquete, sin demo |
 | `make down` | Detiene y elimina los contenedores (conserva los datos) |
-| `make reset` | Destruye todo (contenedores + datos) y vuelve a levantar desde cero |
+| `make liquidacion` | Solo la base de liquidación (db-init + sus migraciones) |
+| `make paquete` | Aplica nuestro paquete sobre la base actual (idempotente) |
 | `make backend` | Levanta o reinicia solo el backend |
-| `make db` | Levanta solo PostgreSQL |
-| `make seed` | Ejecuta el seed SQL en la base de datos |
+| `make db` | `liquidacion` + `paquete`, sin backend |
+| `make seed-demo` | Carga los datos de demo |
 | `make build` | Construye las imágenes sin levantar servicios |
 | `make logs` | Logs en vivo de todos los servicios |
 | `make logs-backend` | Logs en vivo solo del backend |
@@ -23,7 +44,7 @@
 
 ## Servicios
 
-- `postgres`: base de datos PostgreSQL en el puerto `5432`.
+- `postgres`: base de datos PostgreSQL en el puerto `5434` del host.
 - `backend`: API REST en `http://localhost:3000`.
 - Documentación Swagger: `http://localhost:3000/api/docs`.
 

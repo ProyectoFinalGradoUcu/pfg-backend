@@ -9,11 +9,20 @@ import { UpdateDestinoDto } from './dto/update-destino.dto';
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
+// Unidad = comando de liquidación; sub-unidad = el destino donde revista.
 const makeUnidad = (overrides: Partial<any> = {}) => ({
   id: 5n,
   codigo: 'CG',
-  denominacion: 'Cuartel General',
-  tipo: 'Unidad',
+  denominacion: 'C.G.',
+  vigente: true,
+  ...overrides,
+});
+
+const makeSubUnidad = (overrides: Partial<any> = {}) => ({
+  id: 11n,
+  unidad_id: 5n,
+  codigo: 'DCG',
+  denominacion: 'D.C.G.',
   vigente: true,
   ...overrides,
 });
@@ -30,6 +39,7 @@ const makeAsignacion = (overrides: Partial<any> = {}) => ({
   id: 200n,
   persona_id: 100n,
   unidad_id: 5n,
+  sub_unidad_id: 11n,
   fecha_inicio: new Date('2024-04-30'),
   fecha_fin: null,
   posicion_destino: 'Sub-Jefe de Personal A-1',
@@ -38,6 +48,7 @@ const makeAsignacion = (overrides: Partial<any> = {}) => ({
   observaciones: null,
   personas: makePersonaMin(),
   unidades: makeUnidad(),
+  sub_unidades: makeSubUnidad(),
   ...overrides,
 });
 
@@ -53,7 +64,7 @@ const makePrismaMock = () => ({
     delete: jest.fn(),
     count: jest.fn(),
   },
-  unidades: {
+  sub_unidades: {
     findUnique: jest.fn(),
     findMany: jest.fn(),
     count: jest.fn(),
@@ -94,7 +105,7 @@ describe('DestinosService', () => {
   describe('crearDestino', () => {
     const dtoBase = {
       persona_id: 100,
-      unidad_id: 5,
+      sub_unidad_id: 11,
       fecha_inicio: '2026-09-01',
       posicion_destino: 'Jefe de Sección',
       numero_orden: 'O.D. 12455',
@@ -102,7 +113,7 @@ describe('DestinosService', () => {
 
     beforeEach(() => {
       prisma.personas.findUnique.mockResolvedValue(makePersonaMin());
-      prisma.unidades.findUnique.mockResolvedValue(makeUnidad());
+      prisma.sub_unidades.findUnique.mockResolvedValue(makeSubUnidad());
       prisma.destinos.findFirst.mockResolvedValue(null);
       prisma.destinos.create.mockResolvedValue(
         makeAsignacion({ id: 300n, fecha_inicio: new Date('2026-09-01') }),
@@ -136,7 +147,7 @@ describe('DestinosService', () => {
 
     it('cierra el destino activo anterior el día previo al nuevo inicio', async () => {
       prisma.destinos.findFirst.mockResolvedValue(
-        makeAsignacion({ id: 200n, unidad_id: 9n }),
+        makeAsignacion({ id: 200n, unidad_id: 9n, sub_unidad_id: 19n }),
       );
 
       await service.crearDestino(dtoBase);
@@ -149,7 +160,7 @@ describe('DestinosService', () => {
 
     it('cierra el destino anterior con la fecha que manda el cliente', async () => {
       prisma.destinos.findFirst.mockResolvedValue(
-        makeAsignacion({ id: 200n, unidad_id: 9n }),
+        makeAsignacion({ id: 200n, unidad_id: 9n, sub_unidad_id: 19n }),
       );
 
       await service.crearDestino({ ...dtoBase, fecha_fin_anterior: '2026-08-15' });
@@ -162,12 +173,12 @@ describe('DestinosService', () => {
 
     // La relación vigente se identifica por `fecha_fin: null`, que es el mismo
     // criterio que usan GET /personas y el perfil para mostrar el destino.
-    it('sincroniza la unidad de la relación laboral vigente', async () => {
+    it('sincroniza el comando y la sub-unidad de la relación laboral vigente', async () => {
       await service.crearDestino(dtoBase);
 
       expect(prisma.relaciones_laborales.updateMany).toHaveBeenCalledWith({
         where: { persona_id: 100n, fecha_fin: null },
-        data: { unidad_id: 5n },
+        data: { unidad_id: 5n, sub_unidad_id: 11n },
       });
     });
 
@@ -194,13 +205,13 @@ describe('DestinosService', () => {
       await expect(service.crearDestino(dtoBase)).rejects.toThrow(NotFoundException);
     });
 
-    it('rechaza si la unidad no existe', async () => {
-      prisma.unidades.findUnique.mockResolvedValue(null);
+    it('rechaza si la sub-unidad no existe', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue(null);
 
       await expect(service.crearDestino(dtoBase)).rejects.toThrow(NotFoundException);
     });
 
-    it('rechaza si el funcionario ya está destinado en esa misma unidad', async () => {
+    it('rechaza si el funcionario ya está destinado en esa misma sub-unidad', async () => {
       prisma.destinos.findFirst.mockResolvedValue(
         makeAsignacion({ id: 200n, unidad_id: 5n }),
       );
@@ -224,7 +235,7 @@ describe('DestinosService', () => {
 
     it('rechaza cerrar el destino anterior antes de su propia fecha de inicio', async () => {
       prisma.destinos.findFirst.mockResolvedValue(
-        makeAsignacion({ id: 200n, unidad_id: 9n, fecha_inicio: new Date('2026-01-01') }),
+        makeAsignacion({ id: 200n, unidad_id: 9n, sub_unidad_id: 19n, fecha_inicio: new Date('2026-01-01') }),
       );
 
       await expect(
@@ -234,7 +245,7 @@ describe('DestinosService', () => {
 
     it('no crea la asignación nueva si el cierre del anterior es inválido', async () => {
       prisma.destinos.findFirst.mockResolvedValue(
-        makeAsignacion({ id: 200n, unidad_id: 9n, fecha_inicio: new Date('2026-01-01') }),
+        makeAsignacion({ id: 200n, unidad_id: 9n, sub_unidad_id: 19n, fecha_inicio: new Date('2026-01-01') }),
       );
 
       await expect(
@@ -256,7 +267,7 @@ describe('DestinosService', () => {
       prisma.destinos.count.mockResolvedValueOnce(2).mockResolvedValueOnce(5);
       prisma.destinos.findMany
         .mockResolvedValueOnce([makeAsignacion({ id: 1n }), makeAsignacion({ id: 2n })])
-        .mockResolvedValueOnce([{ unidad_id: 5n }, { unidad_id: 9n }]);
+        .mockResolvedValueOnce([{ sub_unidad_id: 11n }, { sub_unidad_id: 19n }]);
 
       const result = await service.listarDestinos({ page: 1, pageSize: 10 });
 
@@ -264,7 +275,7 @@ describe('DestinosService', () => {
       expect(result.items).toHaveLength(2);
       expect(result.stats.total_destinos).toBe(2);
       expect(result.stats.destinos_activos).toBe(5);
-      expect(result.stats.unidades_con_personal).toBe(2);
+      expect(result.stats.sub_unidades_con_personal).toBe(2);
     });
 
     it('usa page=1 y pageSize=10 por defecto', async () => {
@@ -275,7 +286,15 @@ describe('DestinosService', () => {
       );
     });
 
-    it('filtra por unidad', async () => {
+    it('filtra por sub-unidad', async () => {
+      await service.listarDestinos({ sub_unidad_id: 11 });
+
+      expect(prisma.destinos.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ sub_unidad_id: 11n }) }),
+      );
+    });
+
+    it('filtra por comando', async () => {
       await service.listarDestinos({ unidad_id: 5 });
 
       expect(prisma.destinos.findMany).toHaveBeenCalledWith(
@@ -325,7 +344,7 @@ describe('DestinosService', () => {
       );
     });
 
-    it('mapea la unidad y marca el destino como activo', async () => {
+    it('mapea comando, sub-unidad y marca el destino como activo', async () => {
       prisma.destinos.count.mockResolvedValue(1);
       prisma.destinos.findMany
         .mockResolvedValueOnce([makeAsignacion()])
@@ -339,7 +358,8 @@ describe('DestinosService', () => {
           fecha_inicio: '2024-04-30',
           fecha_fin: null,
           activo: true,
-          unidad: expect.objectContaining({ id: '5', denominacion: 'Cuartel General' }),
+          unidad: expect.objectContaining({ id: '5', denominacion: 'C.G.' }),
+          sub_unidad: { id: '11', codigo: 'DCG', denominacion: 'D.C.G.' },
           persona: expect.objectContaining({ cedula: '12345678' }),
         }),
       );
@@ -443,9 +463,9 @@ describe('DestinosService', () => {
       );
     });
 
-    it('reabrir un destino pone su unidad en la relación laboral vigente', async () => {
+    it('reabrir un destino pone su comando y su sub-unidad en la relación laboral vigente', async () => {
       prisma.destinos.findUnique.mockResolvedValue(
-        makeAsignacion({ id: 200n, unidad_id: 7n, fecha_fin: new Date('2026-01-01') }),
+        makeAsignacion({ id: 200n, unidad_id: 7n, sub_unidad_id: 17n, fecha_fin: new Date('2026-01-01') }),
       );
       prisma.destinos.findFirst.mockResolvedValue(null);
 
@@ -453,7 +473,7 @@ describe('DestinosService', () => {
 
       expect(prisma.relaciones_laborales.updateMany).toHaveBeenCalledWith({
         where: { persona_id: 100n, fecha_fin: null },
-        data: { unidad_id: 7n },
+        data: { unidad_id: 7n, sub_unidad_id: 17n },
       });
     });
 
@@ -484,11 +504,11 @@ describe('DestinosService', () => {
       expect(result).toEqual({ id: '200', eliminado: true, destino_reabierto: null });
     });
 
-    it('al eliminar el vigente reabre el que cerró el pase y vuelve la relación a su unidad', async () => {
+    it('al eliminar el vigente reabre el que cerró el pase y vuelve la relación a su destino', async () => {
       // Pase del 2024-04-30: el anterior (unidad 3) terminó el 2024-04-29.
       prisma.destinos.findUnique.mockResolvedValue(makeAsignacion());
       prisma.destinos.findFirst.mockResolvedValue(
-        makeAsignacion({ id: 150n, unidad_id: 3n, fecha_inicio: new Date('2020-01-01'), fecha_fin: new Date('2024-04-29') }),
+        makeAsignacion({ id: 150n, unidad_id: 3n, sub_unidad_id: 13n, fecha_inicio: new Date('2020-01-01'), fecha_fin: new Date('2024-04-29') }),
       );
 
       const result = await service.eliminarDestino(200);
@@ -496,22 +516,22 @@ describe('DestinosService', () => {
       expect(prisma.destinos.update).toHaveBeenCalledWith({ where: { id: 150n }, data: { fecha_fin: null } });
       expect(prisma.relaciones_laborales.updateMany).toHaveBeenCalledWith({
         where: { persona_id: 100n, fecha_fin: null },
-        data: { unidad_id: 3n },
+        data: { unidad_id: 3n, sub_unidad_id: 13n },
       });
       expect(result.destino_reabierto).toBe('150');
     });
 
-    it('si el anterior terminó mucho antes no lo reabre, pero la relación vuelve a su unidad', async () => {
+    it('si el anterior terminó mucho antes no lo reabre, pero la relación vuelve a su destino', async () => {
       prisma.destinos.findUnique.mockResolvedValue(makeAsignacion());
       prisma.destinos.findFirst.mockResolvedValue(
-        makeAsignacion({ id: 150n, unidad_id: 3n, fecha_fin: new Date('2023-01-01') }),
+        makeAsignacion({ id: 150n, unidad_id: 3n, sub_unidad_id: 13n, fecha_fin: new Date('2023-01-01') }),
       );
 
       const result = await service.eliminarDestino(200);
 
       expect(prisma.destinos.update).not.toHaveBeenCalled();
       expect(prisma.relaciones_laborales.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { unidad_id: 3n } }),
+        expect.objectContaining({ data: { unidad_id: 3n, sub_unidad_id: 13n } }),
       );
       expect(result.destino_reabierto).toBeNull();
     });
@@ -532,81 +552,97 @@ describe('DestinosService', () => {
     });
   });
 
-  // ─── listarUnidades ─────────────────────────────────────────────────────────
+  // ─── listarSubUnidades ──────────────────────────────────────────────────────
 
-  describe('listarUnidades', () => {
+  describe('listarSubUnidades', () => {
     beforeEach(() => {
-      prisma.unidades.count.mockResolvedValue(0);
-      prisma.unidades.findMany.mockResolvedValue([]);
+      prisma.sub_unidades.count.mockResolvedValue(0);
+      prisma.sub_unidades.findMany.mockResolvedValue([]);
     });
 
-    it('devuelve unidades con el total de destinados activos', async () => {
-      prisma.unidades.count.mockResolvedValue(1);
-      prisma.unidades.findMany.mockResolvedValue([
-        { ...makeUnidad(), _count: { destinos: 3 } },
+    it('devuelve sub-unidades con su comando y el total de destinados activos', async () => {
+      prisma.sub_unidades.count.mockResolvedValue(1);
+      prisma.sub_unidades.findMany.mockResolvedValue([
+        { ...makeSubUnidad(), unidades: makeUnidad(), _count: { destinos: 3 } },
       ]);
 
-      const result = await service.listarUnidades();
+      const result = await service.listarSubUnidades();
 
-      expect(result.items[0]).toEqual(
-        expect.objectContaining({ id: '5', denominacion: 'Cuartel General', total_destinados: 3 }),
-      );
+      expect(result.items[0]).toEqual({
+        id: '11',
+        codigo: 'DCG',
+        denominacion: 'D.C.G.',
+        vigente: true,
+        unidad: { id: '5', codigo: 'CG', denominacion: 'C.G.' },
+        total_destinados: 3,
+      });
     });
 
     it('cuenta solo las asignaciones activas', async () => {
-      await service.listarUnidades();
+      await service.listarSubUnidades();
 
-      expect(prisma.unidades.findMany).toHaveBeenCalledWith(
+      expect(prisma.sub_unidades.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          include: {
+          include: expect.objectContaining({
             _count: { select: { destinos: { where: { fecha_fin: null } } } },
-          },
-        }),
-      );
-    });
-
-    it('filtra por denominación parcial', async () => {
-      await service.listarUnidades({ query: 'cuartel' });
-
-      expect(prisma.unidades.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            denominacion: { contains: 'cuartel', mode: 'insensitive' },
           }),
         }),
       );
     });
+
+    it('filtra por código o denominación parcial', async () => {
+      await service.listarSubUnidades({ query: 'b.a.' });
+
+      expect(prisma.sub_unidades.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              { denominacion: { contains: 'b.a.', mode: 'insensitive' } },
+              { codigo: { contains: 'b.a.', mode: 'insensitive' } },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('filtra por comando', async () => {
+      await service.listarSubUnidades({ unidad_id: 5 });
+
+      expect(prisma.sub_unidades.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ unidad_id: 5n }) }),
+      );
+    });
   });
 
-  // ─── listarFuncionariosUnidad ───────────────────────────────────────────────
+  // ─── listarFuncionariosSubUnidad ────────────────────────────────────────────
 
-  describe('listarFuncionariosUnidad', () => {
+  describe('listarFuncionariosSubUnidad', () => {
     beforeEach(() => {
-      prisma.unidades.findUnique.mockResolvedValue(makeUnidad());
+      prisma.sub_unidades.findUnique.mockResolvedValue(makeSubUnidad());
       prisma.destinos.count.mockResolvedValue(0);
       prisma.destinos.findMany.mockResolvedValue([]);
     });
 
-    it('rechaza si la unidad no existe', async () => {
-      prisma.unidades.findUnique.mockResolvedValue(null);
+    it('rechaza si la sub-unidad no existe', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue(null);
 
-      await expect(service.listarFuncionariosUnidad(999)).rejects.toThrow(NotFoundException);
+      await expect(service.listarFuncionariosSubUnidad(999)).rejects.toThrow(NotFoundException);
     });
 
-    it('filtra por la unidad pedida', async () => {
-      await service.listarFuncionariosUnidad(5);
+    it('filtra por la sub-unidad pedida', async () => {
+      await service.listarFuncionariosSubUnidad(11);
 
       expect(prisma.destinos.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ unidad_id: 5n }) }),
+        expect.objectContaining({ where: expect.objectContaining({ sub_unidad_id: 11n }) }),
       );
     });
 
     it('permite pedir solo los destinados actualmente', async () => {
-      await service.listarFuncionariosUnidad(5, { activo: true });
+      await service.listarFuncionariosSubUnidad(11, { activo: true });
 
       expect(prisma.destinos.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ unidad_id: 5n, fecha_fin: null }),
+          where: expect.objectContaining({ sub_unidad_id: 11n, fecha_fin: null }),
         }),
       );
     });
@@ -622,7 +658,7 @@ describe('DTOs de destinos', () => {
   describe('CreateDestinoDto', () => {
     const valido = {
       persona_id: 42,
-      unidad_id: 5,
+      sub_unidad_id: 5,
       fecha_inicio: '2026-09-01',
       numero_orden: 'O.D. 12455',
     };
@@ -645,10 +681,10 @@ describe('DTOs de destinos', () => {
       );
     });
 
-    it('rechaza si falta la unidad', async () => {
-      const { unidad_id, ...sinUnidad } = valido;
+    it('rechaza si falta la sub-unidad', async () => {
+      const { sub_unidad_id, ...sinSubUnidad } = valido;
 
-      expect(await errores(CreateDestinoDto, sinUnidad)).toContain('unidad_id');
+      expect(await errores(CreateDestinoDto, sinSubUnidad)).toContain('sub_unidad_id');
     });
 
     it('rechaza si falta la fecha de inicio', async () => {

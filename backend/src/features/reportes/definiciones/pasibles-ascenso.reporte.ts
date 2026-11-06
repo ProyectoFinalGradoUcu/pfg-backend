@@ -1,3 +1,4 @@
+import { basesDeAlcance } from '../alcance-reportes';
 import {
   ColumnaReporte,
   ContextoEjecucion,
@@ -102,14 +103,20 @@ export const pasiblesAscensoReporte: DefinicionReporte = {
       .map((e) => e.trim())
       .filter(Boolean);
 
-    const resultado = await elegibilidad.listarPasibles({
+    const bases = basesDeAlcance(filtros);
+    const resultado = await elegibilidad.listarPasibles(
+      {
       estado: estados,
       unidad_id: filtros.unidad_id ? Number(filtros.unidad_id) : undefined,
       categoria: categoriaDeFiltros(filtros),
       fecha_referencia: filtros.fecha_referencia || undefined,
       horizonte_meses: filtros.horizonte_meses ? Number(filtros.horizonte_meses) : 120,
       pageSize: 500,
-    });
+      },
+      bases
+        ? { tipo: 'unidad', subUnidadIds: bases.map(String), comandoIds: [] }
+        : undefined,
+    );
 
     const filas = resultado.items.map((e) => ({
       cedula: e.persona.cedula,

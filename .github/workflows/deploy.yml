@@ -47,18 +47,22 @@ jobs:
           scp -i ~/.ssh/deploy_key deploy/Caddyfile \
             "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:pfg/Caddyfile"
 
+      # Las migraciones van ANTES de reconstruir el backend: el código nuevo puede leer
+      # columnas que agrega el paquete (p. ej. destinos.sub_unidad_id). Si el paquete
+      # falla, set -e corta acá y queda corriendo el backend anterior.
+      - name: Apply database migrations
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+            'set -e
+             cd pfg
+             docker compose up -d postgres
+             bash src/deploy/migrate.sh'
+
       - name: Rebuild and restart
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
             'set -e
              cd pfg
              docker compose up -d --build
-             docker image prune -f'
-
-      - name: Apply database migrations
-        run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
-            'set -e
-             cd pfg
-             bash src/deploy/migrate.sh
+             docker image prune -f
              docker compose ps'

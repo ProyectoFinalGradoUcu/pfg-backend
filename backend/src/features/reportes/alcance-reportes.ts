@@ -6,11 +6,34 @@
  * explícita y por inclusión: un reporte nuevo queda bloqueado bajo alcance de unidad hasta que
  * alguien lo revise y lo agregue acá a conciencia.
  *
- * Criterio para estar en la lista: la definición tiene que leer `filtros.unidad_id` y usarlo en
- * su `where`. Ver spec 002 §3 "Reportes".
+ * Criterio para estar en la lista: la definición tiene que aplicar `FILTRO_ALCANCE_BASES` en su
+ * `where` (con `basesDeAlcance`). Ver spec 002 §3 "Reportes".
  */
 
-/** Reportes de catálogo (`GET /reportes/:clave`) que aceptan `unidad_id`. */
+/**
+ * Filtro que agrega el service con las bases del usuario (ids separados por coma). No es un
+ * parámetro del reporte: si llega en el pedido se descarta.
+ */
+export const FILTRO_ALCANCE_BASES = 'alcance_sub_unidad_ids';
+
+/** Bases del filtro de alcance, o `undefined` si no hay alcance de unidad. */
+export function basesDeAlcance(
+  filtros: Record<string, string | undefined>,
+): bigint[] | undefined {
+  const valor = filtros[FILTRO_ALCANCE_BASES];
+  if (valor === undefined) return undefined;
+  return valor
+    .split(',')
+    .filter(Boolean)
+    .map((id) => BigInt(id));
+}
+
+export function whereRelacionPorAlcance(filtros: Record<string, string | undefined>) {
+  const bases = basesDeAlcance(filtros);
+  return bases ? { sub_unidad_id: { in: bases } } : {};
+}
+
+/** Reportes de catálogo (`GET /reportes/:clave`) que se acotan a las bases del usuario. */
 export const REPORTES_CON_ALCANCE_UNIDAD = new Set<string>([
   'compensacion-idoneidad',
   'movimientos-unidad',
@@ -19,7 +42,7 @@ export const REPORTES_CON_ALCANCE_UNIDAD = new Set<string>([
   'prima-tecnica',
 ]);
 
-/** Fuentes de reportes personalizados que aceptan `unidad_id`. */
+/** Fuentes de reportes personalizados que se acotan a las bases del usuario. */
 export const FUENTES_CON_ALCANCE_UNIDAD = new Set<string>(['personal']);
 
 export const MENSAJE_REPORTE_SIN_ALCANCE =

@@ -1,6 +1,10 @@
 import { NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { AlcanceResuelto, unidadIdsDeAlcance } from './alcance.types';
+import {
+  AlcanceResuelto,
+  comandoIdsDeAlcance,
+  subUnidadIdsDeAlcance,
+} from './alcance.types';
 
 /**
  * Condición sobre `relaciones_laborales` que define la relación laboral ACTIVA.
@@ -10,24 +14,25 @@ export const RELACION_ACTIVA = { fecha_fin: null };
 
 /**
  * Fragmento de `where` para listados de personas.
- * Global → sin restricción. Unidad → solo personas con relación laboral activa en alguna de las unidades del usuario.
+ * Global → sin restricción. Unidad → solo personas con relación laboral activa en alguna de las bases del usuario.
  */
 export function wherePersonasPorAlcance(alcance: AlcanceResuelto) {
-  const unidadIds = unidadIdsDeAlcance(alcance);
-  if (unidadIds === null) return {};
+  const subUnidadIds = subUnidadIdsDeAlcance(alcance);
+  if (subUnidadIds === null) return {};
   return {
     relaciones_laborales: {
-      some: { ...RELACION_ACTIVA, unidad_id: { in: unidadIds } },
+      some: { ...RELACION_ACTIVA, sub_unidad_id: { in: subUnidadIds } },
     },
   };
 }
 
 /**
  * Fragmento de `where` para listados de cursos.
- * Global → sin restricción. Unidad → cursos de las unidades del usuario MÁS los generales (`unidad_id IS NULL`).
+ * Global → sin restricción. Unidad → cursos de los comandos de sus bases MÁS los generales (`unidad_id IS NULL`).
+ * Los cursos todavía se guardan por comando.
  */
 export function whereCursosVisiblesPorAlcance(alcance: AlcanceResuelto) {
-  const unidadIds = unidadIdsDeAlcance(alcance);
+  const unidadIds = comandoIdsDeAlcance(alcance);
   if (unidadIds === null) return {};
   return { OR: [{ unidad_id: { in: unidadIds } }, { unidad_id: null }] };
 }
@@ -43,14 +48,14 @@ export async function assertPersonaEnAlcance(
   personaId: bigint,
   alcance: AlcanceResuelto,
 ): Promise<void> {
-  const unidadIds = unidadIdsDeAlcance(alcance);
-  if (unidadIds === null) return;
+  const subUnidadIds = subUnidadIdsDeAlcance(alcance);
+  if (subUnidadIds === null) return;
 
   const persona = await prisma.personas.findFirst({
     where: {
       id: personaId,
       relaciones_laborales: {
-        some: { ...RELACION_ACTIVA, unidad_id: { in: unidadIds } },
+        some: { ...RELACION_ACTIVA, sub_unidad_id: { in: subUnidadIds } },
       },
     },
     select: { id: true },
@@ -60,14 +65,14 @@ export async function assertPersonaEnAlcance(
 }
 
 /**
- * Valida que un curso sea VISIBLE para el usuario (alguna de sus unidades, o general).
+ * Valida que un curso sea VISIBLE para el usuario (de algún comando de sus bases, o general).
  */
 export async function assertCursoVisibleEnAlcance(
   prisma: PrismaService,
   cursoId: bigint,
   alcance: AlcanceResuelto,
 ): Promise<void> {
-  const unidadIds = unidadIdsDeAlcance(alcance);
+  const unidadIds = comandoIdsDeAlcance(alcance);
   if (unidadIds === null) return;
 
   const curso = await prisma.cursos.findFirst({
@@ -90,7 +95,7 @@ export async function assertCursoGestionableEnAlcance(
   cursoId: bigint,
   alcance: AlcanceResuelto,
 ): Promise<void> {
-  const unidadIds = unidadIdsDeAlcance(alcance);
+  const unidadIds = comandoIdsDeAlcance(alcance);
   if (unidadIds === null) return;
 
   const curso = await prisma.cursos.findFirst({

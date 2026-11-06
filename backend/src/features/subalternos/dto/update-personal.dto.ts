@@ -21,10 +21,9 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 'CC 1.234.567', nullable: true }) @IsOptional() @IsString() @MaxLength(20) credencial_civica?: string | null;
   @ApiPropertyOptional({ example: 7, enum: [3, 5, 7, 9], nullable: true, description: 'Nivel de pericia/idoneidad del personal subalterno' }) @IsOptional() @IsInt() @IsIn([3, 5, 7, 9]) nivel_idoneidad?: number | null;
 
-  // Datos laborales
+  // Datos laborales. La base y el comando no se editan acá: se cambian registrando un destino.
   @ApiPropertyOptional({ example: '2024-01-01', description: 'Fecha de alta de la relación laboral activa' }) @IsOptional() @IsDateString() fecha_inicio?: string;
   @ApiPropertyOptional({ example: 5, description: 'ID del nuevo grado/rango' }) @IsOptional() @IsInt() grado_id?: number;
-  @ApiPropertyOptional({ example: 2, description: 'ID de la unidad/destino' }) @IsOptional() @IsInt() unidad_id?: number;
   @ApiPropertyOptional({ example: 1, description: 'ID de la situación/estado' }) @IsOptional() @IsInt() situacion_id?: number;
 
   @ApiPropertyOptional({
@@ -34,7 +33,6 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() regimen_id?: number;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() programa_id?: number;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() escalafon_id?: number;
-  @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() sub_unidad_id?: number;
   @ApiPropertyOptional({ example: 'A' }) @IsOptional() @IsString() @MaxLength(10) prima_tecnica?: string;
   @ApiPropertyOptional({ example: true }) @IsOptional() @IsBoolean() tiene_mando?: boolean;
   @ApiPropertyOptional({ example: 'Sin novedades' }) @IsOptional() @IsString() observaciones_laborales?: string;

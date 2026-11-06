@@ -1,5 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common';
+import { UpdatePersonalDto } from './dto/update-personal.dto';
 import { PersonalPerfilService } from './personal-perfil.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { CierreCarreraService } from '../retiros/cierre-carrera.service';
@@ -9,6 +16,7 @@ const makeAsignacion = (overrides: Partial<any> = {}) => ({
   id: 200n,
   persona_id: 100n,
   unidad_id: 5n,
+  sub_unidad_id: 17n,
   fecha_inicio: new Date('2024-04-30'),
   fecha_fin: null,
   posicion_destino: 'Sub-Jefe de Personal A-1',
@@ -18,8 +26,12 @@ const makeAsignacion = (overrides: Partial<any> = {}) => ({
   unidades: {
     id: 5n,
     codigo: 'CG',
-    denominacion: 'Cuartel General',
-    tipo: 'Unidad',
+    denominacion: 'C.G.',
+  },
+  sub_unidades: {
+    id: 17n,
+    codigo: 'DCG',
+    denominacion: 'D.C.G.',
   },
   ...overrides,
 });
@@ -125,9 +137,11 @@ describe('PersonalPerfilService', () => {
         {
           id: '200',
           unidad_id: '5',
-          unidad: 'Cuartel General',
+          unidad: 'C.G.',
           codigo_unidad: 'CG',
-          tipo_unidad: 'Unidad',
+          sub_unidad_id: '17',
+          sub_unidad: 'D.C.G.',
+          codigo_sub_unidad: 'DCG',
           posicion_destino: 'Sub-Jefe de Personal A-1',
           fecha_inicio: '2024-04-30',
           fecha_fin: null,
@@ -536,6 +550,53 @@ describe('PersonalPerfilService', () => {
 
       expect(derecha.ascenderEnTransaccion).not.toHaveBeenCalled();
       expect(derecha.cambiarEscalafonEnTransaccion).not.toHaveBeenCalled();
+    });
+  });
+
+  // La base y el comando se cambian solo con un traslado: el PATCH de la persona no los toca.
+  describe('update — base y comando', () => {
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n,
+        fecha_nacimiento: new Date('1980-01-01'),
+        relaciones_laborales: [
+          { id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n },
+        ],
+      });
+      prisma.personas.update.mockResolvedValue({ id: 100n });
+      prisma.relaciones_laborales.update.mockResolvedValue({ id: 45n });
+    });
+
+    it('editar grado, situación y observaciones actualiza la relación activa sin escribir unidad ni base', async () => {
+      await service.update(
+        100,
+        { grado_id: 4, situacion_id: 2, observaciones_laborales: 'Pase a comisión' } as any,
+        7n,
+      );
+
+      const { where, data } = prisma.relaciones_laborales.update.mock.calls[0][0];
+      expect(where).toEqual({ id: 45n });
+      expect(data).toEqual({ grado_id: 4n, situacion_id: 2n, observaciones: 'Pase a comisión' });
+      expect(data).not.toHaveProperty('unidad_id');
+      expect(data).not.toHaveProperty('sub_unidad_id');
+      expect(prisma.personas.update.mock.calls[0][0].data).not.toHaveProperty('unidad_id');
+    });
+
+    it('aunque llegue unidad_id o sub_unidad_id, no se guardan', async () => {
+      await service.update(100, { grado_id: 4, unidad_id: 9, sub_unidad_id: 30 } as any, 7n);
+
+      const { data } = prisma.relaciones_laborales.update.mock.calls[0][0];
+      expect(data).not.toHaveProperty('unidad_id');
+      expect(data).not.toHaveProperty('sub_unidad_id');
+    });
+
+    it('el DTO no acepta unidad_id ni sub_unidad_id', async () => {
+      const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+      const meta = { type: 'body' as const, metatype: UpdatePersonalDto };
+
+      await expect(pipe.transform({ unidad_id: 9 }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ sub_unidad_id: 30 }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ telefono: '099' }, meta)).resolves.toBeDefined();
     });
   });
 

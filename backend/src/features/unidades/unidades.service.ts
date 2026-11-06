@@ -20,6 +20,13 @@ type RolConPermisos = {
 
 type UnidadDetalle = Awaited<ReturnType<UnidadesService['findOne']>>;
 
+const COMANDO = { unidades: { select: { id: true, codigo: true, denominacion: true } } } as const;
+
+/**
+ * En esta pantalla las "unidades" son las bases (sub-unidades de liquidación). Cada respuesta
+ * trae el comando para poder agruparlas. El catálogo no se edita desde acá.
+ */
+
 @Injectable()
 export class UnidadesService {
   constructor(
@@ -34,6 +41,7 @@ export class UnidadesService {
 
     const where = {
       ...(query.vigente !== undefined && { vigente: query.vigente }),
+      ...(query.unidad_id && { unidad_id: BigInt(query.unidad_id) }),
       ...(query.search && {
         OR: [
           { codigo: { contains: query.search, mode: 'insensitive' as const } },
@@ -47,27 +55,28 @@ export class UnidadesService {
       }),
     };
 
-    const [total, unidades] = await this.prisma.$transaction([
-      this.prisma.unidades.count({ where }),
-      this.prisma.unidades.findMany({
+    const [total, bases] = await this.prisma.$transaction([
+      this.prisma.sub_unidades.count({ where }),
+      this.prisma.sub_unidades.findMany({
         where,
-        orderBy: { denominacion: 'asc' },
+        orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { _count: { select: { unidades_roles: true } } },
+        include: { ...COMANDO, _count: { select: { sub_unidades_roles: true } } },
       }),
     ]);
 
-    // El conteo de usuarios se resuelve con `count` por unidad para no traer los usuarios.
+    // El conteo de usuarios se resuelve con `count` por base para no traer los usuarios.
     const items = await Promise.all(
-      unidades.map(async (u) => ({
-        id: u.id.toString(),
-        codigo: u.codigo,
-        denominacion: u.denominacion,
-        vigente: u.vigente,
-        cantidadRoles: u._count.unidades_roles,
-        cantidadUsuarios: await this.sesiones.contarUsuariosDeUnidad(u.id),
-        cantidadFuncionarios: await this.contarFuncionarios(u.id),
+      bases.map(async (b) => ({
+        id: b.id.toString(),
+        codigo: b.codigo,
+        denominacion: b.denominacion,
+        vigente: b.vigente,
+        comando: this.toComando(b.unidades),
+        cantidadRoles: b._count.sub_unidades_roles,
+        cantidadUsuarios: await this.sesiones.contarUsuariosDeSubUnidad(b.id),
+        cantidadFuncionarios: await this.contarFuncionarios(b.id),
       })),
     );
 
@@ -75,10 +84,11 @@ export class UnidadesService {
   }
 
   async findOne(id: string) {
-    const unidad = await this.prisma.unidades.findUnique({
+    const base = await this.prisma.sub_unidades.findUnique({
       where: { id: BigInt(id) },
       include: {
-        unidades_roles: {
+        ...COMANDO,
+        sub_unidades_roles: {
           include: {
             roles: { include: { roles_permisos: { include: { permisos: true } } } },
           },
@@ -86,41 +96,42 @@ export class UnidadesService {
       },
     });
 
-    if (!unidad) throw new NotFoundException('Unidad no encontrada');
+    if (!base) throw new NotFoundException('Unidad no encontrada');
 
     return {
-      id: unidad.id.toString(),
-      codigo: unidad.codigo,
-      denominacion: unidad.denominacion,
-      vigente: unidad.vigente,
-      roles: unidad.unidades_roles.map((ur) => this.toRol(ur.roles)),
-      cantidadUsuarios: await this.sesiones.contarUsuariosDeUnidad(unidad.id),
-      cantidadFuncionarios: await this.contarFuncionarios(unidad.id),
+      id: base.id.toString(),
+      codigo: base.codigo,
+      denominacion: base.denominacion,
+      vigente: base.vigente,
+      comando: this.toComando(base.unidades),
+      roles: base.sub_unidades_roles.map((sr) => this.toRol(sr.roles)),
+      cantidadUsuarios: await this.sesiones.contarUsuariosDeSubUnidad(base.id),
+      cantidadFuncionarios: await this.contarFuncionarios(base.id),
     };
   }
 
-  /** Funcionarios con relación laboral activa destinados en la unidad. */
-  private contarFuncionarios(unidadId: bigint): Promise<number> {
+  /** Funcionarios con relación laboral activa en la base. */
+  private contarFuncionarios(subUnidadId: bigint): Promise<number> {
     return this.prisma.relaciones_laborales.count({
-      where: { unidad_id: unidadId, fecha_fin: null },
+      where: { sub_unidad_id: subUnidadId, fecha_fin: null },
     });
   }
 
   /**
-   * Usuarios del sistema asignados a esta unidad.
+   * Usuarios del sistema asignados a esta base.
    *
    * No confundir con el personal destinado acá: esto son cuentas de la aplicación
-   * vinculadas via `usuarios_unidades`, no legajos.
+   * vinculadas via `usuarios_sub_unidades`, no legajos.
    */
   async findUsuarios(id: string) {
-    const unidad = await this.prisma.unidades.findUnique({
+    const base = await this.prisma.sub_unidades.findUnique({
       where: { id: BigInt(id) },
       select: { id: true },
     });
-    if (!unidad) throw new NotFoundException('Unidad no encontrada');
+    if (!base) throw new NotFoundException('Unidad no encontrada');
 
-    const registros = await this.prisma.usuarios_unidades.findMany({
-      where: { unidad_id: unidad.id, usuarios: { aplicacion: APLICACION } },
+    const registros = await this.prisma.usuarios_sub_unidades.findMany({
+      where: { sub_unidad_id: base.id, usuarios: { aplicacion: APLICACION } },
       include: {
         usuarios: {
           include: {
@@ -149,19 +160,19 @@ export class UnidadesService {
   }
 
   /**
-   * Asigna usuarios del sistema a esta unidad.
+   * Asigna usuarios del sistema a esta base.
    *
-   * Inserta filas en `usuarios_unidades`, con lo que pasan a heredar los roles de la unidad y a
+   * Inserta filas en `usuarios_sub_unidades`, con lo que pasan a heredar los roles de la base y a
    * ver su personal. Como eso altera permisos efectivos, se les cierra la sesión activa.
    * NO modifica el destino de ningún funcionario.
    */
   async asignarUsuarios(id: string, usuarioIds: string[], actorId: string) {
-    const unidad = await this.prisma.unidades.findUnique({
+    const base = await this.prisma.sub_unidades.findUnique({
       where: { id: BigInt(id) },
       select: { id: true, vigente: true },
     });
-    if (!unidad) throw new NotFoundException('Unidad no encontrada');
-    if (!unidad.vigente) {
+    if (!base) throw new NotFoundException('Unidad no encontrada');
+    if (!base.vigente) {
       throw new ConflictException(
         'No se pueden asignar usuarios a una unidad que no está vigente',
       );
@@ -176,9 +187,8 @@ export class UnidadesService {
       select: { id: true, username: true },
     });
 
-    // Verificar cuáles ya están en la unidad
-    const yaAsignados = await this.prisma.usuarios_unidades.findMany({
-      where: { unidad_id: unidad.id, usuario_id: { in: usuarios.map((u) => u.id) } },
+    const yaAsignados = await this.prisma.usuarios_sub_unidades.findMany({
+      where: { sub_unidad_id: base.id, usuario_id: { in: usuarios.map((u) => u.id) } },
       select: { usuario_id: true },
     });
     const yaAsignadosSet = new Set(yaAsignados.map((r) => r.usuario_id));
@@ -188,8 +198,8 @@ export class UnidadesService {
     // afectado muestra el cambio, con las unidades que tenía antes y las que le quedan.
     for (const usuario of aMover) {
       const anteriores = await unidadesDeUsuario(this.prisma, usuario.id);
-      await this.prisma.usuarios_unidades.create({
-        data: { usuario_id: usuario.id, unidad_id: unidad.id },
+      await this.prisma.usuarios_sub_unidades.create({
+        data: { usuario_id: usuario.id, sub_unidad_id: base.id },
       });
       await this.sesiones.invalidarUsuario(usuario.id);
       void this.auditoria.registrar({
@@ -213,12 +223,12 @@ export class UnidadesService {
     };
   }
 
-  /** Saca al usuario de la unidad: deja de heredar roles de esta unidad. */
+  /** Saca al usuario de la base: deja de heredar sus roles y de ver su personal. */
   async quitarUsuario(id: string, usuarioId: string, actorId: string) {
-    const registro = await this.prisma.usuarios_unidades.findFirst({
+    const registro = await this.prisma.usuarios_sub_unidades.findFirst({
       where: {
         usuario_id: BigInt(usuarioId),
-        unidad_id: BigInt(id),
+        sub_unidad_id: BigInt(id),
         usuarios: { aplicacion: APLICACION },
       },
       include: { usuarios: { select: { username: true } } },
@@ -229,11 +239,11 @@ export class UnidadesService {
 
     const anteriores = await unidadesDeUsuario(this.prisma, BigInt(usuarioId));
 
-    await this.prisma.usuarios_unidades.delete({
+    await this.prisma.usuarios_sub_unidades.delete({
       where: {
-        usuario_id_unidad_id: {
+        usuario_id_sub_unidad_id: {
           usuario_id: BigInt(usuarioId),
-          unidad_id: BigInt(id),
+          sub_unidad_id: BigInt(id),
         },
       },
     });
@@ -256,11 +266,11 @@ export class UnidadesService {
   }
 
   async asignarRol(unidadId: string, rolId: string, actorId: string) {
-    const unidad = await this.prisma.unidades.findUnique({
+    const base = await this.prisma.sub_unidades.findUnique({
       where: { id: BigInt(unidadId) },
       select: { id: true },
     });
-    if (!unidad) throw new NotFoundException('Unidad no encontrada');
+    if (!base) throw new NotFoundException('Unidad no encontrada');
 
     const rol = await this.prisma.roles.findFirst({
       where: { id: BigInt(rolId), aplicacion: APLICACION },
@@ -268,8 +278,8 @@ export class UnidadesService {
     });
     if (!rol) throw new NotFoundException('Rol no encontrado');
 
-    const existente = await this.prisma.unidades_roles.findUnique({
-      where: { unidad_id_rol_id: { unidad_id: unidad.id, rol_id: rol.id } },
+    const existente = await this.prisma.sub_unidades_roles.findUnique({
+      where: { sub_unidad_id_rol_id: { sub_unidad_id: base.id, rol_id: rol.id } },
     });
     if (existente) {
       throw new ConflictException('El rol ya está asignado a esta unidad');
@@ -277,12 +287,12 @@ export class UnidadesService {
 
     const antes = await this.findOne(unidadId);
 
-    await this.prisma.unidades_roles.create({
-      data: { unidad_id: unidad.id, rol_id: rol.id },
+    await this.prisma.sub_unidades_roles.create({
+      data: { sub_unidad_id: base.id, rol_id: rol.id },
     });
 
-    // Cambian los permisos efectivos de todos los usuarios de la unidad.
-    await this.sesiones.invalidarPorUnidad(unidad.id);
+    // Cambian los permisos efectivos de todos los usuarios de la base.
+    await this.sesiones.invalidarPorSubUnidad(base.id);
 
     const despues = await this.findOne(unidadId);
     this.auditarCambioRoles('unidad_rol.agregar', actorId, rolId, antes, despues);
@@ -290,15 +300,15 @@ export class UnidadesService {
   }
 
   async quitarRol(unidadId: string, rolId: string, actorId: string) {
-    const unidad = await this.prisma.unidades.findUnique({
+    const base = await this.prisma.sub_unidades.findUnique({
       where: { id: BigInt(unidadId) },
       select: { id: true },
     });
-    if (!unidad) throw new NotFoundException('Unidad no encontrada');
+    if (!base) throw new NotFoundException('Unidad no encontrada');
 
-    const asignacion = await this.prisma.unidades_roles.findUnique({
+    const asignacion = await this.prisma.sub_unidades_roles.findUnique({
       where: {
-        unidad_id_rol_id: { unidad_id: unidad.id, rol_id: BigInt(rolId) },
+        sub_unidad_id_rol_id: { sub_unidad_id: base.id, rol_id: BigInt(rolId) },
       },
     });
     if (!asignacion) {
@@ -307,13 +317,13 @@ export class UnidadesService {
 
     const antes = await this.findOne(unidadId);
 
-    await this.prisma.unidades_roles.delete({
+    await this.prisma.sub_unidades_roles.delete({
       where: {
-        unidad_id_rol_id: { unidad_id: unidad.id, rol_id: BigInt(rolId) },
+        sub_unidad_id_rol_id: { sub_unidad_id: base.id, rol_id: BigInt(rolId) },
       },
     });
 
-    await this.sesiones.invalidarPorUnidad(unidad.id);
+    await this.sesiones.invalidarPorSubUnidad(base.id);
 
     const despues = await this.findOne(unidadId);
     this.auditarCambioRoles('unidad_rol.quitar', actorId, rolId, antes, despues);
@@ -341,13 +351,21 @@ export class UnidadesService {
       entidad: 'Unidad',
       entidadId: despues.id,
       detalle: {
-        unidad: { codigo: despues.codigo, denominacion: despues.denominacion },
+        unidad: {
+          codigo: despues.codigo,
+          denominacion: despues.denominacion,
+          comando: despues.comando.denominacion,
+        },
         rol,
         rolesAnteriores: antes.roles,
         rolesResultantes: despues.roles.map((r) => r.nombre),
         usuariosAfectados: despues.cantidadUsuarios,
       },
     });
+  }
+
+  private toComando(c: { id: bigint; codigo: string; denominacion: string }) {
+    return { id: c.id.toString(), codigo: c.codigo, denominacion: c.denominacion };
   }
 
   private toRol(rol: RolConPermisos) {
