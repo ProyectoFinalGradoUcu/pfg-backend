@@ -3,3 +3,7 @@
 
 # Scripts shell siempre LF, nunca CRLF
 *.sh text eol=lf
+
+# Copia sin tocar de la base del equipo de liquidación (ver su LEEME.md). No es código
+# nuestro: GitHub la muestra colapsada en los PR y no la cuenta en las estadísticas del repo.
+database/liquidacion/** linguist-generated=true linguist-vendored=true
