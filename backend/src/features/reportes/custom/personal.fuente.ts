@@ -1,3 +1,4 @@
+import { whereRelacionPorAlcance } from '../alcance-reportes';
 import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from '../definiciones/_helpers';
 import { FuenteCustom } from './fuentes.types';
 
@@ -34,6 +35,7 @@ export const personalFuente: FuenteCustom = {
       where: {
         ...(filtros.estado ? { estado: filtros.estado } : {}),
         ...(filtros.unidad_id ? { unidad_id: BigInt(filtros.unidad_id) } : {}),
+        ...whereRelacionPorAlcance(filtros),
         ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       include: {

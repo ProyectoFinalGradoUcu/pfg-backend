@@ -17,20 +17,23 @@
 --   CG  → DCG, BANDA
 --
 -- Carga 30 funcionarios repartidos en los 4 comandos, cursos, misiones,
--- ascensos, un retiro, destinos y 6 usuarios con distintos alcances.
+-- ascensos, un retiro, destinos y 8 usuarios con distintos alcances.
 --
 -- NO debe ejecutarse en producción.
 -- Idempotente: puede ejecutarse más de una vez sin efectos secundarios.
 --
 -- Usuarios de demo (contraseña de todos: FAUdemo1!). El alcance de unidad es
--- por comando, porque así se resuelve (usuarios_unidades → unidades):
+-- por base (usuarios_sub_unidades). Los usuarios "de comando" tienen asignadas
+-- todas las bases de su comando:
 --   admin@fau.mil.uy            → Administrador (lo crea seed_integracion_personal)
 --   jefe.personal@fau.mil.uy    → Oficina de Personal (alcance global)
---   jefe.cao@fau.mil.uy         → Control de cursos (alcance C.A.O.)
---   jefe.cap@fau.mil.uy         → Control de cursos (alcance C.A.P.)
---   consulta.cg@fau.mil.uy      → Consulta, solo lectura (alcance C.G.)
---   operador.cal@fau.mil.uy     → Operador de Personal (alcance C.A.L.)
---   supervisor.cao.cap@fau.mil.uy → Control de cursos (alcance C.A.O. + C.A.P.)
+--   jefe.cao@fau.mil.uy         → Control de cursos (bases del C.A.O.)
+--   jefe.cap@fau.mil.uy         → Control de cursos (bases del C.A.P.)
+--   consulta.cg@fau.mil.uy      → Consulta, solo lectura (bases del C.G.)
+--   operador.cal@fau.mil.uy     → Operador de Personal (bases del C.A.L.)
+--   supervisor.cao.cap@fau.mil.uy → Control de cursos (bases del C.A.O. y del C.A.P.)
+--   jefe.bai@fau.mil.uy         → Operador de Personal (solo B.A.I.)
+--   supervisor.bai.eta@fau.mil.uy → Control de cursos (B.A.I. y E.T.A.)
 -- ============================================================================
 
 BEGIN;
@@ -437,36 +440,22 @@ WHERE r.nombre = 'Consulta' AND r.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- SECCIÓN 10: Asignar roles a unidades (herencia)
+-- SECCIÓN 10: Asignar roles a las bases (herencia)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
--- unidades_roles es nuestra; las unidades son los comandos de liquidación.
-
--- C.A.O. y C.A.P. heredan "Control de cursos"
-INSERT INTO unidades_roles (unidad_id, rol_id)
-SELECT u.id, r.id
-FROM unidades u
-CROSS JOIN roles r
-WHERE u.codigo IN ('CAO', 'CAP')
-  AND r.nombre = 'Control de cursos' AND r.aplicacion = 'personal'
-ON CONFLICT DO NOTHING;
-
--- C.G. hereda "Consulta"
-INSERT INTO unidades_roles (unidad_id, rol_id)
-SELECT u.id, r.id
-FROM unidades u
-CROSS JOIN roles r
-WHERE u.codigo = 'CG'
-  AND r.nombre = 'Consulta' AND r.aplicacion = 'personal'
-ON CONFLICT DO NOTHING;
-
--- C.A.L. hereda "Operador de Personal"
-INSERT INTO unidades_roles (unidad_id, rol_id)
-SELECT u.id, r.id
-FROM unidades u
-CROSS JOIN roles r
-WHERE u.codigo = 'CAL'
-  AND r.nombre = 'Operador de Personal' AND r.aplicacion = 'personal'
+-- sub_unidades_roles es nuestra; las bases son las sub-unidades de liquidación.
+-- Cada rol se le da a todas las bases de un comando.
+INSERT INTO sub_unidades_roles (sub_unidad_id, rol_id)
+SELECT su.id, r.id
+FROM (VALUES
+  ('CAO', 'Control de cursos'),
+  ('CAP', 'Control de cursos'),
+  ('CG',  'Consulta'),
+  ('CAL', 'Operador de Personal')
+) AS v(comando, rol)
+JOIN unidades u     ON u.codigo = v.comando
+JOIN sub_unidades su ON su.unidad_id = u.id
+JOIN roles r        ON r.nombre = v.rol AND r.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -488,20 +477,24 @@ JOIN roles r ON r.nombre = 'Oficina de Personal' AND r.aplicacion = 'personal'
 WHERE u.username = 'jefe.personal@fau.mil.uy' AND u.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
--- 2..6: usuarios con alcance de unidad. Ninguno tiene rol directo salvo el
--- supervisor: heredan el rol del comando que tienen asignado (unidades_roles).
+-- 2..8: usuarios con alcance de unidad. Heredan el rol de las bases que tienen
+-- asignadas (sub_unidades_roles); los que tienen rol directo están más abajo.
+-- `comandos` asigna todas las bases del comando; `bases`, bases sueltas.
 CREATE TEMP TABLE tmp_demo_usuarios (
   username VARCHAR(100),
   cedula   VARCHAR(20),
-  comandos TEXT[]
+  comandos TEXT[],
+  bases    TEXT[]
 ) ON COMMIT DROP;
 
 INSERT INTO tmp_demo_usuarios VALUES
-  ('jefe.cao@fau.mil.uy',           '60000001', ARRAY['CAO']),        -- Control de cursos (h)
-  ('jefe.cap@fau.mil.uy',           '60000030', ARRAY['CAP']),        -- Control de cursos (h)
-  ('consulta.cg@fau.mil.uy',        '60000008', ARRAY['CG']),         -- Consulta (h)
-  ('operador.cal@fau.mil.uy',       '60000023', ARRAY['CAL']),        -- Operador de Personal (h)
-  ('supervisor.cao.cap@fau.mil.uy', '60000007', ARRAY['CAO', 'CAP']); -- Control de cursos (d)
+  ('jefe.cao@fau.mil.uy',           '60000001', ARRAY['CAO'],        ARRAY[]::TEXT[]),       -- Control de cursos (h)
+  ('jefe.cap@fau.mil.uy',           '60000030', ARRAY['CAP'],        ARRAY[]::TEXT[]),       -- Control de cursos (h)
+  ('consulta.cg@fau.mil.uy',        '60000008', ARRAY['CG'],         ARRAY[]::TEXT[]),       -- Consulta (h)
+  ('operador.cal@fau.mil.uy',       '60000023', ARRAY['CAL'],        ARRAY[]::TEXT[]),       -- Operador de Personal (h)
+  ('supervisor.cao.cap@fau.mil.uy', '60000007', ARRAY['CAO', 'CAP'], ARRAY[]::TEXT[]),       -- Control de cursos (d)
+  ('jefe.bai@fau.mil.uy',           '60000002', ARRAY[]::TEXT[],     ARRAY['BAI']),          -- Operador de Personal (d)
+  ('supervisor.bai.eta@fau.mil.uy', '60000017', ARRAY[]::TEXT[],     ARRAY['BAI', 'ETA']);   -- Control de cursos (h)
 
 INSERT INTO usuarios (username, password_hash, estado, aplicacion, persona_id)
 SELECT t.username, crypt('FAUdemo1!', gen_salt('bf', 12)), 'activo', 'personal', per.id
@@ -511,11 +504,12 @@ WHERE NOT EXISTS (
   SELECT 1 FROM usuarios u WHERE u.username = t.username AND u.aplicacion = 'personal'
 );
 
-INSERT INTO usuarios_unidades (usuario_id, unidad_id)
-SELECT u.id, uni.id
+INSERT INTO usuarios_sub_unidades (usuario_id, sub_unidad_id)
+SELECT u.id, su.id
 FROM tmp_demo_usuarios t
 JOIN usuarios u ON u.username = t.username AND u.aplicacion = 'personal'
-JOIN unidades uni ON uni.codigo = ANY (t.comandos)
+JOIN sub_unidades su ON su.codigo = ANY (t.bases)
+  OR su.unidad_id IN (SELECT id FROM unidades WHERE codigo = ANY (t.comandos))
 ON CONFLICT DO NOTHING;
 
 -- El supervisor tiene rol directo "Control de cursos" (para que tenga permisos .unidad
@@ -526,23 +520,33 @@ JOIN roles r ON r.nombre = 'Control de cursos' AND r.aplicacion = 'personal'
 WHERE u.username = 'supervisor.cao.cap@fau.mil.uy' AND u.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
+-- jefe.bai puede dar de alta y editar personal, pero solo de B.A.I.
+INSERT INTO usuarios_roles (usuario_id, rol_id)
+SELECT u.id, r.id FROM usuarios u
+JOIN roles r ON r.nombre = 'Operador de Personal' AND r.aplicacion = 'personal'
+WHERE u.username = 'jefe.bai@fau.mil.uy' AND u.aplicacion = 'personal'
+ON CONFLICT DO NOTHING;
+
 COMMIT;
 
 -- ============================================================================
 -- RESUMEN DE ESCENARIOS DEMO
 -- ============================================================================
 --
--- USUARIO                         COMANDOS    ROL                    ALCANCE            QUÉ PUEDE HACER
--- ─────────────────────────────── ─────────── ────────────────────── ────────────────── ─────────────────────────────────────
--- admin@fau.mil.uy                (ninguno)   Administrador          GLOBAL             Todo
--- jefe.personal@fau.mil.uy        (ninguno)   Oficina de Personal    GLOBAL             CRUD completo de todo el personal
--- jefe.cao@fau.mil.uy             CAO         Control de cursos (h)  UNIDAD(CAO)        Ver personal del C.A.O. + gestionar sus cursos
--- jefe.cap@fau.mil.uy             CAP         Control de cursos (h)  UNIDAD(CAP)        Ver personal del C.A.P. + gestionar sus cursos
--- consulta.cg@fau.mil.uy          CG          Consulta (h)           UNIDAD(CG)         Solo ver personal y cursos del C.G.
--- operador.cal@fau.mil.uy         CAL         Operador Personal (h)  UNIDAD(CAL)        CRUD personal del C.A.L. + reportes
--- supervisor.cao.cap@fau.mil.uy   CAO+CAP     Control de cursos (d)  UNIDAD(CAO,CAP)    Ver personal y cursos de AMBOS comandos
+-- USUARIO                         BASES             ROL                    QUÉ PUEDE HACER
+-- ─────────────────────────────── ───────────────── ────────────────────── ─────────────────────────────────────
+-- admin@fau.mil.uy                (ninguna)         Administrador          Todo (global)
+-- jefe.personal@fau.mil.uy        (ninguna)         Oficina de Personal    CRUD completo de todo el personal (global)
+-- jefe.cao@fau.mil.uy             las del C.A.O.    Control de cursos (h)  Ver personal del C.A.O. + gestionar sus cursos
+-- jefe.cap@fau.mil.uy             las del C.A.P.    Control de cursos (h)  Ver personal del C.A.P. + gestionar sus cursos
+-- consulta.cg@fau.mil.uy          las del C.G.      Consulta (h)           Solo ver personal y cursos del C.G.
+-- operador.cal@fau.mil.uy         las del C.A.L.    Operador Personal (h)  CRUD personal del C.A.L. + reportes
+-- supervisor.cao.cap@fau.mil.uy   C.A.O. + C.A.P.   Control de cursos (d)  Ver personal y cursos de AMBOS comandos
+-- jefe.bai@fau.mil.uy             B.A.I.            Operador Personal (d)  CRUD personal de B.A.I., no ve B.A.II.
+-- supervisor.bai.eta@fau.mil.uy   B.A.I. + E.T.A.   Control de cursos (h)  Ver personal de esas dos bases y ninguna otra
 --
--- (h) = heredado del comando   (d) = directo
+-- (h) = heredado de las bases   (d) = directo
+-- Los cursos todavía son por comando: quien tiene una base ve los cursos de su comando.
 --
 -- Funcionarios activos por comando: C.A.O. 19 (B.A.I., B.A.II., B.A.III., C.O.A.),
 -- C.A.P. 4 (E.T.A., E.M.A.), C.A.L. 4 (S.ABAST., S. MANT., S.INFRA.), C.G. 1 (D.C.G.).
@@ -555,4 +559,6 @@ COMMIT;
 -- 4. consulta.cg solo puede LEER, no editar nada
 -- 5. operador.cal puede crear/editar personas pero solo las del C.A.L.
 -- 6. admin puede gestionar usuarios, roles y unidades
+-- 7. jefe.bai NO ve a nadie de B.A.II., aunque es del mismo comando (404 en la ficha)
+-- 8. supervisor.bai.eta ve B.A.I. y E.T.A. y nada más
 -- ============================================================================

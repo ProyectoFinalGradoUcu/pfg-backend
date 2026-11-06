@@ -291,7 +291,7 @@ export class ElegibilidadService {
     if (query.categoria) where['tipo_funcionario'] = query.categoria;
 
     if (alcance?.tipo === 'unidad') {
-      where['unidad_id'] = { in: alcance.unidadIds.map((id) => BigInt(id)) };
+      where['sub_unidad_id'] = { in: alcance.subUnidadIds.map((id) => BigInt(id)) };
     }
 
     if (query.query) {

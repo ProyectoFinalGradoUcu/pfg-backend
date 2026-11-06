@@ -151,29 +151,8 @@ CREATE TABLE IF NOT EXISTS public.roles_permisos (
     PRIMARY KEY (permiso_id, rol_id)
 );
 
--- ─── 2.3 unidades_roles ────────────────────────────────────────────────────
--- Roles heredados por unidad organizativa. Los usuarios de una unidad
--- heredan estos roles además de los asignados directamente.
-
-CREATE TABLE IF NOT EXISTS public.unidades_roles (
-    unidad_id BIGINT NOT NULL REFERENCES public.unidades(id),
-    rol_id    BIGINT NOT NULL REFERENCES public.roles(id),
-    PRIMARY KEY (unidad_id, rol_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_unidades_roles_rol ON public.unidades_roles (rol_id);
-
--- ─── 2.4 usuarios_unidades ─────────────────────────────────────────────────
--- Relación N:M entre usuarios y unidades. Un usuario puede pertenecer a
--- múltiples unidades y ver/gestionar datos de todas ellas simultáneamente.
-
-CREATE TABLE IF NOT EXISTS public.usuarios_unidades (
-    usuario_id BIGINT NOT NULL REFERENCES public.usuarios(id),
-    unidad_id  BIGINT NOT NULL REFERENCES public.unidades(id),
-    PRIMARY KEY (usuario_id, unidad_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_usuarios_unidades_unidad ON public.usuarios_unidades (unidad_id);
+-- 2.3 y 2.4 (unidades_roles, usuarios_unidades) se reemplazaron por las tablas
+-- por base de migration_alcance_por_base.sql.
 
 -- ─── 2.5 invitaciones ──────────────────────────────────────────────────────
 -- Sistema de invitación para creación de cuentas de usuario.

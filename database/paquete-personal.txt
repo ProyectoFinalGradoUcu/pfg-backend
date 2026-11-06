@@ -41,3 +41,5 @@ scripts/migration_comisiones_cargo.sql
 scripts/migration_comisiones_importadas.sql
 # El destino guarda la sub-unidad (B.A.I., E.M.A., ...); la unidad es su comando.
 scripts/migration_destinos_sub_unidad.sql
+# Alcance y roles heredados por base (sub-unidad) en lugar de por comando.
+scripts/migration_alcance_por_base.sql

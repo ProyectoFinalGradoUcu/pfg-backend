@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service.js';
 import {
   AlcanceResuelto,
-  unidadIdsDeAlcance,
+  subUnidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types.js';
 import { wherePersonasPorAlcance } from '../../lib/alcance/alcance.where.js';
 import {
@@ -89,8 +89,8 @@ interface Integrante {
   cedula: string;
   gradoId: bigint;
   escalafonId: bigint;
-  /** Unidad de la relación: el alcance `.unidad` filtra las lecturas con esto. */
-  unidadId: bigint | null;
+  /** Base de la relación: el alcance `.unidad` filtra las lecturas con esto. */
+  subUnidadId: bigint | null;
   derecha: number | null;
   numor: number | null;
   escala: EscalaDerecha | null;
@@ -119,7 +119,7 @@ const SELECT_INTEGRANTE = {
   persona_id: true,
   grado_id: true,
   escalafon_id: true,
-  unidad_id: true,
+  sub_unidad_id: true,
   derecha: true,
   numor: true,
   escala_derecha: true,
@@ -150,7 +150,7 @@ const aIntegrante = (r: FilaIntegrante): Integrante => ({
   cedula: r.personas.cedula,
   gradoId: r.grado_id,
   escalafonId: r.escalafon_id,
-  unidadId: r.unidad_id,
+  subUnidadId: r.sub_unidad_id,
   derecha: r.derecha,
   numor: r.numor,
   escala: r.escala_derecha as EscalaDerecha | null,
@@ -164,11 +164,11 @@ const compararNulosAlFinal = (a: number | null, b: number | null) => {
   return a - b;
 };
 
-/** Filtro de lectura por alcance: con `.unidad`, solo los de las unidades del usuario. */
+/** Filtro de lectura por alcance: con `.unidad`, solo los de las bases del usuario. */
 const visiblePorAlcance = (alcance?: AlcanceResuelto) => {
-  const unidades = alcance ? unidadIdsDeAlcance(alcance) : null;
-  return (i: Pick<Integrante, 'unidadId'>) =>
-    unidades === null || (i.unidadId !== null && unidades.includes(i.unidadId));
+  const bases = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+  return (i: Pick<Integrante, 'subUnidadId'>) =>
+    bases === null || (i.subUnidadId !== null && bases.includes(i.subUnidadId));
 };
 
 const compararIds = (a: bigint, b: bigint) => (a < b ? -1 : a > b ? 1 : 0);
@@ -643,11 +643,11 @@ export class DerechaService {
     plan.aplicar(padron);
     const impacto = this.calcularImpacto(padron, guardados).impacto;
 
-    const unidades = alcance ? unidadIdsDeAlcance(alcance) : null;
-    if (unidades === null) return impacto;
+    const bases = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+    if (bases === null) return impacto;
     const propias = new Set(
       guardados
-        .filter((g) => g.vigente && g.unidadId !== null && unidades.includes(g.unidadId))
+        .filter((g) => g.vigente && g.subUnidadId !== null && bases.includes(g.subUnidadId))
         .map((g) => g.personaId.toString()),
     );
     const ve = (a: Afectado) => a.persona_id === null || propias.has(a.persona_id);
@@ -1031,7 +1031,7 @@ export class DerechaService {
           cedula: '',
           gradoId: BigInt(requerir(dto.grado_id, 'grado_id o persona_id')),
           escalafonId: BigInt(requerir(dto.escalafon_id, 'escalafon_id')),
-          unidadId: null,
+          subUnidadId: null,
           derecha: null,
           numor: null,
           escala: null,

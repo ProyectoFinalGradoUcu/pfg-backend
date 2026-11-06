@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../../lib/prisma.service';
 import {
   AlcanceResuelto,
-  unidadIdDeAlcance,
+  comandoIdsDeAlcance,
 } from '../../lib/alcance/alcance.types';
 import {
   assertCursoGestionableEnAlcance,
@@ -48,9 +48,10 @@ export class CursosService {
           nombre_curso: dto.nombre_curso,
           institucion: dto.institucion,
           es_obligatorio: dto.es_obligatorio ?? true,
-          // Con alcance de unidad el curso queda bajo la unidad del usuario.
-          // Con alcance global queda como curso general de la fuerza (`unidad_id` nulo).
-          unidad_id: alcance ? unidadIdDeAlcance(alcance) : null,
+          // Con alcance de unidad el curso queda bajo el comando de la base del usuario
+          // (los cursos todavía se guardan por comando). Con alcance global queda como
+          // curso general de la fuerza (`unidad_id` nulo).
+          unidad_id: alcance ? (comandoIdsDeAlcance(alcance)?.[0] ?? null) : null,
         },
       });
 

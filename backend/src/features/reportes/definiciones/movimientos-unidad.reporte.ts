@@ -1,3 +1,4 @@
+import { whereRelacionPorAlcance } from '../alcance-reportes';
 import {
   ColumnaReporte,
   ContextoEjecucion,
@@ -42,16 +43,14 @@ export const movimientosUnidadReporte: DefinicionReporte = {
 
     const categoria = categoriaDeFiltros(filtros);
 
+    const relacion = {
+      ...(unidadId ? { unidad_id: unidadId } : {}),
+      ...whereRelacionPorAlcance(filtros),
+      ...(categoria ? { tipo_funcionario: categoria } : {}),
+    };
+
     const movimientos = await prisma.movimientos_laborales.findMany({
-      where:
-        unidadId || categoria
-          ? {
-              relaciones_laborales: {
-                ...(unidadId ? { unidad_id: unidadId } : {}),
-                ...(categoria ? { tipo_funcionario: categoria } : {}),
-              },
-            }
-          : {},
+      where: Object.keys(relacion).length ? { relaciones_laborales: relacion } : {},
       include: {
         tipos_movimiento: true,
         relaciones_laborales: {

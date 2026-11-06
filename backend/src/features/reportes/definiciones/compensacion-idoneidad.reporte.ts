@@ -1,3 +1,4 @@
+import { whereRelacionPorAlcance } from '../alcance-reportes';
 import {
   ColumnaReporte,
   ContextoEjecucion,
@@ -45,6 +46,7 @@ export const compensacionIdoneidadReporte: DefinicionReporte = {
         estado: 'activo',
         superprima: true,
         ...(unidadId ? { unidad_id: unidadId } : {}),
+        ...whereRelacionPorAlcance(filtros),
         ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       include: {

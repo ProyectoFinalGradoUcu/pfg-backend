@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service.js';
 import {
   AlcanceResuelto,
-  unidadIdsDeAlcance,
+  subUnidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types.js';
 import {
   AscensoRegistroService,
@@ -103,16 +103,15 @@ export class OrdenesAscensoService {
         })
       ).map((p) => [p.id.toString(), p]),
     );
-    const unidadesDelUsuario = alcance ? unidadIdsDeAlcance(alcance) : null;
+    const basesDelUsuario = alcance ? subUnidadIdsDeAlcance(alcance) : null;
     for (const f of dto.funcionarios) {
       const clave = String(f.persona_id);
       const persona = personas.get(clave);
-      const unidad = vigentes.get(clave)?.unidad_id ?? null;
+      const base = vigentes.get(clave)?.sub_unidad_id ?? null;
       // Fuera del alcance responde igual que si no existiera: un 403 confirmaría
       // que la persona está en otra unidad (spec 002 §7).
       const fueraDeAlcance =
-        unidadesDelUsuario !== null &&
-        (unidad === null || !unidadesDelUsuario.includes(unidad));
+        basesDelUsuario !== null && (base === null || !basesDelUsuario.includes(base));
       if (!persona || fueraDeAlcance) {
         throw new NotFoundException(`No existe el funcionario ${f.persona_id}`);
       }
@@ -239,12 +238,12 @@ export class OrdenesAscensoService {
    * ascenso quedaría invisible para su propia unidad.
    */
   private filtroAscensosPorAlcance(alcance?: AlcanceResuelto): Prisma.ascensosWhereInput | null {
-    const unidades = alcance ? unidadIdsDeAlcance(alcance) : null;
-    if (unidades === null) return null;
+    const bases = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+    if (bases === null) return null;
     return {
       OR: [
-        { relacion_laboral_nueva: { unidad_id: { in: unidades } } },
-        { relacion_laboral_anterior: { unidad_id: { in: unidades } } },
+        { relacion_laboral_nueva: { sub_unidad_id: { in: bases } } },
+        { relacion_laboral_anterior: { sub_unidad_id: { in: bases } } },
       ],
     };
   }
@@ -258,6 +257,7 @@ export class OrdenesAscensoService {
         id: true,
         persona_id: true,
         unidad_id: true,
+        sub_unidad_id: true,
         grados: { select: { codigo: true, denominacion: true } },
       },
     });

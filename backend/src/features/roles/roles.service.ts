@@ -124,7 +124,7 @@ export class RolesService {
     const rol = await this.prisma.roles.findFirst({
       where: { id: BigInt(id), aplicacion: APLICACION },
       include: {
-        _count: { select: { usuarios_roles: true, unidades_roles: true } },
+        _count: { select: { usuarios_roles: true, sub_unidades_roles: true } },
       },
     });
     if (!rol) throw new NotFoundException('Rol no encontrado');
@@ -134,7 +134,7 @@ export class RolesService {
     if (rol._count.usuarios_roles > 0) {
       throw new ConflictException('No se puede eliminar un rol con usuarios asignados');
     }
-    if (rol._count.unidades_roles > 0) {
+    if (rol._count.sub_unidades_roles > 0) {
       throw new ConflictException(
         'No se puede eliminar un rol asignado a una o más unidades',
       );

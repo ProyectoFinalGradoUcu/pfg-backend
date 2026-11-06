@@ -3,13 +3,14 @@
  *
  * - `global`: el usuario tiene el permiso base (ej. `personas.ver`) y opera sobre todos los registros.
  * - `unidad`: el usuario tiene la variante `.unidad` (ej. `personas.ver.unidad`) y solo opera sobre
- *   los registros de sus unidades asignadas.
+ *   los registros de las bases (sub-unidades) que tiene asignadas. `comandoIds` son los comandos de
+ *   esas bases, para lo que todavía se guarda por comando (cursos).
  *
  * Ver spec 002 §3 "Permisos: alcance global vs alcance de unidad".
  */
 export type AlcanceResuelto =
   | { tipo: 'global' }
-  | { tipo: 'unidad'; unidadIds: string[] };
+  | { tipo: 'unidad'; subUnidadIds: string[]; comandoIds: string[] };
 
 /** Sufijo que distingue la variante restringida de un permiso segmentable. */
 export const SUFIJO_UNIDAD = '.unidad';
@@ -18,18 +19,14 @@ export const SUFIJO_UNIDAD = '.unidad';
 export const permisoDeUnidad = (permisoBase: string): string =>
   `${permisoBase}${SUFIJO_UNIDAD}`;
 
-/**
- * Array de `unidad_id` a forzar en las consultas, o `null` si el alcance es global.
- * Pensado para los services que ya arman su propio `where` y solo necesitan los valores.
- */
-export const unidadIdsDeAlcance = (alcance: AlcanceResuelto): bigint[] | null =>
+/** Ids de las bases del usuario, o `null` si el alcance es global. */
+export const subUnidadIdsDeAlcance = (alcance: AlcanceResuelto): bigint[] | null =>
   alcance.tipo === 'global'
     ? null
-    : alcance.unidadIds.map((id) => BigInt(id));
+    : alcance.subUnidadIds.map((id) => BigInt(id));
 
-/**
- * @deprecated Usa `unidadIdsDeAlcance` en su lugar. Se mantiene por compatibilidad temporal.
- * Devuelve el primer unidadId o null si es global.
- */
-export const unidadIdDeAlcance = (alcance: AlcanceResuelto): bigint | null =>
-  alcance.tipo === 'global' ? null : BigInt(alcance.unidadIds[0]);
+/** Ids de los comandos de esas bases, o `null` si el alcance es global. */
+export const comandoIdsDeAlcance = (alcance: AlcanceResuelto): bigint[] | null =>
+  alcance.tipo === 'global'
+    ? null
+    : alcance.comandoIds.map((id) => BigInt(id));

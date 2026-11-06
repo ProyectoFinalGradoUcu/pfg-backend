@@ -680,20 +680,25 @@ describe('DerechaService', () => {
     });
   });
 
-  // ─── Alcance por unidad ─────────────────────────────────────────────────────
+  // ─── Alcance por base ───────────────────────────────────────────────────────
 
-  describe('alcance por unidad', () => {
-    // p2 y p4 (Brig. AV) y p8 (Sgto.) están en la unidad 20; el resto, en la 10.
-    const enUnidad20 = new Set(['2', '4', '8']);
-    const alcance20 = { tipo: 'unidad' as const, unidadIds: ['20'] };
+  describe('alcance por base', () => {
+    // p2 y p4 (Brig. AV) y p8 (Sgto.) están en la base 20; el resto, en la 10.
+    // Las dos bases son del mismo comando, así que lo que filtra es la base.
+    const enBase20 = new Set(['2', '4', '8']);
+    const alcance20 = { tipo: 'unidad' as const, subUnidadIds: ['20'], comandoIds: ['1'] };
 
     beforeEach(() =>
       crear(
-        makeFilas().map((r) => ({ ...r, unidad_id: enUnidad20.has(String(r.persona_id)) ? 20n : 10n })),
+        makeFilas().map((r) => ({
+          ...r,
+          unidad_id: 1n,
+          sub_unidad_id: enBase20.has(String(r.persona_id)) ? 20n : 10n,
+        })),
       ),
     );
 
-    it('el listado del personal trae solo a los de sus unidades', async () => {
+    it('el listado del personal trae solo a los de sus bases', async () => {
       const r = await service.listarPersonal(alcance20);
       expect(r.map((x) => x.persona_id)).toEqual(['2', '4', '8']);
     });
@@ -703,7 +708,7 @@ describe('DerechaService', () => {
       expect(r).toHaveLength(9);
     });
 
-    it('la sugerencia de orden no expone a los de otras unidades, pero el orden es del grado entero', async () => {
+    it('la sugerencia de orden no expone a los de otras bases, pero el orden es del grado entero', async () => {
       const r = await service.sugerirOrden(Number(GRADOS.BRIG), 'EGRESO', alcance20);
 
       expect(r.items.map((i) => i.persona_id)).toEqual(['2', '4']);
@@ -727,7 +732,7 @@ describe('DerechaService', () => {
       expect(r.items.map((i) => i.persona_id)).toEqual(['2', '4']);
     });
 
-    it('la previsualización solo muestra afectados de sus unidades', async () => {
+    it('la previsualización solo muestra afectados de sus bases', async () => {
       const r = await service.previsualizar(
         { operacion: 'REORDEN', grado_id: Number(GRADOS.BRIG), persona_id: 4, posicion: 1 },
         alcance20,
@@ -737,14 +742,14 @@ describe('DerechaService', () => {
       expect(r.afectados).toBe(2);
     });
 
-    it('el historial filtra por personas con relación activa en sus unidades', async () => {
+    it('el historial filtra por personas con relación activa en sus bases', async () => {
       prisma.historial_derecha_numor.count = jest.fn().mockResolvedValue(0);
       prisma.historial_derecha_numor.findMany = jest.fn().mockResolvedValue([]);
 
       await service.historial({}, alcance20);
 
       expect(prisma.historial_derecha_numor.findMany.mock.calls[0][0].where).toEqual({
-        personas: { relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [20n] } } } },
+        personas: { relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [20n] } } } },
       });
     });
   });
