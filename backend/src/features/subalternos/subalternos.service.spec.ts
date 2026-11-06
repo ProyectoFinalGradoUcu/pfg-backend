@@ -365,7 +365,7 @@ describe('SubalternosService', () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await service.create(dto);
       expect(prisma.destinos.create).toHaveBeenCalledWith({
-        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dto.fecha_inicio) },
+        data: { persona_id: 1n, unidad_id: 1n, sub_unidad_id: null, fecha_inicio: new Date(dto.fecha_inicio) },
       });
     });
 
@@ -510,7 +510,7 @@ describe('SubalternosService', () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await service.createPersonal(dtoMilitar);
       expect(prisma.destinos.create).toHaveBeenCalledWith({
-        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
+        data: { persona_id: 1n, unidad_id: 1n, sub_unidad_id: null, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
       });
     });
   });

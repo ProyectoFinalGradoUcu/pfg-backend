@@ -532,17 +532,22 @@ export class PersonalPerfilService {
     const asignaciones = await this.prisma.destinos.findMany({
       where: { persona_id: BigInt(id) },
       include: {
-        unidades: { select: { id: true, codigo: true, denominacion: true, tipo: true } },
+        unidades: { select: { id: true, codigo: true, denominacion: true } },
+        sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
       },
       orderBy: { fecha_inicio: 'desc' },
     });
 
+    // `unidad` es el comando; el destino propiamente dicho es la sub-unidad (null en
+    // históricos cargados antes de que el destino la guardara).
     return asignaciones.map((a) => ({
       id: a.id.toString(),
       unidad_id: a.unidad_id ? a.unidad_id.toString() : null,
       unidad: a.unidades?.denominacion ?? null,
       codigo_unidad: a.unidades?.codigo ?? null,
-      tipo_unidad: a.unidades?.tipo ?? null,
+      sub_unidad_id: a.sub_unidad_id ? a.sub_unidad_id.toString() : null,
+      sub_unidad: a.sub_unidades?.denominacion ?? null,
+      codigo_sub_unidad: a.sub_unidades?.codigo ?? null,
       posicion_destino: a.posicion_destino,
       fecha_inicio: a.fecha_inicio ? a.fecha_inicio.toISOString().split('T')[0] : null,
       fecha_fin: a.fecha_fin ? a.fecha_fin.toISOString().split('T')[0] : null,

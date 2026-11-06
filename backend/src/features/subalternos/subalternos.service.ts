@@ -187,7 +187,10 @@ export class SubalternosService {
         where: { fecha_fin: null },
         orderBy: { fecha_inicio: 'desc' as const },
         take: 1,
-        select: { unidades: { select: { denominacion: true } } },
+        select: {
+          unidades: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
+        },
       },
     };
 
@@ -230,7 +233,9 @@ export class SubalternosService {
           nombre,
           cedula: p.cedula,
           rango: rel?.grados?.denominacion ?? null,
-          destino: p.destinos[0]?.unidades?.denominacion ?? null,
+          // El destino es la sub-unidad (B.A.I.); si un histórico no la tiene, se muestra el comando.
+          destino:
+            p.destinos[0]?.sub_unidades?.denominacion ?? p.destinos[0]?.unidades?.denominacion ?? null,
           estado: rel?.situaciones?.denominacion ?? null,
           relacion_estado: rel?.estado ?? null,
           escalafon: rel?.escalafones?.codigo ?? null,
@@ -304,6 +309,7 @@ export class SubalternosService {
         data: {
           persona_id: persona.id,
           unidad_id: BigInt(dto.unidad_id),
+          sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null,
           fecha_inicio: new Date(dto.fecha_inicio),
         },
       });
@@ -563,6 +569,7 @@ export class SubalternosService {
           data: {
             persona_id: persona.id,
             unidad_id: BigInt(dto.unidad_id!),
+            sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null,
             fecha_inicio: new Date(dto.fecha_inicio!),
           },
         });

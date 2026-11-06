@@ -233,6 +233,8 @@ model destinos {
   id               BigInt    @id @default(autoincrement())
   persona_id       BigInt?
   unidad_id        BigInt?
+  /// Dónde revista (B.A.I., E.M.A., ...). `unidad_id` es su comando. Ver migration_destinos_sub_unidad.sql.
+  sub_unidad_id    BigInt?
   fecha_inicio     DateTime? @db.Date
   fecha_fin        DateTime? @db.Date
   posicion_destino String?   @db.VarChar(200)
@@ -245,9 +247,11 @@ model destinos {
   fecha_resolucion DateTime? @db.Date
   observaciones    String?
   unidades         unidades? @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades     sub_unidades? @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   personas         personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([unidad_id], map: "idx_destinos_unidad")
+  @@index([sub_unidad_id], map: "idx_destinos_sub_unidad")
 }
 
 model comisiones {
@@ -380,6 +384,7 @@ model sub_unidades {
   denominacion         String                 @db.VarChar(150)
   vigente              Boolean                @default(true)
   relaciones_laborales relaciones_laborales[]
+  destinos             destinos[]
   unidades             unidades               @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([unidad_id, codigo])

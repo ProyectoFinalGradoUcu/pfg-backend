@@ -2,7 +2,7 @@ import { IsOptional, IsString, IsInt, IsBoolean, Min, Max, MaxLength } from 'cla
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-export class ListUnidadesQueryDto {
+export class ListSubUnidadesQueryDto {
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @Transform(({ value }) => Number(value))
@@ -18,17 +18,17 @@ export class ListUnidadesQueryDto {
   @Max(200)
   pageSize?: number;
 
-  @ApiPropertyOptional({ example: 'Cuartel', description: 'Filtra por denominación (parcial)' })
+  @ApiPropertyOptional({ example: 'B.A.', description: 'Filtra por código o denominación (parcial)' })
   @IsOptional()
   @IsString()
   @MaxLength(150)
   query?: string;
 
-  @ApiPropertyOptional({ example: 'Unidad', description: "'Unidad' u 'Organismo'" })
+  @ApiPropertyOptional({ example: 1, description: 'Filtra por comando (unidad de liquidación)' })
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  tipo?: string;
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  unidad_id?: number;
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()

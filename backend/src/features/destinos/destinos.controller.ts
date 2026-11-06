@@ -26,7 +26,7 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 import { CreateDestinoDto } from './dto/create-destino.dto';
 import { UpdateDestinoDto } from './dto/update-destino.dto';
 import { ListDestinosQueryDto } from './dto/list-destinos-query.dto';
-import { ListUnidadesQueryDto } from './dto/list-unidades-query.dto';
+import { ListSubUnidadesQueryDto } from './dto/list-sub-unidades-query.dto';
 import { ListFuncionariosUnidadQueryDto } from './dto/list-funcionarios-unidad-query.dto';
 
 @ApiTags('Destinos')
@@ -39,24 +39,26 @@ export class DestinosController {
     private readonly cargaService: DestinosCargaService,
   ) {}
 
-  // ─── Unidades ──────────────────────────────────────────────────────────────
+  // ─── Sub-unidades (los destinos posibles) ──────────────────────────────────
   // DEBEN ir antes de /:destinoId para que Express no las tome como un id.
 
-  @Get('unidades')
-  @ApiOperation({ summary: 'Listar unidades con su total de destinados actuales' })
+  @Get('sub-unidades')
+  @ApiOperation({
+    summary: 'Listar sub-unidades (con su comando) y su total de destinados actuales',
+  })
   @RequirePermissions('destinos.ver')
-  listarUnidades(@Query() query: ListUnidadesQueryDto) {
-    return this.destinosService.listarUnidades(query);
+  listarSubUnidades(@Query() query: ListSubUnidadesQueryDto) {
+    return this.destinosService.listarSubUnidades(query);
   }
 
-  @Get('unidades/:unidadId/funcionarios')
-  @ApiOperation({ summary: 'Listar los funcionarios destinados a una unidad' })
+  @Get('sub-unidades/:subUnidadId/funcionarios')
+  @ApiOperation({ summary: 'Listar los funcionarios destinados a una sub-unidad' })
   @RequirePermissions('destinos.ver')
-  listarFuncionariosUnidad(
-    @Param('unidadId', ParseIntPipe) unidadId: number,
+  listarFuncionariosSubUnidad(
+    @Param('subUnidadId', ParseIntPipe) subUnidadId: number,
     @Query() query: ListFuncionariosUnidadQueryDto,
   ) {
-    return this.destinosService.listarFuncionariosUnidad(unidadId, query);
+    return this.destinosService.listarFuncionariosSubUnidad(subUnidadId, query);
   }
 
   // ─── Carga masiva (antes de /:destinoId) ──────────────────────────────────
