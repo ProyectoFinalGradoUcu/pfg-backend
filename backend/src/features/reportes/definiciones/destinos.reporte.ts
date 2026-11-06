@@ -14,7 +14,7 @@ const COLUMNAS: ColumnaReporte[] = [
   { clave: 'apellido', etiqueta: 'Apellido', tipo: 'texto' },
   { clave: 'nombre', etiqueta: 'Nombre', tipo: 'texto' },
   { clave: 'destino', etiqueta: 'Destino', tipo: 'texto' },
-  { clave: 'tipo_destino', etiqueta: 'Tipo', tipo: 'texto' },
+  { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
   { clave: 'cargo', etiqueta: 'Cargo', tipo: 'texto' },
   { clave: 'fecha_destino', etiqueta: 'Fecha destino', tipo: 'fecha' },
   { clave: 'fecha_fin', etiqueta: 'Fecha fin', tipo: 'fecha' },
@@ -43,6 +43,7 @@ export const destinosReporte: DefinicionReporte = {
       where: categoria ? { personas: wherePersonaPorCategoria(categoria) } : {},
       include: {
         unidades: true,
+        sub_unidades: true,
         personas: {
           include: {
             relaciones_laborales: {
@@ -64,8 +65,8 @@ export const destinosReporte: DefinicionReporte = {
         escalafon: rel?.escalafones?.codigo ?? '',
         apellido: unir(a.personas?.primer_apellido, a.personas?.segundo_apellido),
         nombre: unir(a.personas?.primer_nombre, a.personas?.segundo_nombre),
-        destino: a.unidades?.denominacion ?? '',
-        tipo_destino: a.unidades?.tipo ?? '',
+        destino: a.sub_unidades?.denominacion ?? '',
+        comando: a.unidades?.denominacion ?? '',
         cargo: a.posicion_destino ?? '',
         fecha_destino: fmtFecha(a.fecha_inicio),
         fecha_fin: fmtFecha(a.fecha_fin),

@@ -9,6 +9,7 @@ const makeAsignacion = (overrides: Partial<any> = {}) => ({
   id: 200n,
   persona_id: 100n,
   unidad_id: 5n,
+  sub_unidad_id: 17n,
   fecha_inicio: new Date('2024-04-30'),
   fecha_fin: null,
   posicion_destino: 'Sub-Jefe de Personal A-1',
@@ -18,8 +19,12 @@ const makeAsignacion = (overrides: Partial<any> = {}) => ({
   unidades: {
     id: 5n,
     codigo: 'CG',
-    denominacion: 'Cuartel General',
-    tipo: 'Unidad',
+    denominacion: 'C.G.',
+  },
+  sub_unidades: {
+    id: 17n,
+    codigo: 'DCG',
+    denominacion: 'D.C.G.',
   },
   ...overrides,
 });
@@ -125,9 +130,11 @@ describe('PersonalPerfilService', () => {
         {
           id: '200',
           unidad_id: '5',
-          unidad: 'Cuartel General',
+          unidad: 'C.G.',
           codigo_unidad: 'CG',
-          tipo_unidad: 'Unidad',
+          sub_unidad_id: '17',
+          sub_unidad: 'D.C.G.',
+          codigo_sub_unidad: 'DCG',
           posicion_destino: 'Sub-Jefe de Personal A-1',
           fecha_inicio: '2024-04-30',
           fecha_fin: null,

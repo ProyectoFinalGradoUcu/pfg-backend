@@ -1338,6 +1338,8 @@ export class RetirosService {
         data: {
           persona_id: retiro.persona_id,
           unidad_id: unidadId,
+          // Misma sub-unidad que la relación nueva: se conserva si vuelve al mismo comando.
+          sub_unidad_id: relacion.sub_unidad_id,
           fecha_inicio: fecha,
           posicion_destino: dto.posicion_destino ?? null,
           numero_orden: dto.numero_orden ?? null,

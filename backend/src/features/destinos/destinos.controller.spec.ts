@@ -24,14 +24,14 @@ const handlersEnOrden = () =>
 
 describe('DestinosController · rutas', () => {
   // Express resuelve en orden de declaración: si ':destinoId' se declara antes
-  // que 'unidades', un GET /destinos/unidades entra por el handler del id y
+  // que 'sub-unidades', un GET /destinos/sub-unidades entra por el handler del id y
   // ParseIntPipe lo rechaza con 400.
-  it('declara las rutas de unidades antes que la ruta con :destinoId', () => {
+  it('declara las rutas de sub-unidades antes que la ruta con :destinoId', () => {
     const rutas = handlersEnOrden();
 
-    const idxUnidades = rutas.findIndex((r) => r.path === 'unidades');
+    const idxUnidades = rutas.findIndex((r) => r.path === 'sub-unidades');
     const idxUnidadFuncionarios = rutas.findIndex(
-      (r) => r.path === 'unidades/:unidadId/funcionarios',
+      (r) => r.path === 'sub-unidades/:subUnidadId/funcionarios',
     );
     const idxPorId = rutas.findIndex(
       (r) => r.path === ':destinoId' && r.method === RequestMethod.GET,
@@ -59,8 +59,8 @@ describe('DestinosController · rutas', () => {
 
     expect(rutas.sort()).toEqual(
       [
-        'GET unidades',
-        'GET unidades/:unidadId/funcionarios',
+        'GET sub-unidades',
+        'GET sub-unidades/:subUnidadId/funcionarios',
         'GET carga-masiva/plantilla',
         'POST carga-masiva',
         'GET /',
@@ -80,8 +80,8 @@ describe('DestinosController · permisos', () => {
   it.each([
     ['listarDestinos', 'destinos.ver'],
     ['obtenerDestino', 'destinos.ver'],
-    ['listarUnidades', 'destinos.ver'],
-    ['listarFuncionariosUnidad', 'destinos.ver'],
+    ['listarSubUnidades', 'destinos.ver'],
+    ['listarFuncionariosSubUnidad', 'destinos.ver'],
   ])('%s exige %s', (handler, permiso) => {
     expect(permisoDe(handler)).toEqual([permiso]);
   });
@@ -123,8 +123,8 @@ describe('DestinosController · delegación', () => {
       crearDestino: jest.fn(),
       editarDestino: jest.fn(),
       eliminarDestino: jest.fn(),
-      listarUnidades: jest.fn(),
-      listarFuncionariosUnidad: jest.fn(),
+      listarSubUnidades: jest.fn(),
+      listarFuncionariosSubUnidad: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -159,7 +159,7 @@ describe('DestinosController · delegación', () => {
   });
 
   it('pasa el dto al crear', () => {
-    const dto = { persona_id: 1, unidad_id: 2, fecha_inicio: '2026-09-01', numero_orden: 'O.D. 1' };
+    const dto = { persona_id: 1, sub_unidad_id: 2, fecha_inicio: '2026-09-01', numero_orden: 'O.D. 1' };
 
     controller.crearDestino(dto);
 
@@ -178,9 +178,9 @@ describe('DestinosController · delegación', () => {
     expect(service.eliminarDestino).toHaveBeenCalledWith(200);
   });
 
-  it('pasa unidadId y query al listar la dotación de una unidad', () => {
-    controller.listarFuncionariosUnidad(5, { activo: true });
+  it('pasa subUnidadId y query al listar la dotación de una sub-unidad', () => {
+    controller.listarFuncionariosSubUnidad(5, { activo: true });
 
-    expect(service.listarFuncionariosUnidad).toHaveBeenCalledWith(5, { activo: true });
+    expect(service.listarFuncionariosSubUnidad).toHaveBeenCalledWith(5, { activo: true });
   });
 });
