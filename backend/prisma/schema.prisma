@@ -97,6 +97,8 @@ model archivos {
   usuarios_archivos_subido_porTousuarios    usuarios?  @relation("archivos_subido_porTousuarios", fields: [subido_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_archivos_eliminado_porTousuarios usuarios?  @relation("archivos_eliminado_porTousuarios", fields: [eliminado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   personas_documentos                       personas_documentos?
+  retiros_orden                             retiros[]  @relation("retiros_archivo_orden")
+  retiros_boletin                           retiros[]  @relation("retiros_archivo_boletin")
 
   @@unique([bucket, object_key], map: "ux_archivos_object_key")
   @@index([sha256], map: "ix_archivos_sha256")
@@ -1164,12 +1166,16 @@ model retiros {
   motivo_anulacion      String?
   fecha_anulacion       DateTime?              @db.Timestamptz(6)
   anulado_por           BigInt?
+  archivo_orden_id      BigInt?
+  archivo_boletin_id    BigInt?
   personas              personas               @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   relaciones_laborales  relaciones_laborales   @relation(fields: [relacion_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   motivos_baja          motivos_baja           @relation(fields: [motivo_baja_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   movimientos_laborales movimientos_laborales? @relation(fields: [movimiento_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_registro     usuarios?              @relation("retiros_registrado_por", fields: [registrado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_anulacion    usuarios?              @relation("retiros_anulado_por", fields: [anulado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_orden         archivos?              @relation("retiros_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin       archivos?              @relation("retiros_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([persona_id], map: "idx_retiros_persona")
   @@index([fecha_retiro], map: "idx_retiros_fecha")

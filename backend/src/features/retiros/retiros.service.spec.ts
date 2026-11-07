@@ -9,6 +9,7 @@ import { RetirosService } from './retiros.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { CierreCarreraService } from './cierre-carrera.service';
 import { DerechaService } from '../derecha/derecha.service';
+import { SELECT_DOCUMENTO_RETIRO } from './retiros-documentos.service';
 
 import {
   makeGrado,
@@ -587,6 +588,47 @@ describe('RetirosService', () => {
       prisma.retiros.findUnique.mockResolvedValue(null);
 
       await expect(service.obtener(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('el detalle trae los documentos de orden y boletín', async () => {
+      const subido = new Date('2026-11-06T12:00:00Z');
+      prisma.retiros.findUnique.mockResolvedValue(
+        makeRetiro({
+          archivo_orden: {
+            nombre_original: 'orden.pdf',
+            content_type: 'application/pdf',
+            tamanio_bytes: 340n,
+            subido_en: subido,
+          },
+        }),
+      );
+
+      const result = await service.obtener(88);
+
+      expect(result.documentos).toEqual({
+        orden: {
+          nombre_original: 'orden.pdf',
+          content_type: 'application/pdf',
+          tamanio_bytes: 340n,
+          subido_en: subido,
+        },
+        boletin: null,
+      });
+    });
+
+    it('el detalle pide las relaciones de archivos', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(makeRetiro());
+
+      await service.obtener(88);
+
+      expect(prisma.retiros.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            archivo_orden: { select: SELECT_DOCUMENTO_RETIRO },
+            archivo_boletin: { select: SELECT_DOCUMENTO_RETIRO },
+          }),
+        }),
+      );
     });
   });
   // ─── corregir ───────────────────────────────────────────────────────────────
