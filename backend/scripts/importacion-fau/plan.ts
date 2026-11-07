@@ -10,7 +10,7 @@
  *  - Volver a correr no duplica: un período con la misma persona, fecha de ingreso y grado se saltea.
  */
 import { PoolClient } from 'pg';
-import { Catalogos, Ref } from './catalogos.js';
+import { Catalogos, Lugar, Ref } from './catalogos.js';
 import {
   actaNivel, aniosEntre, anioAscenso, ANIOS_GRADO_OFICIAL, claveComision, claveMision, credencialCivica, cursoAprobado, CURSOS_PASAJE, cursosPorNivel,
   departamentoNacimiento, esLaFau, gradoAnteriorSubalterno, hijosDeFila, leerComision, leerMisiones, MisionLeida, nivelEducativo, nivelIdoneidad,
@@ -59,9 +59,8 @@ export interface DatosActoDestino {
   fechaResolucion?: string | null;
 }
 
-export interface DestinoNuevo extends DatosActoDestino {
+export interface DestinoNuevo extends DatosActoDestino, Lugar {
   persona: Ref;
-  unidad: Ref;
   fechaInicio: string | null;
   fechaFin: string | null;
   numeroOrden: string | null;
@@ -116,6 +115,8 @@ export interface Plan {
   /** Historial de ascensos: registros históricos, sin relaciones laborales asociadas. */
   ascensos: Array<{ persona: Ref; grado: Ref; gradoAnterior: Ref | null; fecha: string; observaciones: string }>;
   misiones: Map<string, MisionNueva>;
+  /** Destinos del Access sin equivalente en liquidación: sus filas no se cargan. */
+  destinosSinEquivalente: Map<string, { filas: number; activos: number }>;
   incidencias: Incidencia[];
   conteo: Record<string, number>;
 }
@@ -143,11 +144,17 @@ export async function armarPlan(
     personasNuevas: new Map(), completar: [], relaciones: [], destinos: [], vuelos: [], derechas: [], historial: [],
     legajos: [], cursos: [], ascensos: [], motivosNuevos: new Set(), motivosRelacion: [], conductasRelacion: [], retiros: [],
     familiares: [], tiposRelacion: [], comisiones: [], comisionesNuevas: new Map(),
-    misiones: new Map(), incidencias: [], conteo: {},
+    misiones: new Map(), destinosSinEquivalente: new Map(), incidencias: [], conteo: {},
   };
   const contar = (k: string, n = 1) => (plan.conteo[k] = (plan.conteo[k] ?? 0) + n);
+  const anotarSinEquivalente = (lugar: ReturnType<Catalogos['destino']>, activo: boolean) => {
+    if (!('sinEquivalente' in lugar) || !lugar.sinEquivalente) return;
+    const n = plan.destinosSinEquivalente.get(lugar.sinEquivalente) ?? { filas: 0, activos: 0 };
+    n.filas++;
+    if (activo) n.activos++;
+    plan.destinosSinEquivalente.set(lugar.sinEquivalente, n);
+  };
   const incidencia = (i: Incidencia) => plan.incidencias.push(i);
-  cat.usarDesnum((bases.find((b) => b.tipo === 'oficiales')?.tablas.get('DESNUM') ?? []).map((d) => d['DES']));
 
   // Lo que ya está en la base ────────────────────────────────────────────────
   const personasDb = new Map<string, PersonaDb>(
@@ -156,12 +163,12 @@ export async function armarPlan(
   );
   const relacionesDb = (await db.query(
     `SELECT id::text, persona_id::text AS persona, fecha_inicio::text AS inicio, grado_id::text AS grado,
-            escalafon_id::text AS escalafon, unidad_id::text AS unidad, estado, derecha, numor,
+            escalafon_id::text AS escalafon, unidad_id::text AS unidad, sub_unidad_id::text AS sub, estado, derecha, numor,
             fecha_ultimo_ascenso::text AS fua, motivo_baja_id::text AS motivo, fecha_fin::text AS fin, conducta,
             tipo_funcionario AS tipo, (SELECT g.es_oficial FROM grados g WHERE g.id = grado_id) AS "gradoOficial"
        FROM relaciones_laborales`,
   )).rows as Array<{ id: string | null; persona: string; inicio: string; grado: string; escalafon: string; unidad: string;
-    estado: string; derecha: number | null; numor: number | null; fua?: string | null; motivo?: string | null;
+    sub: string | null; estado: string; derecha: number | null; numor: number | null; fua?: string | null; motivo?: string | null;
     fin?: string | null; conducta?: string | null; tipo?: string | null; gradoOficial?: boolean | null }>;
   const yaImportada = new Set(relacionesDb.map((r) => `${r.persona}|${r.inicio}|${r.grado}`));
   const relacionPorClave = new Map(relacionesDb.map((r) => [`${r.persona}|${r.inicio}|${r.grado}`, r]));
@@ -192,11 +199,13 @@ export async function armarPlan(
   const numorsUsados = new Set(ordenes.filter((o) => o.numor !== null).map((o) => `${o.grado}|${o.escalafon}|${o.numor}`));
   const activaDb = new Map(relacionesDb.filter((r) => r.estado === 'activo').map((r) => [r.persona, r]));
   const destinosDb = (await db.query(
-    `SELECT persona_id::text AS persona, unidad_id::text AS unidad, fecha_inicio::text AS inicio,
+    `SELECT persona_id::text AS persona, unidad_id::text AS unidad, sub_unidad_id::text AS sub, fecha_inicio::text AS inicio,
             fecha_fin IS NULL AS activo FROM destinos`,
-  )).rows as Array<{ persona: string; unidad: string; inicio: string | null; activo: boolean }>;
+  )).rows as Array<{ persona: string; unidad: string; sub: string | null; inicio: string | null; activo: boolean }>;
   // Con abierto/cerrado en la clave: el Access a veces trae un período activo y otro de baja con el mismo ingreso y unidad.
-  const destinoExiste = new Set(destinosDb.map((d) => `${d.persona}|${d.unidad}|${d.inicio}|${d.activo}`));
+  const claveDestino = (persona: string, l: { unidad: string; sub: string | null }, inicio: string | null, abierto: boolean) =>
+    `${persona}|${l.unidad}|${l.sub ?? ''}|${inicio}|${abierto}`;
+  const destinoExiste = new Set(destinosDb.map((d) => claveDestino(d.persona, d, d.inicio, d.activo)));
   const destinoActivo = new Set(destinosDb.filter((d) => d.activo).map((d) => d.persona));
   const vuelosDb = new Set((await db.query(
     `SELECT p.anio || '-' || p.numero || '|' || r.persona_id AS k FROM registros_vuelo r
@@ -480,15 +489,16 @@ export async function armarPlan(
     const escalafon = rein
       ? cat.escalafon(escalafonDe.get(ced.valor) ?? null, grado?.codigo)
       : cat.escalafon(f['ABRE_ESC'], grado?.codigo);
-    const unidad = cat.unidad(f['ABREV_DES']);
+    const lugar = cat.destino(f['ABREV_DES']);
     const inicio = normalizarFecha(f['FEC_INGRE']);
     const activo = Number(f['ESTA']) === 0;
     const fin = activo ? null : normalizarFecha(f['FECHABAJA']);
     if (activo && !op.comisiones) avisarComision(f, ['COMISIONES', 'DURACION DE LA COMISION', 'COMISIONES DEL SERVICIO'], origen, ced.valor, nombreTxt);
+    anotarSinEquivalente(lugar, activo);
     const problemas = [
       !grado && `grado "${texto(f['ABRE_GRA']) ?? ''}" no reconocido`,
       !escalafon && `escalafón "${texto(f['ABRE_ESC']) ?? ''}" no reconocido`,
-      'error' in unidad && unidad.error,
+      'error' in lugar && lugar.error,
       !inicio && 'sin fecha de ingreso válida',
     ].filter(Boolean) as string[];
     if (problemas.length) {
@@ -541,8 +551,7 @@ export async function armarPlan(
     const pt = String(texto(f['ABRE_PT']) ?? '').toUpperCase();
     const relacion = agregarRelacion({
       ced, activo, origen, nombreTxt,
-      grado: grado!.ref, escalafon: escalafon!.ref, unidad: (unidad as { ref: Ref }).ref,
-      subUnidad: (unidad as { subUnidad?: Ref }).subUnidad ?? null,
+      grado: grado!.ref, escalafon: escalafon!.ref, ...(lugar as Lugar),
       campos: {
         situacion_id: cat.situacion(situacion), fecha_inicio: inicio, fecha_fin: fin,
         prima_tecnica: ['A', 'B', 'C'].includes(pt) ? pt : 'VACIO', tipo_funcionario: 'subalterno',
@@ -648,21 +657,23 @@ export async function armarPlan(
     const escalafon = cat.escalafon(f['Escalafon'], grado?.codigo);
     const destinoTxt = clave(f['Destino']);
     let situacion = 'SIT01';
-    let unidad: ReturnType<Catalogos['unidad']>;
+    let lugar: ReturnType<Catalogos['destino']>;
     if (destinoTxt.startsWith('RETIROENTRAMITE')) {
-      unidad = cat.unidad(desnum.get(Number(f['Numero Destino'])));
+      lugar = cat.destino(desnum.get(Number(f['Numero Destino'])));
     } else if (destinoTxt.startsWith('TRAMITENODISPONIBLE')) {
       situacion = 'SIT04';
-      unidad = cat.unidad('C.G.F.A.');
+      lugar = cat.destino('C.G.F.A.');
     } else {
-      unidad = cat.unidad(f['Destino']);
-      if ('error' in unidad) unidad = cat.unidad(desnum.get(Number(f['Numero Destino'])));
+      lugar = cat.destino(f['Destino']);
+      // Por número solo sin texto: en DESNUM hay números repetidos (el 48 es Transporte y Comunicaciones).
+      if ('error' in lugar && !texto(f['Destino'])) lugar = cat.destino(desnum.get(Number(f['Numero Destino'])));
     }
+    anotarSinEquivalente(lugar, true);
     const inicio = normalizarFecha(f['Fecha de Ingreso']);
     const problemas = [
       !grado && `grado "${texto(f['GRADO']) ?? ''}" no reconocido`,
       !escalafon && `escalafón "${texto(f['Escalafon']) ?? ''}" no reconocido`,
-      'error' in unidad && unidad.error,
+      'error' in lugar && lugar.error,
       !inicio && 'sin fecha de ingreso válida',
     ].filter(Boolean) as string[];
     if (problemas.length) {
@@ -672,7 +683,7 @@ export async function armarPlan(
     }
     const relacionOficial = agregarRelacion({
       ced, activo: true, origen, nombreTxt,
-      grado: grado!.ref, escalafon: escalafon!.ref, unidad: (unidad as { ref: Ref }).ref, subUnidad: null,
+      grado: grado!.ref, escalafon: escalafon!.ref, ...(lugar as Lugar),
       campos: {
         situacion_id: cat.situacion(situacion), fecha_inicio: inicio, fecha_fin: null, prima_tecnica: 'VACIO',
         tipo_funcionario: 'oficial', derecha: normalizarEntero(f['DERECHA']), numor: normalizarEntero(f['Numor']),
@@ -838,7 +849,8 @@ export async function armarPlan(
       const existente = activaDb.get(persona);
       if (existente) {
         // Ya la liquida liquidación: no se toca. Si no coincide con el Access, se avisa.
-        const difs = [existente.grado !== r.grado && 'grado', existente.unidad !== r.unidad && 'unidad'].filter(Boolean);
+        const difs = [existente.grado !== r.grado && 'grado', existente.unidad !== r.unidad && 'comando',
+          existente.sub !== r.subUnidad && 'sub-unidad'].filter(Boolean);
         if (difs.length) {
           incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
             motivo: `ya tiene un período activo en la base; difiere en ${difs.join(' y ')} con el Access (no se modifica)` });
@@ -873,12 +885,12 @@ export async function armarPlan(
             }
           }
           if (!destinoActivo.has(persona)) {
-            if (existente.unidad === r.unidad) {
-              agregarDestino(persona, r.unidad, r.destino, r.origen);
+            if (existente.unidad === r.unidad && existente.sub === r.subUnidad) {
+              agregarDestino(persona, r, r.destino, r.origen);
               contar('destinos creados para activos existentes');
             } else {
               incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
-                motivo: 'su período activo no tiene destino abierto y su unidad en la base no es la del Access: no se crea el destino (cargarlo a mano)' });
+                motivo: 'su período activo no tiene destino abierto y su comando o sub-unidad en la base no es la del Access: no se crea el destino (cargarlo a mano)' });
             }
           }
         }
@@ -897,7 +909,7 @@ export async function armarPlan(
         return;
       }
       activaDb.set(persona, { id: null, persona, inicio: String(r.campos.fecha_inicio), grado: r.grado, escalafon: r.escalafon,
-        unidad: r.unidad, estado: 'activo', derecha: null, numor: null });
+        unidad: r.unidad, sub: r.subUnidad, estado: 'activo', derecha: null, numor: null });
       contar('activos a crear');
     } else {
       contar('períodos históricos a crear');
@@ -921,15 +933,16 @@ export async function armarPlan(
     // Destino: uno por período. Solo puede haber un destino abierto por persona.
     const d = r.destino;
     const abierto = d.fechaFin === null;
-    if (destinoExiste.has(`${persona}|${r.unidad}|${d.fechaInicio}|${abierto}`) || (abierto && (!r.activo || destinoActivo.has(persona)))) return ref;
-    agregarDestino(persona, r.unidad, d, r.origen);
+    if (destinoExiste.has(claveDestino(persona, { unidad: r.unidad, sub: r.subUnidad }, d.fechaInicio, abierto))
+      || (abierto && (!r.activo || destinoActivo.has(persona)))) return ref;
+    agregarDestino(persona, r, d, r.origen);
     return ref;
   }
 
-  function agregarDestino(persona: Ref, unidad: Ref, d: Parameters<typeof agregarRelacion>[0]['destino'], origen: string) {
-    destinoExiste.add(`${persona}|${unidad}|${d.fechaInicio}|${d.fechaFin === null}`);
+  function agregarDestino(persona: Ref, lugar: Lugar, d: Parameters<typeof agregarRelacion>[0]['destino'], origen: string) {
+    destinoExiste.add(claveDestino(persona, { unidad: lugar.unidad, sub: lugar.subUnidad }, d.fechaInicio, d.fechaFin === null));
     if (d.fechaFin === null) destinoActivo.add(persona);
-    plan.destinos.push({ persona, unidad, fechaInicio: d.fechaInicio, fechaFin: d.fechaFin, numeroOrden: d.numeroOrden,
+    plan.destinos.push({ persona, unidad: lugar.unidad, subUnidad: lugar.subUnidad, fechaInicio: d.fechaInicio, fechaFin: d.fechaFin, numeroOrden: d.numeroOrden,
       posicion: d.posicion, boletin: d.boletin, numeroDestino: d.numeroDestino, fechaOrden: d.fechaOrden,
       numeroResolucion: d.numeroResolucion, fechaResolucion: d.fechaResolucion, observaciones: observaciones(`Importado de ${origen}`, {}) + (d.observaciones ? `; ${d.observaciones}` : '') });
     contar('destinos a crear');
