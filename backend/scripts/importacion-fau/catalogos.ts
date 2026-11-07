@@ -1,8 +1,8 @@
 /**
  * Búsqueda de los valores del Access en los catálogos de la base, con los alias acordados
- * (ver "Decisiones confirmadas con la FAU" en LEEME.md). Lo que falta se anota para crear: unidades,
- * sub-unidades, grados y escalafones son tablas de liquidación, así que solo se crean con
- * --crear-catalogos; unidades_vuelo es nuestra y se crea siempre.
+ * (ver "Decisiones confirmadas con la FAU" en LEEME.md). Lo que falta se anota para crear: grados y
+ * escalafones son tablas de liquidación, así que solo se crean con --crear-catalogos; unidades_vuelo
+ * es nuestra y se crea siempre. Unidades y sub-unidades no se crean nunca.
  */
 import { PoolClient } from 'pg';
 import { clave, texto } from './normalizar.js';
@@ -10,12 +10,17 @@ import { clave, texto } from './normalizar.js';
 /** id de la base, o la clave de algo que se va a crear ("nuevo:<tabla>:<codigo>"). */
 export type Ref = string;
 
+/** Dónde revista: `unidad` es el comando y `subUnidad` la sub-unidad (null si es el comando mismo). */
+export interface Lugar {
+  unidad: Ref;
+  subUnidad: Ref | null;
+}
+
 export interface NuevoCatalogo {
-  tabla: 'unidades' | 'sub_unidades' | 'grados' | 'escalafones' | 'unidades_vuelo';
+  tabla: 'grados' | 'escalafones' | 'unidades_vuelo';
   codigo: string;
   denominacion: string;
   vigente: boolean;
-  unidad?: Ref; // para sub_unidades
   orden?: number; // para grados
   esSubalterno?: boolean;
 }
@@ -54,25 +59,22 @@ const ESCALAFONES_NUEVOS: Record<string, Omit<NuevoCatalogo, 'tabla'>> = {
   SIN_DATO: { codigo: 'SIN_DATO', denominacion: 'Sin dato (completar a mano)', vigente: true },
 };
 
-/** Abreviaturas propias de subalternos → como figura en DESNUM. */
-const DESTINOS_ALIAS: Record<string, string> = {
-  SMANT: 'Serv.Mant.', SSFA: 'Serv.Sanidad', SCOM: 'Serv.Com.e Infor.', SABAST: 'Serv.Abast.',
-  SINFRA: 'Serv.Infraest.', STRANS: 'Serv.Transporte', SMETEO: 'Serv.Met.F.A.', MUSEOAER: 'Museo Aeronáutico',
-  SIRFA: 'CIRFA',
+/**
+ * clave(destino del Access) → [comando, sub-unidad], por código en el catálogo de liquidación.
+ * Sin sub-unidad, el destino es el comando mismo. Lo que no está acá no tiene equivalente y va al informe.
+ */
+const DESTINOS: Record<string, [string, string | null]> = {
+  BAI: ['CAO', 'BAI'], BAII: ['CAO', 'BAII'], BAIII: ['CAO', 'BAIII'], COA: ['CAO', 'COA'],
+  SSRA: ['CAO', 'SSRRAA'], SMETEO: ['CAO', 'SMETEO'], SERVMETFA: ['CAO', 'SMETEO'],
+  EMA: ['CAP', 'EMA'], ETA: ['CAP', 'ETA'], ECEMA: ['CAP', 'ECEMA'],
+  SSFA: ['CAP', 'SSFA'], SERVSANIDAD: ['CAP', 'SSFA'],
+  DIRPERSCAA: ['CAP', 'CIAA'], DIRPERSCAB: ['CAP', 'CIAB'],
+  SMANT: ['CAL', 'SMANT'], SERVMANT: ['CAL', 'SMANT'],
+  SCOM: ['CAL', 'SCOM'], SERVCOMEINFOR: ['CAL', 'SCOM'],
+  SABAST: ['CAL', 'SABAST'], SERVABAST: ['CAL', 'SABAST'],
+  SINFRA: ['CAL', 'SINFRA'], SERVINFRAEST: ['CAL', 'SINFRA'],
+  CAO: ['CAO', null], CAP: ['CAP', null], CAL: ['CAL', null],
 };
-/** Nombre completo para las unidades que hay que crear, cuando se conoce. */
-const DENOMINACIONES: Record<string, string> = {
-  BAI: 'Base Aérea Nº 1 (B.A.I)', BAII: 'Base Aérea Nº 2 (B.A.II)', BAIII: 'Base Aérea Nº 3 (B.A.III)',
-  EMA: 'Escuela Militar de Aeronáutica (E.M.A.)', ETA: 'Escuela Técnica de Aeronáutica (E.T.A.)',
-  ECEMA: 'Escuela de Comando y Estado Mayor Aéreo (E.C.E.M.A.)', COA: 'Comando Aéreo de Operaciones (C.O.A.)',
-  DCI: 'Dirección de Comunicación Institucional (D.C.I.)', DSO: 'División de Seguridad Ocupacional (D.S.O.)',
-  ESMADE: 'Estado Mayor de la Defensa (ESMADE)', CIRFA: 'Curso de Instrucción al Recluta (CIRFA)',
-  BFA: 'Banda de la Fuerza Aérea (B.F.A.)', DIRPERS: 'Dirección de Personal (Dir.Pers.)',
-};
-/** Unidades que ya no existen pero aparecen en el historial. */
-const NO_VIGENTES = new Set(['CIRFA']);
-
-const COMPANIA = /^DIRPERSCA([ABC])$/;
 
 /** Unidades de vuelo: variantes de escritura → clave común. */
 function claveUnidadVuelo(v: unknown): string {
@@ -95,15 +97,6 @@ export class Catalogos {
   remunerados = new Set<string>(); // grado_id con remuneración vigente
   /** Lo que habría que crear, por clave Ref. */
   nuevos = new Map<Ref, NuevoCatalogo>();
-  /** clave → como figura en DESNUM (lista de unidades vigentes de la FAU), para nombrar las que se crean. */
-  desnum = new Map<string, string>();
-
-  usarDesnum(nombres: unknown[]) {
-    for (const n of nombres) {
-      const t = texto(n);
-      if (t && !this.desnum.has(clave(t))) this.desnum.set(clave(t), t);
-    }
-  }
 
   static async cargar(db: PoolClient): Promise<Catalogos> {
     const c = new Catalogos();
@@ -172,42 +165,20 @@ export class Catalogos {
     return this.nuevo({ tabla: 'escalafones', ...n });
   }
 
-  // Unidades ───────────────────────────────────────────────────────────────
-  /**
-   * Unidad (y sub-unidad) para un destino del Access. Busca por código, por denominación y por
-   * la sigla entre paréntesis de la denominación ("Base Aérea Nº 1 (B.A.I)"). Si hay más de una
-   * unidad con la misma prioridad, es ambiguo y no se elige ninguna.
-   */
-  unidad(valor: unknown): { ref: Ref; subUnidad?: Ref } | { error: string } {
+  // Destinos ───────────────────────────────────────────────────────────────
+  /** Comando y sub-unidad de liquidación para un destino del Access. `sinEquivalente` es el texto que no se encontró. */
+  destino(valor: unknown): Lugar | { error: string; sinEquivalente?: string } {
     const original = texto(valor);
     if (!original) return { error: 'sin destino' };
-    let k = clave(original);
-    const compania = COMPANIA.exec(k);
-    if (compania) k = 'DIRPERS';
-    if (DESTINOS_ALIAS[k]) k = clave(DESTINOS_ALIAS[k]);
-
-    const porCodigo = this.unidades.filter((u) => clave(u.codigo) === k);
-    const porDenominacion = this.unidades.filter((u) => clave(u.denominacion) === k);
-    const porSigla = this.unidades.filter((u) => [...u.denominacion.matchAll(/\(([^)]+)\)/g)].some((m) => clave(m[1]) === k));
-    const candidatos = [porCodigo, porDenominacion, porSigla].find((l) => l.length > 0) ?? [];
-    if (candidatos.length > 1) return { error: `destino "${original}" coincide con ${candidatos.length} unidades de la base` };
-
-    // Las variantes de escritura ("Serv. Sanidad." / "Serv.Sanidad") comparten clave, así que se crea
-    // una sola unidad, con el nombre de DESNUM si está ahí.
-    const canonico = this.desnum.get(k) ?? DESTINOS_ALIAS[clave(original)] ?? (compania ? 'Dir.Pers.' : original);
-    const ref = candidatos[0]?.id ?? this.nuevo({
-      tabla: 'unidades',
-      codigo: canonico.slice(0, 30),
-      denominacion: DENOMINACIONES[k] ?? canonico,
-      vigente: !NO_VIGENTES.has(k),
-    });
-    if (!compania) return { ref };
-    const letra = compania[1];
-    const sub = this.subUnidades.find((s) => s.unidadId === ref && clave(s.denominacion) === `COMPANIA${letra}`);
-    return {
-      ref,
-      subUnidad: sub?.id ?? this.nuevo({ tabla: 'sub_unidades', codigo: `CIA-${letra}`, denominacion: `Compañía ${letra}`, vigente: true, unidad: ref }),
-    };
+    const equivalente = DESTINOS[clave(original)];
+    if (!equivalente) return { error: `destino "${original}" sin equivalente en liquidación`, sinEquivalente: original };
+    const [codigoComando, codigoSub] = equivalente;
+    const comando = this.unidades.find((u) => u.codigo === codigoComando);
+    const sub = codigoSub === null ? null : this.subUnidades.find((s) => s.unidadId === comando?.id && s.codigo === codigoSub);
+    if (!comando || sub === undefined) {
+      return { error: `destino "${original}": ${codigoSub ?? codigoComando} no está en el catálogo de liquidación` };
+    }
+    return { unidad: comando.id, subUnidad: sub?.id ?? null };
   }
 
   // Unidades de vuelo (tabla nuestra) ──────────────────────────────────────
