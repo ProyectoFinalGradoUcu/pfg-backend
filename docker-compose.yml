@@ -33,6 +33,7 @@ services:
       - ./database/scripts/migration_comisiones.sql:/docker-entrypoint-initdb.d/16_migration_comisiones.sql:ro
       - ./database/scripts/migration_comisiones_cargo.sql:/docker-entrypoint-initdb.d/17_migration_comisiones_cargo.sql:ro
       - ./database/scripts/migration_comisiones_importadas.sql:/docker-entrypoint-initdb.d/18_migration_comisiones_importadas.sql:ro
+      - ./database/scripts/migration_retiros_documentos.sql:/docker-entrypoint-initdb.d/19_migration_retiros_documentos.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pfg_user -d pfg_database"]
       interval: 10s
