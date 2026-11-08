@@ -9,7 +9,7 @@ import { claveComision, CURSOS_DE_ASCENSO } from './complementos.js';
 import { MOTIVOS_NUEVOS } from './motivos.js';
 import { Opciones, Plan } from './plan.js';
 
-const TABLAS_LIQUIDACION = new Set(['unidades', 'sub_unidades', 'grados', 'escalafones']);
+const TABLAS_LIQUIDACION = new Set(['grados', 'escalafones']);
 
 export interface Resultado {
   catalogosCreados: Record<string, number>;
@@ -49,22 +49,12 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     participaciones: 0 };
 
   // Catálogos, en orden de dependencia ──────────────────────────────────────
-  const orden = ['unidades', 'sub_unidades', 'grados', 'escalafones', 'unidades_vuelo'];
+  const orden = ['grados', 'escalafones', 'unidades_vuelo'];
   const nuevos = [...cat.nuevos.entries()].sort(([, a], [, b]) => orden.indexOf(a.tabla) - orden.indexOf(b.tabla));
   for (const [ref, n] of nuevos) {
     if (TABLAS_LIQUIDACION.has(n.tabla) && !op.crearCatalogos) continue;
     let nuevoId: string;
-    if (n.tabla === 'unidades') {
-      nuevoId = await insertarOBuscar(db,
-        'INSERT INTO unidades (codigo, denominacion, vigente) VALUES ($1, $2, $3) ON CONFLICT (codigo) DO NOTHING RETURNING id::text',
-        'SELECT id::text FROM unidades WHERE codigo = $1', [n.codigo, n.denominacion, n.vigente]);
-    } else if (n.tabla === 'sub_unidades') {
-      const unidad = id(n.unidad);
-      nuevoId = await insertarOBuscar(db,
-        `INSERT INTO sub_unidades (unidad_id, codigo, denominacion, vigente) VALUES ($4, $1, $2, $3)
-         ON CONFLICT (unidad_id, codigo) DO NOTHING RETURNING id::text`,
-        'SELECT id::text FROM sub_unidades WHERE codigo = $1 AND unidad_id = $4', [n.codigo, n.denominacion, n.vigente, unidad]);
-    } else if (n.tabla === 'grados') {
+    if (n.tabla === 'grados') {
       nuevoId = await insertarOBuscar(db,
         `INSERT INTO grados (codigo, denominacion, orden, vigente, es_oficial, es_subalterno)
          VALUES ($1, $2, $4, $3, false, $5) ON CONFLICT (codigo) DO NOTHING RETURNING id::text`,
@@ -171,10 +161,10 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
   }
   for (const d of plan.destinos) {
     await db.query(
-      `INSERT INTO destinos (persona_id, unidad_id, fecha_inicio, fecha_fin, numero_orden, posicion_destino, observaciones,
+      `INSERT INTO destinos (persona_id, unidad_id, sub_unidad_id, fecha_inicio, fecha_fin, numero_orden, posicion_destino, observaciones,
          boletin, numero_destino, fecha_orden, numero_resolucion, fecha_resolucion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [id(d.persona), id(d.unidad), d.fechaInicio, d.fechaFin, d.numeroOrden, d.posicion, d.observaciones,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [id(d.persona), id(d.unidad), id(d.subUnidad), d.fechaInicio, d.fechaFin, d.numeroOrden, d.posicion, d.observaciones,
         d.boletin ?? null, d.numeroDestino ?? null, d.fechaOrden ?? null, d.numeroResolucion ?? null, d.fechaResolucion ?? null],
     );
     res.destinos++;

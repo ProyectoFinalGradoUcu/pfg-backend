@@ -45,6 +45,15 @@ export function escribirInforme(
     ...Object.entries(plan.conteo).sort().map(([k, n]) => `- ${k}: ${n}`),
   ];
 
+  if (plan.destinosSinEquivalente.size) {
+    lineas.push('', '## Destinos sin equivalente en liquidación', '',
+      'Sus filas no se cargan y no se crea ninguna unidad ni sub-unidad: resolverlos a mano.', '',
+      '| Destino en el Access | Activos | Filas |', '|---|---|---|',
+      ...[...plan.destinosSinEquivalente.entries()]
+        .sort((a, b) => b[1].activos - a[1].activos || b[1].filas - a[1].filas)
+        .map(([d, n]) => `| ${d} | ${n.activos} | ${n.filas} |`));
+  }
+
   const faltantes = [...cat.nuevos.values()].filter((n) => n.tabla !== 'unidades_vuelo');
   if (faltantes.length && !op.crearCatalogos) {
     lineas.push('', '## Catálogos que faltan en la base', '',
