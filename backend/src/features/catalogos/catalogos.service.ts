@@ -5,16 +5,29 @@ import { PrismaService } from '../../lib/prisma.service.js';
 export class CatalogosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // Unidades (comandos) y sub-unidades son catálogos de liquidación: acá solo se leen.
-  // Si hace falta una nueva, la carga liquidación.
+  // Unidades (comandos) y sub-unidades: el alta, la edición y la baja están en
+  // CatalogoUnidadesService. Acá solo se listan.
 
-  async findUnidades() {
+  /** Por defecto solo los vigentes (para los selectores). `incluirBajas` es para la pantalla del catálogo. */
+  async findUnidades(incluirBajas = false) {
     const items = await this.prisma.unidades.findMany({
-      where: { vigente: true },
+      where: incluirBajas ? {} : { vigente: true },
       orderBy: { denominacion: 'asc' },
-      select: { id: true, codigo: true, denominacion: true },
+      select: {
+        id: true,
+        codigo: true,
+        denominacion: true,
+        vigente: true,
+        _count: { select: { sub_unidades: { where: { vigente: true } } } },
+      },
     });
-    return items.map((i) => ({ id: Number(i.id), codigo: i.codigo, denominacion: i.denominacion }));
+    return items.map((i) => ({
+      id: Number(i.id),
+      codigo: i.codigo,
+      denominacion: i.denominacion,
+      vigente: i.vigente,
+      total_bases: i._count.sub_unidades,
+    }));
   }
 
   async findSituaciones() {
