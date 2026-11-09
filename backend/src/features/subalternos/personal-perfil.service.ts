@@ -192,6 +192,7 @@ export class PersonalPerfilService {
         select: {
           grados: { select: { denominacion: true } },
           unidades: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
         },
       },
     };
@@ -226,6 +227,7 @@ export class PersonalPerfilService {
         tipo_relacion: tipoRelacion,
         grado: rel?.grados?.denominacion ?? null,
         unidad: rel?.unidades?.denominacion ?? null,
+        sub_unidad: rel?.sub_unidades?.denominacion ?? null,
       };
     });
   }

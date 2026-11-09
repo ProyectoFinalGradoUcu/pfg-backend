@@ -326,6 +326,7 @@ export class ElegibilidadService {
         grados: { select: { id: true, codigo: true, denominacion: true, orden: true } },
         situaciones: { select: { id: true, codigo: true, denominacion: true } },
         unidades: { select: { id: true, denominacion: true } },
+        sub_unidades: { select: { id: true, denominacion: true } },
         escalafones: { select: { id: true, denominacion: true } },
       },
     });
@@ -430,6 +431,9 @@ export class ElegibilidadService {
           : null,
         unidad: r.unidades
           ? { id: r.unidades.id.toString(), denominacion: r.unidades.denominacion }
+          : null,
+        sub_unidad: r.sub_unidades
+          ? { id: r.sub_unidades.id.toString(), denominacion: r.sub_unidades.denominacion }
           : null,
         escalafon: r.escalafones
           ? { id: r.escalafones.id.toString(), denominacion: r.escalafones.denominacion }

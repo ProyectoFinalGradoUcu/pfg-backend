@@ -134,7 +134,7 @@ export class SubalternosService {
       ...(basesForzadas !== null
         ? { destinos: { some: { sub_unidad_id: { in: basesForzadas }, fecha_fin: null } } }
         : query.destino?.length && {
-            destinos: { some: { unidad_id: enIds(query.destino), fecha_fin: null } },
+            destinos: { some: { sub_unidad_id: enIds(query.destino), fecha_fin: null } },
           }),
       ...(query.search && {
         OR: [

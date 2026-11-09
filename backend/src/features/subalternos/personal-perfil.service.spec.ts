@@ -211,6 +211,7 @@ describe('PersonalPerfilService', () => {
           tipo_relacion: 'Madre',
           grado: null,
           unidad: null,
+          sub_unidad: null,
         },
       ]);
     });

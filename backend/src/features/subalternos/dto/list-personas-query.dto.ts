@@ -36,7 +36,7 @@ export class ListPersonasQueryDto extends FiltroDerechaNumorDto {
   @IsString()
   search?: string;
 
-  @FiltroListaIds('IDs de unidad (destino) separados por coma. Trae a quien revista en cualquiera de ellas.', '3')
+  @FiltroListaIds('IDs de base (sub-unidad de destino) separados por coma. Trae a quien tiene destino vigente en cualquiera de ellas.', '3')
   destino?: number[];
 
   @ApiPropertyOptional({ example: 7, description: 'ID de grado (rango)' })

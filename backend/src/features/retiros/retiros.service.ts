@@ -94,6 +94,7 @@ export class RetirosService {
         fecha_inicio: true,
         fecha_fin: true,
         unidades: { select: { id: true, codigo: true, denominacion: true } },
+        sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
         grados: { select: { id: true, codigo: true, denominacion: true } },
       },
     },
@@ -118,6 +119,12 @@ export class RetirosService {
         ? {
             id: r.relaciones_laborales.unidades.id.toString(),
             denominacion: r.relaciones_laborales.unidades.denominacion,
+          }
+        : null,
+      sub_unidad: r.relaciones_laborales?.sub_unidades
+        ? {
+            id: r.relaciones_laborales.sub_unidades.id.toString(),
+            denominacion: r.relaciones_laborales.sub_unidades.denominacion,
           }
         : null,
       fecha_retiro: soloFecha(r.fecha_retiro),
@@ -225,6 +232,7 @@ export class RetirosService {
         grado_id: true,
         unidad_id: true,
         unidades: { select: { id: true, codigo: true, denominacion: true } },
+        sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
         situaciones: { select: { id: true, codigo: true, denominacion: true } },
       },
     });
@@ -280,6 +288,7 @@ export class RetirosService {
           fecha_inicio: true,
           fecha_fin: true,
           unidades: { select: { id: true, codigo: true, denominacion: true } },
+          sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
         },
       }),
       this.prisma.funcionarios_cursos.findMany({
@@ -349,6 +358,12 @@ export class RetirosService {
                   denominacion: i.relacion.unidades.denominacion,
                 }
               : null,
+            sub_unidad: i.relacion.sub_unidades
+              ? {
+                  id: i.relacion.sub_unidades.id.toString(),
+                  denominacion: i.relacion.sub_unidades.denominacion,
+                }
+              : null,
             situacion: i.relacion.situaciones
               ? { id: i.relacion.situaciones.id.toString(), codigo: i.relacion.situaciones.codigo }
               : null,
@@ -361,6 +376,12 @@ export class RetirosService {
               ? {
                   id: i.destino.unidades.id.toString(),
                   denominacion: i.destino.unidades.denominacion,
+                }
+              : null,
+            sub_unidad: i.destino.sub_unidades
+              ? {
+                  id: i.destino.sub_unidades.id.toString(),
+                  denominacion: i.destino.sub_unidades.denominacion,
                 }
               : null,
             fecha_inicio: soloFecha(i.destino.fecha_inicio),
@@ -527,6 +548,12 @@ export class RetirosService {
               ? {
                   id: r.relaciones_laborales.unidades.id.toString(),
                   denominacion: r.relaciones_laborales.unidades.denominacion,
+                }
+              : null,
+            sub_unidad: r.relaciones_laborales.sub_unidades
+              ? {
+                  id: r.relaciones_laborales.sub_unidades.id.toString(),
+                  denominacion: r.relaciones_laborales.sub_unidades.denominacion,
                 }
               : null,
             grado: r.relaciones_laborales.grados
@@ -845,12 +872,17 @@ export class RetirosService {
     if (cierres.destino_id) {
       const otro = await tx.destinos.findFirst({
         where: { persona_id: personaId, fecha_fin: null, id: { not: BigInt(cierres.destino_id) } },
-        select: { id: true, fecha_inicio: true, unidades: { select: { denominacion: true } } },
+        select: {
+          id: true,
+          fecha_inicio: true,
+          unidades: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
+        },
       });
       if (otro) {
         throw new ConflictException(
           `No se puede anular el retiro: después del retiro se le asignó otro destino ` +
-            `(${otro.unidades?.denominacion ?? `destino ${otro.id}`}, desde ${soloFechaIso(otro.fecha_inicio)}). ` +
+            `(${otro.sub_unidades?.denominacion ?? otro.unidades?.denominacion ?? `destino ${otro.id}`}, desde ${soloFechaIso(otro.fecha_inicio)}). ` +
             'Cerrá o quitá ese destino y volvé a anular.',
         );
       }

@@ -477,6 +477,19 @@ describe('DestinosService', () => {
       });
     });
 
+    it('reabrir un destino viejo sin base no deja la relación laboral sin base', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(
+        makeAsignacion({ id: 200n, unidad_id: 7n, sub_unidad_id: null, sub_unidades: null, fecha_fin: new Date('2026-01-01') }),
+      );
+      prisma.destinos.findFirst.mockResolvedValue(null);
+
+      await service.editarDestino(200, { fecha_fin: null }).catch(() => undefined);
+
+      expect(prisma.relaciones_laborales.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ sub_unidad_id: null }) }),
+      );
+    });
+
     it('permite reabrir si no hay otro destino activo', async () => {
       prisma.destinos.findUnique.mockResolvedValue(
         makeAsignacion({ id: 200n, fecha_fin: new Date('2026-01-01') }),
@@ -534,6 +547,19 @@ describe('DestinosService', () => {
         expect.objectContaining({ data: { unidad_id: 3n, sub_unidad_id: 13n } }),
       );
       expect(result.destino_reabierto).toBeNull();
+    });
+
+    it('si el destino anterior es viejo y no tiene base, la relación vigente no se queda sin base', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(makeAsignacion());
+      prisma.destinos.findFirst.mockResolvedValue(
+        makeAsignacion({ id: 150n, unidad_id: 3n, sub_unidad_id: null, sub_unidades: null, fecha_fin: new Date('2024-04-29') }),
+      );
+
+      await service.eliminarDestino(200);
+
+      expect(prisma.relaciones_laborales.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ sub_unidad_id: null }) }),
+      );
     });
 
     it('sin destino anterior deja la relación como está', async () => {

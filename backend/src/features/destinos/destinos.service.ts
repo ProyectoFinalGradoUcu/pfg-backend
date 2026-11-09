@@ -398,9 +398,9 @@ export class DestinosService {
     }
 
     // Al reabrirlo pasa a ser el destino vigente: la relación laboral toma su comando y su
-    // sub-unidad, como en un pase.
+    // sub-unidad, como en un pase. Si no tiene base, no se toca.
     const reabre = fechaFin === null && asignacion.fecha_fin !== null;
-    if (reabre && asignacion.persona_id && asignacion.unidad_id) {
+    if (reabre && asignacion.persona_id && asignacion.unidad_id && asignacion.sub_unidad_id) {
       await this.prisma.relaciones_laborales.updateMany({
         where: { persona_id: asignacion.persona_id, fecha_fin: null },
         data: { unidad_id: asignacion.unidad_id, sub_unidad_id: asignacion.sub_unidad_id },
@@ -471,7 +471,7 @@ export class DestinosService {
       if (contiguo) {
         await tx.destinos.update({ where: { id: anterior.id }, data: { fecha_fin: null } });
       }
-      if (anterior.unidad_id !== null) {
+      if (anterior.unidad_id !== null && anterior.sub_unidad_id !== null) {
         await tx.relaciones_laborales.updateMany({
           where: { persona_id: asignacion.persona_id, fecha_fin: null },
           data: { unidad_id: anterior.unidad_id, sub_unidad_id: anterior.sub_unidad_id },

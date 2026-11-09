@@ -186,7 +186,7 @@ describe('SubalternosService', () => {
       await service.findAllPersonas({ destino: [3, 4], gradoId: [14, 15], escalafonId: [1, 2] });
 
       const { where } = prisma.personas.count.mock.calls.at(-1)[0];
-      expect(where.destinos.some.unidad_id).toEqual({ in: [3n, 4n] });
+      expect(where.destinos.some.sub_unidad_id).toEqual({ in: [3n, 4n] });
       expect(where.relaciones_laborales.some).toEqual(
         expect.objectContaining({ grado_id: { in: [14n, 15n] }, escalafon_id: { in: [1n, 2n] } }),
       );
@@ -315,13 +315,13 @@ describe('SubalternosService', () => {
       prisma.personas.findMany = jest.fn().mockResolvedValue([]);
     });
 
-    it('filtra por la unidad del destino vigente', async () => {
+    it('filtra por la base (sub-unidad) del destino vigente, no por el comando', async () => {
       await service.findAllPersonas({ destino: [5] });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
       expect(where.destinos).toEqual({
-        some: { unidad_id: { in: [5n] }, fecha_fin: null },
+        some: { sub_unidad_id: { in: [5n] }, fecha_fin: null },
       });
     });
 
@@ -758,7 +758,7 @@ describe('SubalternosService', () => {
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            destinos: { some: { unidad_id: { in: [99n] }, fecha_fin: null } },
+            destinos: { some: { sub_unidad_id: { in: [99n] }, fecha_fin: null } },
           }),
         }),
       );
