@@ -385,6 +385,7 @@ model sub_unidades {
   vigente              Boolean                @default(true)
   relaciones_laborales  relaciones_laborales[]
   destinos              destinos[]
+  cursos                cursos[]
   sub_unidades_roles    sub_unidades_roles[]
   usuarios_sub_unidades usuarios_sub_unidades[]
   unidades              unidades                @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -458,12 +459,15 @@ model cursos {
   institucion         String?               @db.VarChar(200)
   es_obligatorio      Boolean               @default(true)
   unidad_id           BigInt?
+  sub_unidad_id       BigInt?
   unidades            unidades?             @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades        sub_unidades?         @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   funcionarios_cursos funcionarios_cursos[]
   modulos_curso       modulos_curso[]
   requisitos_ascenso  ascensos_reglas_requisito_cursos[]
 
   @@index([unidad_id], map: "idx_cursos_unidad")
+  @@index([sub_unidad_id], map: "idx_cursos_sub_unidad")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

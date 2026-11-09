@@ -4,7 +4,7 @@
  * - `global`: el usuario tiene el permiso base (ej. `personas.ver`) y opera sobre todos los registros.
  * - `unidad`: el usuario tiene la variante `.unidad` (ej. `personas.ver.unidad`) y solo opera sobre
  *   los registros de las bases (sub-unidades) que tiene asignadas. `comandoIds` son los comandos de
- *   esas bases, para lo que todavía se guarda por comando (cursos).
+ *   esas bases.
  *
  * Ver spec 002 §3 "Permisos: alcance global vs alcance de unidad".
  */

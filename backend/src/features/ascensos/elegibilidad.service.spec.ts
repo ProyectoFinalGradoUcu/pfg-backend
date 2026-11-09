@@ -638,9 +638,31 @@ describe('ElegibilidadService', () => {
       await service.listarPasibles({}, { tipo: 'unidad', subUnidadIds: ['5', '7'], comandoIds: ['1'] });
 
       const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
-      expect(where.sub_unidad_id).toEqual({ in: [5n, 7n] });
+      expect(where.AND).toEqual([{ sub_unidad_id: { in: [5n, 7n] } }]);
       // El comando no entra en el filtro: el alcance es por base.
       expect(where.unidad_id).toBeUndefined();
+    });
+
+    it('el filtro por base usa la sub-unidad de la relación laboral', async () => {
+      await service.listarPasibles({ sub_unidad_id: 7 });
+
+      const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
+      expect(where.AND).toEqual([{ sub_unidad_id: 7n }]);
+      expect(where.unidad_id).toBeUndefined();
+    });
+
+    it('el filtro por base se suma al alcance (una base ajena no trae a nadie)', async () => {
+      await service.listarPasibles({ sub_unidad_id: 9 }, { tipo: 'unidad', subUnidadIds: ['5'], comandoIds: ['1'] });
+
+      const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
+      expect(where.AND).toEqual([{ sub_unidad_id: 9n }, { sub_unidad_id: { in: [5n] } }]);
+    });
+
+    it('sin filtro ni alcance no restringe por base', async () => {
+      await service.listarPasibles({});
+
+      const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
+      expect(where.AND).toBeUndefined();
     });
 
     it('no consulta los cursos si no hay nadie en la nómina', async () => {

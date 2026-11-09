@@ -58,19 +58,20 @@ FROM (VALUES
 ) AS v(nombre, inst, oblig)
 WHERE NOT EXISTS (SELECT 1 FROM cursos c WHERE c.nombre_curso = v.nombre);
 
--- Cursos asignados a un comando (solo visibles/gestionables por ese comando)
-INSERT INTO cursos (nombre_curso, institucion, es_obligatorio, unidad_id)
-SELECT v.nombre, v.inst, true, u.id
+-- Cursos de una base (solo visibles/gestionables por quien tiene esa base).
+-- `unidad_id` es el comando de la base.
+INSERT INTO cursos (nombre_curso, institucion, es_obligatorio, unidad_id, sub_unidad_id)
+SELECT v.nombre, v.inst, true, su.unidad_id, su.id
 FROM (VALUES
-  ('Curso de Seguridad en Vuelo BA1',            'Base Aérea Nº 1',  'CAO'),
-  ('Curso de Mantenimiento de Aeronaves BA1',    'Base Aérea Nº 1',  'CAO'),
-  ('Curso de Operaciones Aéreas BA2',            'Base Aérea Nº 2',  'CAO'),
-  ('Curso de Navegación Instrumental BA2',       'Base Aérea Nº 2',  'CAO'),
-  ('Taller de Aviónica Nivel 1',                 'ETA',              'CAP'),
-  ('Taller de Aviónica Nivel 2',                 'ETA',              'CAP'),
-  ('Curso de Formación de Oficiales',            'EMA',              'CAP')
-) AS v(nombre, inst, unidad_codigo)
-JOIN unidades u ON u.codigo = v.unidad_codigo
+  ('Curso de Seguridad en Vuelo BA1',            'Base Aérea Nº 1',  'BAI'),
+  ('Curso de Mantenimiento de Aeronaves BA1',    'Base Aérea Nº 1',  'BAI'),
+  ('Curso de Operaciones Aéreas BA2',            'Base Aérea Nº 2',  'BAII'),
+  ('Curso de Navegación Instrumental BA2',       'Base Aérea Nº 2',  'BAII'),
+  ('Taller de Aviónica Nivel 1',                 'ETA',              'ETA'),
+  ('Taller de Aviónica Nivel 2',                 'ETA',              'ETA'),
+  ('Curso de Formación de Oficiales',            'EMA',              'EMA')
+) AS v(nombre, inst, base_codigo)
+JOIN sub_unidades su ON su.codigo = v.base_codigo
 WHERE NOT EXISTS (SELECT 1 FROM cursos c WHERE c.nombre_curso = v.nombre);
 
 -- Módulos para un curso
@@ -568,7 +569,7 @@ COMMIT;
 -- supervisor.bai.eta@fau.mil.uy   B.A.I. + E.T.A.   Control de cursos (h)  Ver personal de esas dos bases y ninguna otra
 --
 -- (h) = heredado de las bases   (d) = directo
--- Los cursos todavía son por comando: quien tiene una base ve los cursos de su comando.
+-- Los cursos son por base: supervisor.bai.eta ve los cursos de B.A.I. y E.T.A., no los de B.A.II.
 --
 -- Funcionarios activos por comando: C.A.O. 19 (B.A.I., B.A.II., B.A.III., C.O.A.),
 -- C.A.P. 4 (E.T.A., E.M.A.), C.A.L. 4 (S.ABAST., S. MANT., S.INFRA.), C.G. 1 (D.C.G.).

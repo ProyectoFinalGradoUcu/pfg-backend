@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  UnprocessableEntityException,
   ValidationPipe,
 } from '@nestjs/common';
 import { UpdatePersonalDto } from './dto/update-personal.dto';
@@ -561,26 +562,35 @@ describe('PersonalPerfilService', () => {
         id: 100n,
         fecha_nacimiento: new Date('1980-01-01'),
         relaciones_laborales: [
-          { id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n },
+          { id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n, situacion_id: 7n },
         ],
       });
       prisma.personas.update.mockResolvedValue({ id: 100n });
       prisma.relaciones_laborales.update.mockResolvedValue({ id: 45n });
     });
 
-    it('editar grado, situación y observaciones actualiza la relación activa sin escribir unidad ni base', async () => {
+    it('editar grado y observaciones actualiza la relación activa sin escribir unidad ni base', async () => {
       await service.update(
         100,
-        { grado_id: 4, situacion_id: 2, observaciones_laborales: 'Pase a comisión' } as any,
+        { grado_id: 4, situacion_id: 7, observaciones_laborales: 'Pase a comisión' } as any,
         7n,
       );
 
       const { where, data } = prisma.relaciones_laborales.update.mock.calls[0][0];
       expect(where).toEqual({ id: 45n });
-      expect(data).toEqual({ grado_id: 4n, situacion_id: 2n, observaciones: 'Pase a comisión' });
+      // La situación que ya tenía se acepta y no se escribe.
+      expect(data).toEqual({ grado_id: 4n, observaciones: 'Pase a comisión' });
       expect(data).not.toHaveProperty('unidad_id');
       expect(data).not.toHaveProperty('sub_unidad_id');
       expect(prisma.personas.update.mock.calls[0][0].data).not.toHaveProperty('unidad_id');
+    });
+
+    it('una situación distinta no se edita en el lugar: se cambia con POST /personas/:id/situacion', async () => {
+      await expect(service.update(100, { situacion_id: 3 } as any, 7n)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(prisma.personas.update).not.toHaveBeenCalled();
+      expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
     });
 
     it('aunque llegue unidad_id o sub_unidad_id, no se guardan', async () => {

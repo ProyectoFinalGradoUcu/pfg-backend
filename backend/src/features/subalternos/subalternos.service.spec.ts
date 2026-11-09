@@ -131,6 +131,25 @@ describe('SubalternosService', () => {
       expect(result.items[0].destino).toBeNull();
     });
 
+    it('sin destino cargado muestra la base de la relación laboral (personal de liquidación)', async () => {
+      prisma.personas.findMany.mockResolvedValue([
+        makePersona({
+          destinos: [],
+          relaciones_laborales: [
+            {
+              grados: { denominacion: 'Sargento' },
+              situaciones: { denominacion: 'Actividad' },
+              sub_unidades: { denominacion: 'B.A.I.' },
+            },
+          ],
+        }),
+      ]);
+
+      const result = await service.findAllPersonas({});
+
+      expect(result.items[0].destino).toBe('B.A.I.');
+    });
+
     it('pide solo el destino vigente y el más reciente', async () => {
       await service.findAllPersonas({});
 
@@ -186,7 +205,7 @@ describe('SubalternosService', () => {
       await service.findAllPersonas({ destino: [3, 4], gradoId: [14, 15], escalafonId: [1, 2] });
 
       const { where } = prisma.personas.count.mock.calls.at(-1)[0];
-      expect(where.destinos.some.sub_unidad_id).toEqual({ in: [3n, 4n] });
+      expect(where.AND).toContainEqual({ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [3n, 4n] } } } });
       expect(where.relaciones_laborales.some).toEqual(
         expect.objectContaining({ grado_id: { in: [14n, 15n] }, escalafon_id: { in: [1n, 2n] } }),
       );
@@ -196,7 +215,7 @@ describe('SubalternosService', () => {
       await service.findAllPersonas({ destino: [], gradoId: [], escalafonId: [] });
 
       const { where } = prisma.personas.count.mock.calls.at(-1)[0];
-      expect(where).not.toHaveProperty('destinos');
+      expect(where).not.toHaveProperty('AND');
       expect(where.relaciones_laborales.some).not.toHaveProperty('grado_id');
       expect(where.relaciones_laborales.some).not.toHaveProperty('escalafon_id');
     });
@@ -315,14 +334,13 @@ describe('SubalternosService', () => {
       prisma.personas.findMany = jest.fn().mockResolvedValue([]);
     });
 
-    it('filtra por la base (sub-unidad) del destino vigente, no por el comando', async () => {
+    it('filtra por la base de la relación laboral activa, no por la tabla destinos', async () => {
       await service.findAllPersonas({ destino: [5] });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
-      expect(where.destinos).toEqual({
-        some: { sub_unidad_id: { in: [5n] }, fecha_fin: null },
-      });
+      expect(where.AND).toEqual([{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [5n] } } } }]);
+      expect(where).not.toHaveProperty('destinos');
     });
 
     it('ya no filtra por la unidad de la relación laboral', async () => {
@@ -333,12 +351,13 @@ describe('SubalternosService', () => {
       expect(where.relaciones_laborales.some).not.toHaveProperty('unidad_id');
     });
 
-    it('sin filtro de destino no restringe por destinos', async () => {
+    it('sin filtro de destino no restringe por base', async () => {
       await service.findAllPersonas({});
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
       expect(where).not.toHaveProperty('destinos');
+      expect(where).not.toHaveProperty('AND');
     });
 
     it('mantiene los filtros de estado y rango en la relación laboral', async () => {
@@ -746,7 +765,7 @@ describe('SubalternosService', () => {
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            destinos: { some: { fecha_fin: null, sub_unidad_id: { in: [7n] } } },
+            AND: [{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [7n] } } } }],
           }),
         }),
       );
@@ -758,7 +777,7 @@ describe('SubalternosService', () => {
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            destinos: { some: { sub_unidad_id: { in: [99n] }, fecha_fin: null } },
+            AND: [{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [99n] } } } }],
           }),
         }),
       );

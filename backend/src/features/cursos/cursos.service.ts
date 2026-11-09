@@ -1,12 +1,14 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
 import {
   AlcanceResuelto,
-  comandoIdsDeAlcance,
+  subUnidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types';
 import {
   assertCursoGestionableEnAlcance,
@@ -28,6 +30,13 @@ import {
   whereRelacionPorDerechaNumor,
 } from '../../lib/personal/filtro-derecha-numor';
 
+/** Base del curso con su comando, o `null` si es general. */
+function baseDelCurso(
+  b: { id: bigint; denominacion: string; unidades: { denominacion: string } | null } | null,
+) {
+  return b ? { id: b.id.toString(), denominacion: b.denominacion, comando: b.unidades?.denominacion ?? null } : null;
+}
+
 @Injectable()
 export class CursosService {
   constructor(private readonly prisma: PrismaService) {}
@@ -42,16 +51,17 @@ export class CursosService {
       );
     }
 
+    const base = await this.resolverBaseDelCurso(dto.sub_unidad_id, alcance);
+
     return this.prisma.$transaction(async (tx) => {
       const curso = await tx.cursos.create({
         data: {
           nombre_curso: dto.nombre_curso,
           institucion: dto.institucion,
           es_obligatorio: dto.es_obligatorio ?? true,
-          // Con alcance de unidad el curso queda bajo el comando de la base del usuario
-          // (los cursos todavía se guardan por comando). Con alcance global queda como
-          // curso general de la fuerza (`unidad_id` nulo).
-          unidad_id: alcance ? (comandoIdsDeAlcance(alcance)?.[0] ?? null) : null,
+          // Curso de una base (el comando sale de ella) o general de la fuerza (ambos nulos).
+          sub_unidad_id: base?.id ?? null,
+          unidad_id: base?.unidad_id ?? null,
         },
       });
 
@@ -61,8 +71,40 @@ export class CursosService {
         institucion: curso.institucion,
         es_obligatorio: curso.es_obligatorio,
         unidad_id: curso.unidad_id ? curso.unidad_id.toString() : null,
+        sub_unidad_id: curso.sub_unidad_id ? curso.sub_unidad_id.toString() : null,
       };
     });
+  }
+
+  /**
+   * Base a la que queda asignado un curso nuevo.
+   * - Alcance global: la que pida (o ninguna = curso general).
+   * - Alcance de unidad: una de sus bases; si tiene una sola y no pidió ninguna, esa.
+   *   No puede crear cursos generales.
+   */
+  private async resolverBaseDelCurso(subUnidadId: number | undefined, alcance?: AlcanceResuelto) {
+    const propias = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+
+    let id: bigint | null = subUnidadId != null ? BigInt(subUnidadId) : null;
+    if (propias !== null) {
+      if (id === null) {
+        if (propias.length !== 1) {
+          throw new BadRequestException('Elegí la base del curso (sub_unidad_id)');
+        }
+        id = propias[0];
+      } else if (!propias.includes(id)) {
+        throw new ForbiddenException('Solo podés crear cursos de tus propias bases');
+      }
+    }
+    if (id === null) return null;
+
+    const base = await this.prisma.sub_unidades.findUnique({
+      where: { id },
+      select: { id: true, unidad_id: true, vigente: true },
+    });
+    if (!base) throw new BadRequestException('sub_unidad_id no existe en la tabla de sub-unidades');
+    if (!base.vigente) throw new BadRequestException('La base elegida no está vigente');
+    return base;
   }
 
   async findAll(query: ListCursosQueryDto = {}, alcance?: AlcanceResuelto) {
@@ -88,6 +130,7 @@ export class CursosService {
           modulos_curso: {
             orderBy: { orden_modulo: 'asc' },
           },
+          sub_unidades: { select: { id: true, denominacion: true, unidades: { select: { denominacion: true } } } },
         },
       }),
     ]);
@@ -98,6 +141,7 @@ export class CursosService {
         nombre_curso: c.nombre_curso,
         institucion: c.institucion,
         es_obligatorio: c.es_obligatorio,
+        base: baseDelCurso(c.sub_unidades),
         modulos_curso: c.modulos_curso.map((m) => ({
           id: m.id.toString(),
           curso_id: m.curso_id?.toString() ?? null,
@@ -123,6 +167,7 @@ export class CursosService {
         modulos_curso: {
           orderBy: { orden_modulo: 'asc' },
         },
+        sub_unidades: { select: { id: true, denominacion: true, unidades: { select: { denominacion: true } } } },
       },
     });
 
@@ -135,6 +180,7 @@ export class CursosService {
       nombre_curso: curso.nombre_curso,
       institucion: curso.institucion,
       es_obligatorio: curso.es_obligatorio,
+      base: baseDelCurso(curso.sub_unidades),
       modulos_curso: curso.modulos_curso.map((m) => ({
         id: m.id.toString(),
         curso_id: m.curso_id?.toString() ?? null,

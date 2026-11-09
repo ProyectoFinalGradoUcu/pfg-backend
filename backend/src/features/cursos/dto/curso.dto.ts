@@ -5,6 +5,7 @@ import {
   MaxLength,
   IsArray,
   IsBoolean,
+  IsInt,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FuncionarioCursoDto } from '../../funcionaro/dto/funcionario-curso.dto';
@@ -28,6 +29,15 @@ export class CursoDto {
   @IsOptional()
   @IsBoolean()
   es_obligatorio?: boolean;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description:
+      'Base (sub-unidad) del curso. Vacío = curso general (solo alcance global). Con alcance de unidad tiene que ser una de las bases del usuario; si tiene una sola, se usa esa.',
+  })
+  @IsOptional()
+  @IsInt()
+  sub_unidad_id?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

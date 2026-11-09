@@ -10,7 +10,7 @@ import {
   AlcanceResuelto,
   subUnidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types.js';
-import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
+import { assertPersonaEnAlcance, RELACION_ACTIVA } from '../../lib/alcance/alcance.where.js';
 import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
@@ -126,16 +126,20 @@ export class SubalternosService {
       ...whereRelacionPorDerechaNumor(query),
     };
 
+    // La base se toma de la relación laboral ACTIVA, el mismo criterio que la ficha
+    // (`assertPersonaEnAlcance`): quien no tiene destino cargado igual aparece en su base.
+    // Con alcance de unidad se fuerzan las bases del usuario; sin alcance, `query.destino` es opcional.
+    const bases = basesForzadas ?? (query.destino?.length ? query.destino.map((id) => BigInt(id)) : null);
+    const and = [
+      ...(query.categoria ? [wherePersonaPorCategoria(query.categoria)] : []),
+      ...(bases !== null
+        ? [{ relaciones_laborales: { some: { ...RELACION_ACTIVA, sub_unidad_id: { in: bases } } } }]
+        : []),
+    ];
+
     const where = {
       relaciones_laborales: { some: relacionWhere },
-      ...(query.categoria && { AND: [wherePersonaPorCategoria(query.categoria)] }),
-      // Con alcance de unidad se fuerza el filtro por destino a las bases del usuario.
-      // Sin alcance, se puede filtrar por query.destino opcionalmente.
-      ...(basesForzadas !== null
-        ? { destinos: { some: { sub_unidad_id: { in: basesForzadas }, fecha_fin: null } } }
-        : query.destino?.length && {
-            destinos: { some: { sub_unidad_id: enIds(query.destino), fecha_fin: null } },
-          }),
+      ...(and.length && { AND: and }),
       ...(query.search && {
         OR: [
           { cedula: { contains: query.search, mode: 'insensitive' as const } },
@@ -186,6 +190,7 @@ export class SubalternosService {
           grados: { select: { denominacion: true } },
           escalafones: { select: { codigo: true } },
           situaciones: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
         },
       },
       destinos: {
@@ -239,8 +244,12 @@ export class SubalternosService {
           cedula: p.cedula,
           rango: rel?.grados?.denominacion ?? null,
           // El destino es la sub-unidad (B.A.I.); si un histórico no la tiene, se muestra el comando.
+          // Sin destino cargado (personal de liquidación) se muestra la base de la relación laboral.
           destino:
-            p.destinos[0]?.sub_unidades?.denominacion ?? p.destinos[0]?.unidades?.denominacion ?? null,
+            p.destinos[0]?.sub_unidades?.denominacion ??
+            p.destinos[0]?.unidades?.denominacion ??
+            rel?.sub_unidades?.denominacion ??
+            null,
           estado: rel?.situaciones?.denominacion ?? null,
           relacion_estado: rel?.estado ?? null,
           escalafon: rel?.escalafones?.codigo ?? null,

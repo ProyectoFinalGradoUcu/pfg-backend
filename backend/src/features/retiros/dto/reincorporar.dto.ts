@@ -70,9 +70,12 @@ export class ReincorporarDto {
   @Max(1)
   porcentaje_progresivo?: number;
 
-  @ApiProperty({ example: 5, description: 'Unidad del destino; también queda como unidad de la relación laboral' })
+  @ApiProperty({
+    example: 3,
+    description: 'Base (sub-unidad) a la que vuelve. Queda en el destino y en la relación laboral nuevos; el comando sale de ella.',
+  })
   @IsInt()
-  unidad_id: number;
+  sub_unidad_id: number;
 
   @ApiPropertyOptional({ example: 'O.D. 13001', maxLength: 50, description: 'Requerido si no se indica boletín' })
   @Transform(textoOVacio)

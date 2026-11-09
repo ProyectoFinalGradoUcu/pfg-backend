@@ -97,15 +97,17 @@ Los alias de grados, escalafones y destinos están en `catalogos.ts`. En resumen
 - **`ESTA`:** 0 es activo; -1 es baja o retiro.
 - **Filas de subalternos:** cada fila es un período de servicio, no una persona. Una persona puede tener varios (reingresos, cambio de escalafón, paso de cadete a soldado), y como mucho uno activo. Los oficiales que también figuran en subalternos (su paso como cadetes por la EMA o como ex-subalternos) quedan como una sola persona, unificada por cédula, con toda su historia.
 - **Destinos:** se buscan en la tabla `DESTINOS` de `catalogos.ts`, que da el comando y la sub-unidad por su código en el catálogo de liquidación (por ejemplo, `B.A.I` → B.A.I. de C.A.O.).
-  - C.A.O., C.A.P. y C.A.L. son el comando mismo: van sin sub-unidad.
+  - C.A.O., C.A.P., C.A.L. y C.G.F.A. (el C.G. de liquidación) son el comando mismo: van sin sub-unidad.
+  - B.F.A. es la sub-unidad BANDA del C.G.
   - Lo que no está en la tabla no se carga y va al resumen, en "Destinos sin equivalente en liquidación", con cuántos activos y filas tiene.
   - En oficiales sin texto en `Destino`, se usa `Numero Destino` en `DESNUM`. Con texto no, porque `DESNUM` repite números (el 48 es Transporte y también Comunicaciones).
-- **"Retiro en Trámite" y "Trámite NO Disponible" no son destinos:**
+- **"Retiro en Trámite", "Trámite NO Disponible", "No Disponible" y "Licencia sin goce de sueldo" no son destinos:**
   - Retiro en trámite: la persona sigue en su destino, que se toma de `Numero Destino`. Situación SIT01.
-  - Trámite NO Disponible (TND): depende del Comando General. Destino C.G.F.A. y situación SIT04. C.G.F.A. no está en la tabla, así que va al informe.
+  - Trámite NO Disponible (TND) y No Disponible: dependen del Comando General. Destino C.G.F.A. y situación SIT04. Solo oficiales: liquidación no tiene No Disponible para subalternos, así que en subalternos va al informe como destino sin equivalente.
+  - Licencia sin goce de sueldo (también escrita "Lic. s/goce"): destino C.G.F.A. y situación SIT03 (oficiales) o SIT09 (subalternos), en `Destino` y en `ABREV_DES`. **Liquidación no le paga a esa persona** (`afecta_cobro = false`). La columna `LICENCIA SIN GOCE DE SUELDO` de subalternos es historia en texto libre y sigue yendo a observaciones: no cambia la situación.
 - **Situación:**
-  - Oficial: SIT01; en TND, SIT04.
-  - Subalterno: SIT07.
+  - Oficial: SIT01; en TND o No Disponible, SIT04; con licencia sin goce, SIT03.
+  - Subalterno: SIT07; con licencia sin goce, SIT09.
   - Cadete o aspirante: SIT12.
   - Reincorporado (REIN): SIT17.
   - Reservista (RVA): SIT08.
@@ -130,7 +132,7 @@ Los alias de grados, escalafones y destinos están en `catalogos.ts`. En resumen
 - **Prima técnica (`ABRE_PT`):** A, B o C. `O` y cualquier otro valor se cargan como `VACIO`. `ORDENCGFA` es la orden de la prima técnica, no la del destino, y no se importa.
 - **`DESNUM`** es la lista de unidades vigentes. Se usa para el destino de los oficiales por `Numero Destino`.
 - **(Adm.)** es un escalafón que ya no está vigente: solo aparece en bajas. Se carga como no vigente.
-- **B.F.A.** es la Banda de la Fuerza Aérea: es escalafón (`BM`) y también destino.
+- **B.F.A.** es la Banda de la Fuerza Aérea: es escalafón (`BM`) y también destino (BANDA del C.G.).
 - **DIR.PERS.CÁ. "A" y "B"** son las compañías A y B: van a `CÍA "A".` y `CÍA "B".` de C.A.P. La **"C"** no está en liquidación: va al informe.
 - **D.C.I.** (Dirección de Comunicación Institucional), **D.S.O.** (División de Seguridad Ocupacional) y **ESMADE** (Estado Mayor de la Defensa, fuera de la FAU) son destinos válidos, pero no están en liquidación: van al informe.
 - **A/T 1º y A/T 2º** son At. 1.ª y At. 2.ª: aerotécnicos, aunque figuren en la E.T.A.

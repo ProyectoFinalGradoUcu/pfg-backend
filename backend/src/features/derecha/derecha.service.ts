@@ -837,6 +837,34 @@ export class DerechaService {
     return this.ejecutar(tx, this.planCambioEscalafon(personaId, escalafonId, posicionNumor), ctx);
   }
 
+  /**
+   * La relación nueva hereda la derecha y el numor de la que se cierra, en el mismo lugar.
+   * Es para los cambios que abren una relación sin tocar grado ni escalafón (un cambio de
+   * situación): la persona no se mueve en la escala, así que no va al historial. Hay que
+   * llamarlo con la relación nueva ya creada y antes de confirmar la transacción.
+   */
+  async trasladarARelacionEnTransaccion(
+    tx: Prisma.TransactionClient,
+    origenId: bigint,
+    destinoId: bigint,
+  ) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_DERECHA})`;
+    const origen = await tx.relaciones_laborales.findUnique({
+      where: { id: origenId },
+      select: { derecha: true, numor: true, escala_derecha: true },
+    });
+    if (!origen || (origen.derecha === null && origen.numor === null)) return;
+    // Las restricciones de unicidad son diferidas: el valor puede estar un momento en las dos.
+    await tx.relaciones_laborales.update({
+      where: { id: origenId },
+      data: { derecha: null, numor: null, escala_derecha: null },
+    });
+    await tx.relaciones_laborales.update({
+      where: { id: destinoId },
+      data: { derecha: origen.derecha, numor: origen.numor, escala_derecha: origen.escala_derecha },
+    });
+  }
+
   // ─── Planes ───────────────────────────────────────────────────────────────
 
   private planReorden(

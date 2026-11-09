@@ -489,7 +489,9 @@ export async function armarPlan(
     const escalafon = rein
       ? cat.escalafon(escalafonDe.get(ced.valor) ?? null, grado?.codigo)
       : cat.escalafon(f['ABRE_ESC'], grado?.codigo);
-    const lugar = cat.destino(f['ABREV_DES']);
+    // La licencia sin goce no es un lugar: es la situación SIT09 y depende del Comando General.
+    const licencia = esLicenciaSinGoce(f['ABREV_DES']);
+    const lugar = cat.destino(licencia ? 'C.G.F.A.' : f['ABREV_DES']);
     const inicio = normalizarFecha(f['FEC_INGRE']);
     const activo = Number(f['ESTA']) === 0;
     const fin = activo ? null : normalizarFecha(f['FECHABAJA']);
@@ -547,7 +549,7 @@ export async function armarPlan(
         motivo: `motivo de baja "${texto(f['MOTIVO'])}" no se reconoce: no se carga el retiro (queda en observaciones)` });
     }
 
-    const situacion = cat.esCadete(grado!.codigo) ? 'SIT12' : rein ? 'SIT17' : escalafon!.codigo === 'RVA' ? 'SIT08' : 'SIT07';
+    const situacion = cat.esCadete(grado!.codigo) ? 'SIT12' : licencia ? 'SIT09' : rein ? 'SIT17' : escalafon!.codigo === 'RVA' ? 'SIT08' : 'SIT07';
     const pt = String(texto(f['ABRE_PT']) ?? '').toUpperCase();
     const relacion = agregarRelacion({
       ced, activo, origen, nombreTxt,
@@ -660,8 +662,12 @@ export async function armarPlan(
     let lugar: ReturnType<Catalogos['destino']>;
     if (destinoTxt.startsWith('RETIROENTRAMITE')) {
       lugar = cat.destino(desnum.get(Number(f['Numero Destino'])));
-    } else if (destinoTxt.startsWith('TRAMITENODISPONIBLE')) {
+    } else if (destinoTxt.startsWith('TRAMITENODISPONIBLE') || destinoTxt.startsWith('NODISPONIBLE')) {
       situacion = 'SIT04';
+      lugar = cat.destino('C.G.F.A.');
+    } else if (esLicenciaSinGoce(f['Destino'])) {
+      // Como el No Disponible: no es un lugar, es una situación sin cobro del Comando General.
+      situacion = 'SIT03';
       lugar = cat.destino('C.G.F.A.');
     } else {
       lugar = cat.destino(f['Destino']);
@@ -1130,6 +1136,11 @@ export async function armarPlan(
 
 /** "Importado de …; Motivo de baja: …; Comisiones: …", solo con los datos que vienen. */
 /** Código postal uruguayo: 5 dígitos (los de menos son códigos viejos o errores). */
+/** "Licencia sin goce de sueldo", "Lic. s/goce", ...: la FAU la lista como destino del Comando General. */
+function esLicenciaSinGoce(v: unknown): boolean {
+  return /^LIC(ENCIA)?S(IN)?GOCE/.test(clave(v));
+}
+
 function codigoPostal(v: unknown): string | null {
   const n = normalizarEntero(v);
   return n !== null && n > 9999 && n <= 99999 ? String(n) : null;

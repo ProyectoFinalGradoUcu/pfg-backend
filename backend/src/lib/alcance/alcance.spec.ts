@@ -194,10 +194,9 @@ describe('whereCursosVisiblesPorAlcance', () => {
     expect(whereCursosVisiblesPorAlcance(GLOBAL)).toEqual({});
   });
 
-  it('incluye los cursos del comando de sus bases y los generales', () => {
-    // Los cursos todavía se guardan por comando.
+  it('incluye los cursos de sus bases y los generales, no los de otras bases del comando', () => {
     expect(whereCursosVisiblesPorAlcance(UNIDAD)).toEqual({
-      OR: [{ unidad_id: { in: [2n] } }, { unidad_id: null }],
+      OR: [{ sub_unidad_id: { in: [7n] } }, { sub_unidad_id: null, unidad_id: null }],
     });
   });
 });
@@ -262,7 +261,7 @@ describe('assertCursoVisibleEnAlcance', () => {
 
     expect(prisma.cursos.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 1n, OR: [{ unidad_id: { in: [2n] } }, { unidad_id: null }] },
+        where: { id: 1n, OR: [{ sub_unidad_id: { in: [7n] } }, { sub_unidad_id: null, unidad_id: null }] },
       }),
     );
   });
@@ -283,7 +282,7 @@ describe('assertCursoGestionableEnAlcance', () => {
     prisma = makePrismaMock();
   });
 
-  it('exige que el curso sea de la propia unidad, sin aceptar los generales', async () => {
+  it('exige que el curso sea de una de sus bases, sin aceptar los generales', async () => {
     prisma.cursos.findFirst.mockResolvedValue({ id: 1n });
 
     await assertCursoGestionableEnAlcance(
@@ -293,7 +292,7 @@ describe('assertCursoGestionableEnAlcance', () => {
     );
 
     expect(prisma.cursos.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 1n, unidad_id: { in: [2n] } } }),
+      expect.objectContaining({ where: { id: 1n, sub_unidad_id: { in: [7n] } } }),
     );
   });
 

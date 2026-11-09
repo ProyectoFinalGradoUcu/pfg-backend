@@ -104,14 +104,14 @@ describe('RetirosService', () => {
       prisma.retiros.findMany.mockResolvedValue([]);
       prisma.retiros.count.mockResolvedValue(0);
 
-      await service.listar({ desde: '2026-01-01', hasta: '2026-12-31', unidad_id: 5 });
+      await service.listar({ desde: '2026-01-01', hasta: '2026-12-31', sub_unidad_id: 5 });
 
       const where = prisma.retiros.findMany.mock.calls[0][0].where;
       expect(where.fecha_retiro).toEqual({
         gte: new Date('2026-01-01'),
         lte: new Date('2026-12-31'),
       });
-      expect(where.relaciones_laborales).toMatchObject({ unidad_id: 5n });
+      expect(where.relaciones_laborales).toMatchObject({ sub_unidad_id: 5n });
     });
 
     it('busca por cédula, nombre o apellido', async () => {
@@ -1222,6 +1222,7 @@ describe('RetirosService', () => {
       expect(result.destino_abierto).toEqual({
         id: '88',
         unidad: { id: '5', denominacion: 'Cuartel General' },
+        sub_unidad: null,
         fecha_inicio: '2020-01-01',
       });
     });
@@ -1384,12 +1385,12 @@ describe('RetirosService', () => {
           prisma.relaciones_laborales.create.mockResolvedValue({ id: 46n });
           prisma.movimientos_laborales.create.mockResolvedValue({ id: 411n });
           prisma.destinos.create.mockResolvedValue({ id: 90n });
-          prisma.unidades.findUnique.mockResolvedValue({ id: 5n, vigente: true });
+          prisma.sub_unidades.findUnique.mockResolvedValue({ id: 50n, vigente: true, unidad_id: 5n });
 
           await expect(
             service.reincorporar(
               88,
-              { fecha_reincorporacion: '2026-10-01', grado_reincorporacion_id: Number(g.id), unidad_id: 5, numero_orden: 'O.D. 1' },
+              { fecha_reincorporacion: '2026-10-01', grado_reincorporacion_id: Number(g.id), sub_unidad_id: 50, numero_orden: 'O.D. 1' },
               7n,
             ),
           ).resolves.toBeDefined();
@@ -1417,7 +1418,7 @@ describe('RetirosService', () => {
       grado_reincorporacion_id: 3,
       haber_retiro: 45000.5,
       porcentaje_progresivo: 0.3,
-      unidad_id: 5,
+      sub_unidad_id: 50,
       numero_orden: 'O.D. 13001',
       ...o,
     });
@@ -1427,7 +1428,7 @@ describe('RetirosService', () => {
     beforeEach(() => {
       prepararReincorporable();
       prisma.grados.findUnique.mockResolvedValue(makeGrado());
-      prisma.unidades.findUnique.mockResolvedValue({ id: 5n, vigente: true });
+      prisma.sub_unidades.findUnique.mockResolvedValue({ id: 50n, vigente: true, unidad_id: 5n });
       prisma.relaciones_laborales.create.mockResolvedValue({ id: 46n });
       prisma.movimientos_laborales.create.mockResolvedValue({ id: 411n });
       prisma.destinos.create.mockResolvedValue({ id: 90n });
@@ -1464,13 +1465,14 @@ describe('RetirosService', () => {
       });
     });
 
-    it('toma del DTO la fecha, la unidad y los tres campos de calculo', async () => {
+    it('toma del DTO la fecha, la base (con su comando) y los tres campos de calculo', async () => {
       await service.reincorporar(88, dtoBase(), 7n);
 
       expect(dataRelacionNueva()).toMatchObject({
         estado: 'activo',
         fecha_inicio: new Date('2026-10-01'),
         unidad_id: 5n,
+        sub_unidad_id: 50n,
         grado_reincorporacion_id: 3n,
         haber_retiro: 45000.5,
         porcentaje_progresivo: 0.3,
@@ -1532,15 +1534,19 @@ describe('RetirosService', () => {
       expect(dataRelacionNueva()).toMatchObject({ situacion_id: 17n, tipo_funcionario: 'subalterno' });
     });
 
-    it('conserva la sub-unidad solo si no cambia la unidad', async () => {
+    it('si vuelve a una base de otro comando, la relacion y el destino quedan en esa base y su comando', async () => {
       prisma.retiros.findUnique.mockResolvedValue(
-        makeRetiro({ relaciones_laborales: makeRelacion({ sub_unidad_id: 12n }) }),
+        makeRetiro({ relaciones_laborales: makeRelacion({ unidad_id: 5n, sub_unidad_id: 12n }) }),
       );
-      prisma.unidades.findUnique.mockResolvedValue({ id: 6n, vigente: true });
+      prisma.sub_unidades.findUnique.mockResolvedValue({ id: 60n, vigente: true, unidad_id: 6n });
 
-      await service.reincorporar(88, dtoBase({ unidad_id: 6 }), 7n);
+      await service.reincorporar(88, dtoBase({ sub_unidad_id: 60 }), 7n);
 
-      expect(dataRelacionNueva()).toMatchObject({ unidad_id: 6n, sub_unidad_id: null });
+      expect(prisma.sub_unidades.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 60n } }),
+      );
+      expect(dataRelacionNueva()).toMatchObject({ unidad_id: 6n, sub_unidad_id: 60n });
+      expect(prisma.destinos.create.mock.calls[0][0].data).toMatchObject({ unidad_id: 6n, sub_unidad_id: 60n });
     });
 
     it('registra el movimiento Reincorporacion sobre la relacion nueva', async () => {
@@ -1572,13 +1578,14 @@ describe('RetirosService', () => {
       );
     });
 
-    it('le asigna destino en la unidad pedida con la orden del acto', async () => {
+    it('le asigna destino en la base pedida con la orden del acto', async () => {
       await service.reincorporar(88, dtoBase({ posicion_destino: 'Jefe de Sección' }), 7n);
 
       expect(prisma.destinos.create).toHaveBeenCalledWith({
         data: {
           persona_id: 100n,
           unidad_id: 5n,
+          sub_unidad_id: 50n,
           fecha_inicio: new Date('2026-10-01'),
           posicion_destino: 'Jefe de Sección',
           numero_orden: 'O.D. 13001',
@@ -1725,9 +1732,9 @@ describe('RetirosService', () => {
 
     it.each([
       ['no existe', null],
-      ['no esta vigente', { id: 5n, vigente: false }],
-    ])('422 si la unidad %s', async (_caso, unidad) => {
-      prisma.unidades.findUnique.mockResolvedValue(unidad);
+      ['no esta vigente', { id: 50n, vigente: false, unidad_id: 5n }],
+    ])('422 si la base %s', async (_caso, base) => {
+      prisma.sub_unidades.findUnique.mockResolvedValue(base);
 
       await expect(service.reincorporar(88, dtoBase(), 7n)).rejects.toThrow(
         UnprocessableEntityException,
