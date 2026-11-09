@@ -33,6 +33,24 @@ export function whereRelacionPorAlcance(filtros: Record<string, string | undefin
   return bases ? { sub_unidad_id: { in: bases } } : {};
 }
 
+/** Base elegida en el filtro del reporte (`sub_unidad_id`), o `undefined`. */
+export function baseDeFiltros(filtros: Record<string, string | undefined>): bigint | undefined {
+  const valor = filtros.sub_unidad_id?.trim();
+  return valor && /^\d+$/.test(valor) ? BigInt(valor) : undefined;
+}
+
+/**
+ * Condición sobre `relaciones_laborales.sub_unidad_id` que junta la base elegida en el filtro
+ * con el alcance del usuario. Con alcance de unidad, una base ajena no trae nada.
+ */
+export function whereRelacionPorBase(filtros: Record<string, string | undefined>) {
+  const elegida = baseDeFiltros(filtros);
+  const bases = basesDeAlcance(filtros);
+  if (elegida === undefined) return bases ? { sub_unidad_id: { in: bases } } : {};
+  if (bases && !bases.includes(elegida)) return { sub_unidad_id: { in: [] as bigint[] } };
+  return { sub_unidad_id: elegida };
+}
+
 /** Reportes de catálogo (`GET /reportes/:clave`) que se acotan a las bases del usuario. */
 export const REPORTES_CON_ALCANCE_UNIDAD = new Set<string>([
   'compensacion-idoneidad',

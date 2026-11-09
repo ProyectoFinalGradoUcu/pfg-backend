@@ -73,7 +73,8 @@ const DESTINOS: Record<string, [string, string | null]> = {
   SCOM: ['CAL', 'SCOM'], SERVCOMEINFOR: ['CAL', 'SCOM'],
   SABAST: ['CAL', 'SABAST'], SERVABAST: ['CAL', 'SABAST'],
   SINFRA: ['CAL', 'SINFRA'], SERVINFRAEST: ['CAL', 'SINFRA'],
-  CAO: ['CAO', null], CAP: ['CAP', null], CAL: ['CAL', null],
+  BFA: ['CG', 'BANDA'],
+  CAO: ['CAO', null], CAP: ['CAP', null], CAL: ['CAL', null], CGFA: ['CG', null],
 };
 
 /** Unidades de vuelo: variantes de escritura → clave común. */

@@ -594,6 +594,35 @@ describe('DerechaService', () => {
     });
   });
 
+  describe('trasladarARelacionEnTransaccion', () => {
+    /** Como el cambio de situación: la relación vieja se cierra y se abre otra igual, sin derecha. */
+    const abrirOtra = (personaId: bigint, nuevaId: bigint) => {
+      const vieja = prisma.filas.find((r: any) => r.persona_id === personaId && r.fecha_fin === null);
+      vieja.fecha_fin = new Date('2026-11-01');
+      vieja.estado = 'inactivo';
+      prisma.filas.push(makeRelacion({ ...vieja, id: nuevaId, fecha_fin: null, estado: 'activo',
+        derecha: null, numor: null, escala_derecha: null }));
+      return vieja.id;
+    };
+
+    it('la relación nueva queda con la misma derecha y el mismo numor, y nadie se corre', async () => {
+      const viejaId = abrirOtra(4n, 40n);
+      await service.trasladarARelacionEnTransaccion(prisma, viejaId, 40n);
+
+      expect(valores(prisma.filas, 4n)).toEqual({ derecha: 4, numor: 2 });
+      expect(prisma.filas.find((r: any) => r.id === 40n).escala_derecha).toBe('OFICIALES');
+      expect(valores(prisma.filas, 5n)).toEqual({ derecha: 5, numor: 1 });
+      expect(prisma.historial).toHaveLength(0);
+      verificarInvariantes(prisma.filas);
+    });
+
+    it('sin derecha ni numor no hace nada', async () => {
+      const viejaId = abrirOtra(10n, 100n);
+      await service.trasladarARelacionEnTransaccion(prisma, viejaId, 100n);
+      expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('previsualizar', () => {
     it('devuelve los afectados antes y después sin persistir', async () => {
       const r = await service.previsualizar({ operacion: 'REORDEN', grado_id: Number(GRADOS.BRIG), persona_id: 4, posicion: 1 });

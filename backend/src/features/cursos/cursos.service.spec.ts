@@ -70,6 +70,7 @@ const makeInscripcion = (overrides: Partial<any> = {}) => ({
 // ─── Prisma mock ──────────────────────────────────────────────────────────────
 
 const makePrismaMock = () => ({
+  sub_unidades: { findUnique: jest.fn() },
   cursos: {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
@@ -164,6 +165,59 @@ describe('CursosService', () => {
           data: expect.objectContaining({ es_obligatorio: true }),
         }),
       );
+    });
+
+    describe('base del curso', () => {
+      const UNA_BASE: AlcanceResuelto = { tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['2'] };
+      const DOS_BASES: AlcanceResuelto = { tipo: 'unidad', subUnidadIds: ['7', '8'], comandoIds: ['2'] };
+      const dataCreada = () => prisma.cursos.create.mock.calls[0][0].data;
+
+      beforeEach(() => {
+        prisma.cursos.findFirst.mockResolvedValue(null);
+        prisma.cursos.create.mockResolvedValue(makeCurso());
+        prisma.sub_unidades.findUnique.mockImplementation(({ where }: any) =>
+          Promise.resolve({ id: where.id, unidad_id: 2n, vigente: true }),
+        );
+      });
+
+      it('con alcance global y sin base crea un curso general', async () => {
+        await service.create({ nombre_curso: 'X', institucion: 'EMA' }, { tipo: 'global' });
+
+        expect(dataCreada()).toMatchObject({ sub_unidad_id: null, unidad_id: null });
+      });
+
+      it('con alcance global puede elegir cualquier base; el comando sale de ella', async () => {
+        await service.create({ nombre_curso: 'X', institucion: 'EMA', sub_unidad_id: 9 }, { tipo: 'global' });
+
+        expect(dataCreada()).toMatchObject({ sub_unidad_id: 9n, unidad_id: 2n });
+      });
+
+      it('con una sola base y sin elegir, usa esa', async () => {
+        await service.create({ nombre_curso: 'X', institucion: 'EMA' }, UNA_BASE);
+
+        expect(dataCreada()).toMatchObject({ sub_unidad_id: 7n, unidad_id: 2n });
+      });
+
+      it('con varias bases exige elegir una', async () => {
+        await expect(service.create({ nombre_curso: 'X', institucion: 'EMA' }, DOS_BASES)).rejects.toThrow(
+          'Elegí la base del curso',
+        );
+      });
+
+      it('no deja crear un curso en una base ajena', async () => {
+        await expect(
+          service.create({ nombre_curso: 'X', institucion: 'EMA', sub_unidad_id: 9 }, DOS_BASES),
+        ).rejects.toThrow('Solo podés crear cursos de tus propias bases');
+        expect(prisma.cursos.create).not.toHaveBeenCalled();
+      });
+
+      it('rechaza una base que no está vigente', async () => {
+        prisma.sub_unidades.findUnique.mockResolvedValue({ id: 9n, unidad_id: 2n, vigente: false });
+
+        await expect(
+          service.create({ nombre_curso: 'X', institucion: 'EMA', sub_unidad_id: 9 }, { tipo: 'global' }),
+        ).rejects.toThrow('no está vigente');
+      });
     });
 
     it('lanza ConflictException si el nombre ya existe', async () => {

@@ -311,8 +311,8 @@ export class OrdenesAscensoService {
     const filtroAscensos: Prisma.ascensosWhereInput = {};
     if (query.grado_destino_id) filtroAscensos.grado_id = BigInt(query.grado_destino_id);
     if (query.con_excepciones) filtroAscensos.cumplia_requisitos = false;
-    if (query.unidad_id) {
-      filtroAscensos.relacion_laboral_nueva = { unidad_id: BigInt(query.unidad_id) };
+    if (query.sub_unidad_id) {
+      filtroAscensos.relacion_laboral_nueva = { sub_unidad_id: BigInt(query.sub_unidad_id) };
     }
     // Además del filtro de unidad que pida, el alcance: con `.unidad` solo
     // órdenes con algún funcionario suyo, y de cada una solo esos funcionarios.

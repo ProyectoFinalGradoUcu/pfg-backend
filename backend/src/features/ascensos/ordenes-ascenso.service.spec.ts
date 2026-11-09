@@ -542,6 +542,13 @@ describe('OrdenesAscensoService', () => {
       });
     });
 
+    it('el filtro por base usa la sub-unidad de la relación nueva del ascendido', async () => {
+      await service.listar({ sub_unidad_id: 7 });
+
+      const args = prisma.ascensos_ordenes.findMany.mock.calls[0][0];
+      expect(args.where.ascensos.some.relacion_laboral_nueva).toEqual({ sub_unidad_id: 7n });
+    });
+
     it('con alcance de unidad solo trae órdenes que tocan esas bases', async () => {
       await service.listar({}, { tipo: 'unidad', subUnidadIds: ['5'], comandoIds: [] });
 

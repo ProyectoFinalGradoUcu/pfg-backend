@@ -9,6 +9,7 @@ import { SubalternosService } from './subalternos.service.js';
 import { PersonasCargaService } from './personas-carga.service.js';
 import { PersonalPerfilService } from './personal-perfil.service.js';
 import { LegajoMilitarService } from './legajo-militar.service.js';
+import { CambioSituacionService } from './cambio-situacion.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types/auth.types.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
@@ -16,6 +17,7 @@ import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
 import { LegajoMilitarDto } from './dto/legajo-militar.dto.js';
+import { CambiarSituacionDto } from './dto/cambiar-situacion.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
@@ -33,6 +35,7 @@ export class PersonasController {
     private readonly cargaService: PersonasCargaService,
     private readonly perfilService: PersonalPerfilService,
     private readonly legajoMilitarService: LegajoMilitarService,
+    private readonly cambioSituacionService: CambioSituacionService,
   ) {}
 
   // ─── Listado ───────────────────────────────────────────────────────────────
@@ -229,6 +232,27 @@ export class PersonasController {
   @RequireAlcance('personas.ver')
   findComisiones(@Param('id', ParseIntPipe) id: number, @Alcance() alcance: AlcanceResuelto) {
     return this.perfilService.findComisiones(id, alcance);
+  }
+
+  // ─── Situación ────────────────────────────────────────────────────────────
+
+  @ApiOperation({
+    summary: 'Cambiar la situación: licencia sin goce, No Disponible o volver a actividad',
+    description:
+      'Como liquidación: cierra la relación laboral activa y abre otra con la situación nueva. ' +
+      'Licencia sin goce y No Disponible dejan de cobrar en el próximo cálculo de liquidación.',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @RequireAlcance('personas.editar')
+  @Auditar({ contexto: 'Personas', entidad: 'Persona', accion: 'ACTUALIZAR', incluirRespuesta: true })
+  @Post(':id/situacion')
+  cambiarSituacion(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CambiarSituacionDto,
+    @Alcance() alcance: AlcanceResuelto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.cambioSituacionService.cambiar(id, dto, BigInt(user.id), alcance);
   }
 
   // ─── Editar ───────────────────────────────────────────────────────────────

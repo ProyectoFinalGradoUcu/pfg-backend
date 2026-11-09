@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
 import { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
@@ -607,6 +608,7 @@ export class PersonalPerfilService {
             fecha_inicio: true,
             grado_id: true,
             escalafon_id: true,
+            situacion_id: true,
             derecha: true,
             numor: true,
           },
@@ -616,6 +618,13 @@ export class PersonalPerfilService {
     if (!persona) throw new NotFoundException(`No existe personal con id ${id}`);
 
     const relacionActiva = persona.relaciones_laborales[0];
+
+    // Editarla en el lugar no es lo que hace liquidación: cierra la relación y abre otra.
+    if (dto.situacion_id && BigInt(dto.situacion_id) !== relacionActiva?.situacion_id) {
+      throw new UnprocessableEntityException(
+        'La situación no se edita desde el perfil: usá "Cambiar situación", que pide la fecha y la orden',
+      );
+    }
 
     const cambiaDerecha = dto.derecha !== undefined && dto.derecha !== relacionActiva?.derecha;
     const cambiaNumor = dto.numor !== undefined && dto.numor !== relacionActiva?.numor;
@@ -714,7 +723,6 @@ export class PersonalPerfilService {
           data: {
             ...(dto.fecha_inicio && { fecha_inicio: new Date(dto.fecha_inicio) }),
             ...(dto.grado_id && { grado_id: BigInt(dto.grado_id) }),
-            ...(dto.situacion_id && { situacion_id: BigInt(dto.situacion_id) }),
             ...(dto.regimen_id && { regimen_id: BigInt(dto.regimen_id) }),
             ...(dto.programa_id && { programa_id: BigInt(dto.programa_id) }),
             ...(dto.escalafon_id && { escalafon_id: BigInt(dto.escalafon_id) }),

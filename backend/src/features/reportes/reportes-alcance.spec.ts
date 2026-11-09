@@ -18,6 +18,7 @@ const SIN_PASIBLES: any = { items: [], total: 0, fecha_referencia: '2026-11-06',
 const makePrismaMock = () => ({
   relaciones_laborales: { findMany: jest.fn().mockResolvedValue([]) },
   destinos: { findMany: jest.fn().mockResolvedValue([]) },
+  movimientos_laborales: { findMany: jest.fn().mockResolvedValue([]) },
 });
 
 describe('Reportes · alcance por bases', () => {
@@ -37,12 +38,12 @@ describe('Reportes · alcance por bases', () => {
   };
 
   describe('ReportesService.ejecutar', () => {
-    it('con alcance de unidad agrega las bases y respeta la unidad que eligió el usuario', async () => {
+    it('con alcance de unidad agrega las bases y respeta la base que eligió el usuario', async () => {
       const filtros = filtrosQueLlegan();
 
-      await service.ejecutar('prima-tecnica', { unidad_id: '9', prima: 'A' }, UNIDAD);
+      await service.ejecutar('prima-tecnica', { sub_unidad_id: '9', prima: 'A' }, UNIDAD);
 
-      expect(filtros()).toEqual({ unidad_id: '9', prima: 'A', [FILTRO_ALCANCE_BASES]: '30,31' });
+      expect(filtros()).toEqual({ sub_unidad_id: '9', prima: 'A', [FILTRO_ALCANCE_BASES]: '30,31' });
     });
 
     it('descarta las bases que mande el cliente y pone las del usuario', async () => {
@@ -78,14 +79,28 @@ describe('Reportes · alcance por bases', () => {
       expect(ejecutar).not.toHaveBeenCalled();
     });
 
-    it('prima técnica filtra la relación por las bases sin pisar la unidad elegida', async () => {
-      await service.ejecutar('prima-tecnica', { unidad_id: '4' }, UNIDAD);
+    it('prima técnica: la base elegida dentro del alcance filtra por esa base', async () => {
+      await service.ejecutar('prima-tecnica', { sub_unidad_id: '31' }, UNIDAD);
 
       expect(prisma.relaciones_laborales.findMany.mock.calls[0][0].where).toMatchObject({
         estado: 'activo',
-        unidad_id: 4n,
-        sub_unidad_id: { in: [30n, 31n] },
+        sub_unidad_id: 31n,
       });
+    });
+
+    it('prima técnica: una base ajena al alcance no trae a nadie', async () => {
+      await service.ejecutar('prima-tecnica', { sub_unidad_id: '4' }, UNIDAD);
+
+      expect(prisma.relaciones_laborales.findMany.mock.calls[0][0].where).toMatchObject({
+        sub_unidad_id: { in: [] },
+      });
+    });
+
+    it('movimientos por unidad filtra por la base de la relación, no por el comando', async () => {
+      await service.ejecutar('movimientos-unidad', { sub_unidad_id: '7' }, GLOBAL);
+
+      const where = prisma.movimientos_laborales.findMany.mock.calls[0][0].where;
+      expect(where.relaciones_laborales).toEqual({ sub_unidad_id: 7n });
     });
   });
 
@@ -136,10 +151,10 @@ describe('Reportes · alcance por bases', () => {
 
       await pasiblesAscensoReporte.ejecutar({
         prisma: prisma as any,
-        filtros: { [FILTRO_ALCANCE_BASES]: '30,31', unidad_id: '4' },
+        filtros: { [FILTRO_ALCANCE_BASES]: '30,31', sub_unidad_id: '31' },
       });
 
-      expect(listar.mock.calls[0][0]).toMatchObject({ unidad_id: 4 });
+      expect(listar.mock.calls[0][0]).toMatchObject({ sub_unidad_id: 31 });
       expect(listar.mock.calls[0][1]).toEqual({ tipo: 'unidad', subUnidadIds: ['30', '31'], comandoIds: [] });
     });
 

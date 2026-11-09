@@ -266,6 +266,18 @@ export class ReportesService {
         });
         return unidades.map((u) => ({ valor: u.id.toString(), etiqueta: u.denominacion }));
       }
+      case 'sub_unidades': {
+        // Bases vigentes, agrupadas por comando: "B.A.I. (C.A.O.)".
+        const bases = await this.prisma.sub_unidades.findMany({
+          where: { vigente: true },
+          select: { id: true, denominacion: true, unidades: { select: { denominacion: true } } },
+          orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
+        });
+        return bases.map((b) => ({
+          valor: b.id.toString(),
+          etiqueta: b.unidades ? `${b.denominacion} (${b.unidades.denominacion})` : b.denominacion,
+        }));
+      }
       case 'personas': {
         const personas = await this.prisma.personas.findMany({
           select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true },

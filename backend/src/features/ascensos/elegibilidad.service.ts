@@ -274,7 +274,7 @@ export class ElegibilidadService {
 
   /** Una sola pasada por la nómina vigente y sus datos asociados. */
   private async cargarFuncionarios(
-    query: Pick<ListPasiblesQueryDto, 'escalafon_id' | 'grado_id' | 'unidad_id' | 'query' | 'categoria'>,
+    query: Pick<ListPasiblesQueryDto, 'escalafon_id' | 'grado_id' | 'sub_unidad_id' | 'query' | 'categoria'>,
     alcance?: AlcanceResuelto,
     personaIds?: bigint[],
   ): Promise<DatosFuncionario[]> {
@@ -287,12 +287,15 @@ export class ElegibilidadService {
     if (personaIds?.length) where['persona_id'] = { in: personaIds };
     if (query.escalafon_id) where['escalafon_id'] = BigInt(query.escalafon_id);
     if (query.grado_id) where['grado_id'] = BigInt(query.grado_id);
-    if (query.unidad_id) where['unidad_id'] = BigInt(query.unidad_id);
     if (query.categoria) where['tipo_funcionario'] = query.categoria;
 
+    // El filtro por base se suma al alcance: con `.unidad`, una base ajena no trae a nadie.
+    const bases: Record<string, unknown>[] = [];
+    if (query.sub_unidad_id) bases.push({ sub_unidad_id: BigInt(query.sub_unidad_id) });
     if (alcance?.tipo === 'unidad') {
-      where['sub_unidad_id'] = { in: alcance.subUnidadIds.map((id) => BigInt(id)) };
+      bases.push({ sub_unidad_id: { in: alcance.subUnidadIds.map((id) => BigInt(id)) } });
     }
+    if (bases.length) where['AND'] = bases;
 
     if (query.query) {
       where['personas'] = {

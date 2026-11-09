@@ -1,11 +1,11 @@
-import { whereRelacionPorAlcance } from '../alcance-reportes';
+import { whereRelacionPorBase } from '../alcance-reportes';
 import {
   ColumnaReporte,
   ContextoEjecucion,
   DefinicionReporte,
   ResultadoReporte,
 } from '../reportes.types';
-import { categoriaDeFiltros, PARAMETRO_CATEGORIA, unir } from './_helpers';
+import { categoriaDeFiltros, PARAMETRO_BASE, PARAMETRO_CATEGORIA, unir } from './_helpers';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'C.I.', tipo: 'texto' },
@@ -13,7 +13,8 @@ const COLUMNAS: ColumnaReporte[] = [
   { clave: 'escalafon', etiqueta: 'Esc.', tipo: 'texto' },
   { clave: 'nombre', etiqueta: 'Nombre', tipo: 'texto' },
   { clave: 'apellido', etiqueta: 'Apellido', tipo: 'texto' },
-  { clave: 'destino', etiqueta: 'Destino', tipo: 'texto' },
+  { clave: 'base', etiqueta: 'Base', tipo: 'texto' },
+  { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
   { clave: 'ley', etiqueta: 'Ley', tipo: 'texto' },
 ];
 
@@ -21,32 +22,24 @@ export const compensacionIdoneidadReporte: DefinicionReporte = {
   clave: 'compensacion-idoneidad',
   titulo: 'Compensación por Elevado Nivel de Idoneidad',
   descripcion:
-    'Personal que percibe la Compensación Complementaria por Idoneidad (Prima Idoneidad), con grado, destino y régimen.',
+    'Personal que percibe la Compensación Complementaria por Idoneidad (Prima Idoneidad), con grado, base, comando y régimen.',
   categoria: 'Remuneraciones',
 
    
 
   parametros: [
-    {
-      clave: 'unidad_id',
-      etiqueta: 'Unidad',
-      tipo: 'select',
-      fuenteOpciones: 'unidades',
-      ayuda: 'Opcional. Vacío = todas las unidades.',
-    },
+    PARAMETRO_BASE,
     PARAMETRO_CATEGORIA,
   ],
 
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
-    const unidadId = filtros.unidad_id ? BigInt(filtros.unidad_id) : undefined;
     const categoria = categoriaDeFiltros(filtros);
 
     const relaciones = await prisma.relaciones_laborales.findMany({
       where: {
         estado: 'activo',
         superprima: true,
-        ...(unidadId ? { unidad_id: unidadId } : {}),
-        ...whereRelacionPorAlcance(filtros),
+        ...whereRelacionPorBase(filtros),
         ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       include: {
@@ -54,6 +47,7 @@ export const compensacionIdoneidadReporte: DefinicionReporte = {
         grados: true,
         escalafones: true,
         unidades: true,
+        sub_unidades: true,
         regimenes: true,
       },
     });
@@ -65,7 +59,8 @@ export const compensacionIdoneidadReporte: DefinicionReporte = {
         escalafon: rel.escalafones?.codigo ?? '',
         nombre: unir(rel.personas?.primer_nombre, rel.personas?.segundo_nombre),
         apellido: unir(rel.personas?.primer_apellido, rel.personas?.segundo_apellido),
-        destino: rel.unidades?.denominacion ?? '',
+        base: rel.sub_unidades?.denominacion ?? '',
+        comando: rel.unidades?.denominacion ?? '',
         ley: rel.regimenes?.es_ley_vieja ? 'Vieja' : 'Nueva',
         _orden: rel.grados?.orden ?? 999,
       }))

@@ -22,9 +22,10 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 7, enum: [3, 5, 7, 9], nullable: true, description: 'Nivel de pericia/idoneidad del personal subalterno' }) @IsOptional() @IsInt() @IsIn([3, 5, 7, 9]) nivel_idoneidad?: number | null;
 
   // Datos laborales. La base y el comando no se editan acá: se cambian registrando un destino.
+  // La situación tampoco: se cambia con POST /personas/:id/situacion, que abre una relación nueva como liquidación.
   @ApiPropertyOptional({ example: '2024-01-01', description: 'Fecha de alta de la relación laboral activa' }) @IsOptional() @IsDateString() fecha_inicio?: string;
   @ApiPropertyOptional({ example: 5, description: 'ID del nuevo grado/rango' }) @IsOptional() @IsInt() grado_id?: number;
-  @ApiPropertyOptional({ example: 1, description: 'ID de la situación/estado' }) @IsOptional() @IsInt() situacion_id?: number;
+  @ApiPropertyOptional({ example: 1, description: 'Solo se acepta la situación actual. Para cambiarla, POST /personas/:id/situacion.' }) @IsOptional() @IsInt() situacion_id?: number;
 
   @ApiPropertyOptional({
     example: '2026-08-30',
