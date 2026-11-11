@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
-import { AlcanceResuelto, unidadIdsDeAlcance } from '../../lib/alcance/alcance.types.js';
+import { AlcanceResuelto, subUnidadIdsDeAlcance } from '../../lib/alcance/alcance.types.js';
 import {
   Catalogo,
   ColumnaPlantilla,
@@ -57,8 +57,9 @@ const COLUMNAS: ColumnaPlantilla[] = [
   { clave: 'etnia', titulo: 'Etnia' },
   // Datos militares
   { clave: 'regimen', titulo: 'Régimen', tipo: 'lista', lista: 'regimenes', ayuda: 'Obligatorio para oficiales y subalternos.' },
-  { clave: 'unidad', titulo: 'Unidad', tipo: 'lista', lista: 'unidades', ayuda: 'Unidad donde revista hoy. Se registra como su destino actual.' },
-  { clave: 'sub_unidad', titulo: 'Sub-unidad', tipo: 'lista', lista: 'sub_unidades', ayuda: 'Opcional. Tiene que pertenecer a la unidad elegida.' },
+  { clave: 'base', titulo: 'Base', tipo: 'lista', lista: 'bases', ancho: 30,
+    ayuda: 'Base donde revista hoy, por ejemplo "B.A.I. (C.A.O.)"; el comando sale de ella. ' +
+      'Se registra como su destino actual. Obligatoria para oficiales y subalternos.' },
   { clave: 'programa', titulo: 'Programa', tipo: 'lista', lista: 'programas', ayuda: 'Obligatorio para oficiales y subalternos.' },
   { clave: 'situacion', titulo: 'Situación', tipo: 'lista', lista: 'situaciones', ayuda: 'Obligatorio para oficiales y subalternos.' },
   { clave: 'escalafon', titulo: 'Escalafón', tipo: 'lista', lista: 'escalafones', ayuda: 'Obligatorio para oficiales y subalternos.' },
@@ -86,8 +87,7 @@ const COLUMNAS: ColumnaPlantilla[] = [
 
 interface Catalogos {
   regimenes: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
-  unidades: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
-  subUnidades: Catalogo<{ id: bigint; codigo: string; nombre: string; unidad_id: bigint }>;
+  bases: Catalogo<{ id: bigint; codigo: string; nombre: string; unidad_id: bigint }>;
   programas: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
   situaciones: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
   escalafones: Catalogo<{ id: bigint; codigo: string; nombre: string }>;
@@ -110,8 +110,8 @@ export class PersonasCargaService {
   }
 
   /**
-   * Con alcance de unidad, la lista de unidades trae solo las del usuario y la fila sin unidad
-   * cae en la suya (si tiene una sola). El alta valida lo mismo que el formulario manual.
+   * Con alcance de unidad, la lista de bases trae solo las del usuario. La base es obligatoria
+   * en cada fila militar. El alta valida lo mismo que el formulario manual.
    */
   async procesarCarga(buffer: Buffer, alcance?: AlcanceResuelto): Promise<ResultadoCarga> {
     const cat = await this.cargarCatalogos(alcance);
@@ -201,16 +201,12 @@ export class PersonasCargaService {
       return dto;
     }
 
-    const faltantes = (['regimen', 'unidad', 'programa', 'situacion', 'escalafon', 'grado', 'fecha_inicio'] as const)
-      .filter((c) => !v[c] && !(c === 'unidad' && cat.unidades.items.length === 1))
+    const faltantes = (['regimen', 'base', 'programa', 'situacion', 'escalafon', 'grado', 'fecha_inicio'] as const)
+      .filter((c) => !v[c])
       .map(t);
     if (faltantes.length) throw new Error(`Faltan datos militares: ${faltantes.join(', ')}.`);
 
-    const unidad = v['unidad'] ? cat.unidades.resolver(v['unidad']) : cat.unidades.items[0];
-    const subUnidad = cat.subUnidades.resolverOpcional(v['sub_unidad']);
-    if (subUnidad && subUnidad.unidad_id !== unidad.id) {
-      throw new Error(`La sub-unidad "${v['sub_unidad']}" no pertenece a la unidad "${cat.unidades.etiquetaDe(unidad)}".`);
-    }
+    const base = cat.bases.resolver(v['base']);
     const grado = cat.grados.resolver(v['grado']);
     if (tipo === 'oficial' && grado.es_subalterno) {
       throw new Error(`El grado "${v['grado']}" es de personal subalterno y la fila dice Oficial.`);
@@ -229,8 +225,8 @@ export class PersonasCargaService {
       ...dto,
       tipo_funcionario: tipo,
       regimen_id: Number(cat.regimenes.resolver(v['regimen']).id),
-      unidad_id: Number(unidad.id),
-      sub_unidad_id: subUnidad ? Number(subUnidad.id) : undefined,
+      unidad_id: Number(base.unidad_id),
+      sub_unidad_id: Number(base.id),
       programa_id: Number(cat.programas.resolver(v['programa']).id),
       situacion_id: Number(cat.situaciones.resolver(v['situacion']).id),
       escalafon_id: Number(cat.escalafones.resolver(v['escalafon']).id),
@@ -267,14 +263,14 @@ export class PersonasCargaService {
   }
 
   private async cargarCatalogos(alcance?: AlcanceResuelto): Promise<Catalogos> {
-    const unidadesAlcance = alcance ? unidadIdsDeAlcance(alcance) : null;
-    const filtroUnidad = unidadesAlcance ? { id: { in: unidadesAlcance } } : {};
-    const [regimenes, unidades, subUnidades, programas, situaciones, escalafones, grados] = await Promise.all([
+    // Con alcance de unidad solo se listan sus bases, así que una ajena da error en la fila.
+    const basesAlcance = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+    const [regimenes, bases, programas, situaciones, escalafones, grados] = await Promise.all([
       this.prisma.regimenes.findMany({ where: { vigente: true }, orderBy: { numero_ley: 'asc' } }),
-      this.prisma.unidades.findMany({ where: { vigente: true, ...filtroUnidad }, orderBy: { denominacion: 'asc' } }),
       this.prisma.sub_unidades.findMany({
-        where: { vigente: true, ...(unidadesAlcance ? { unidad_id: { in: unidadesAlcance } } : {}) },
-        orderBy: { codigo: 'asc' },
+        where: { vigente: true, ...(basesAlcance ? { id: { in: basesAlcance } } : {}) },
+        include: { unidades: { select: { denominacion: true } } },
+        orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
       }),
       this.prisma.programas.findMany({ where: { vigente: true }, orderBy: { codigo: 'asc' } }),
       this.prisma.situaciones.findMany({ where: { vigente: true }, orderBy: { codigo: 'asc' } }),
@@ -284,10 +280,14 @@ export class PersonasCargaService {
 
     return {
       regimenes: new Catalogo('Régimen', regimenes.map((r) => ({ id: r.id, codigo: r.numero_ley, nombre: r.denominacion }))),
-      unidades: new Catalogo('Unidad', unidades.map((u) => ({ id: u.id, codigo: u.codigo, nombre: u.denominacion }))),
-      subUnidades: new Catalogo(
-        'Sub-unidad',
-        subUnidades.map((s) => ({ id: s.id, codigo: s.codigo, nombre: s.denominacion, unidad_id: s.unidad_id })),
+      bases: new Catalogo(
+        'Base',
+        bases.map((b) => ({
+          id: b.id,
+          codigo: b.codigo,
+          nombre: `${b.denominacion} (${b.unidades.denominacion})`,
+          unidad_id: b.unidad_id,
+        })),
       ),
       programas: new Catalogo('Programa', programas.map((p) => ({ id: p.id, codigo: p.codigo, nombre: p.denominacion }))),
       situaciones: new Catalogo('Situación', situaciones.map((s) => ({ id: s.id, codigo: s.codigo, nombre: s.denominacion }))),
@@ -315,8 +315,7 @@ export class PersonasCargaService {
         { nombre: 'generos', titulo: 'Género', valores: ['Masculino', 'Femenino', 'Otro'] },
         { nombre: 'estados_civiles', titulo: 'Estado civil', valores: ESTADOS_CIVILES },
         { nombre: 'regimenes', titulo: 'Régimen', valores: cat.regimenes.etiquetas },
-        { nombre: 'unidades', titulo: 'Unidad', valores: cat.unidades.etiquetas },
-        { nombre: 'sub_unidades', titulo: 'Sub-unidad', valores: cat.subUnidades.etiquetas },
+        { nombre: 'bases', titulo: 'Base', valores: cat.bases.etiquetas },
         { nombre: 'programas', titulo: 'Programa', valores: cat.programas.etiquetas },
         { nombre: 'situaciones', titulo: 'Situación', valores: cat.situaciones.etiquetas },
         { nombre: 'escalafones', titulo: 'Escalafón', valores: cat.escalafones.etiquetas },
@@ -329,14 +328,15 @@ export class PersonasCargaService {
         'Si el tipo de personal es Oficial o Subalterno, completá los datos militares (Régimen a Fecha de ingreso). ' +
           'Si es Civil, dejalos vacíos y completá "Familiares".',
         'Los militares de este archivo se cargan antes que los civiles: un civil puede tener de familiar a alguien del mismo archivo.',
-        'Cada persona queda con su destino actual en la unidad indicada. El historial de destinos se carga aparte, desde Destinos.',
+        'La base es la sub-unidad donde revista (B.A.I., E.T.A., ...); el comando sale de ella.',
+        'Cada persona queda con su destino actual en la base indicada. El historial de destinos se carga aparte, desde Destinos.',
       ],
       ejemplos: [
         {
           cedula: '12345678', primer_nombre: 'Juan', segundo_nombre: 'Carlos', primer_apellido: 'Pérez', segundo_apellido: 'García',
           tipo_personal: 'Oficial', fecha_nacimiento: fechaEjemplo('1990-05-15'), genero: 'Masculino', estado_civil: 'Soltero',
           lugar_nacimiento: 'Montevideo', email: 'juan@ejemplo.com', telefono: '099111222',
-          regimen: cat.regimenes.etiquetas[0] ?? '', unidad: cat.unidades.etiquetas[0] ?? '',
+          regimen: cat.regimenes.etiquetas[0] ?? '', base: cat.bases.etiquetas[0] ?? '',
           programa: cat.programas.etiquetas[0] ?? '', situacion: cat.situaciones.etiquetas[0] ?? '',
           escalafon: cat.escalafones.etiquetas[0] ?? '',
           grado: cat.grados.etiquetas.find((g) => g.startsWith('TTE_1RO')) ?? cat.grados.etiquetas[0] ?? '',

@@ -4,12 +4,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
-import {
-  AlcanceResuelto,
-  unidadIdDeAlcance,
-} from '../../lib/alcance/alcance.types.js';
+import { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
@@ -196,6 +194,7 @@ export class PersonalPerfilService {
         select: {
           grados: { select: { denominacion: true } },
           unidades: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
         },
       },
     };
@@ -230,6 +229,7 @@ export class PersonalPerfilService {
         tipo_relacion: tipoRelacion,
         grado: rel?.grados?.denominacion ?? null,
         unidad: rel?.unidades?.denominacion ?? null,
+        sub_unidad: rel?.sub_unidades?.denominacion ?? null,
       };
     });
   }
@@ -533,17 +533,22 @@ export class PersonalPerfilService {
     const asignaciones = await this.prisma.destinos.findMany({
       where: { persona_id: BigInt(id) },
       include: {
-        unidades: { select: { id: true, codigo: true, denominacion: true, tipo: true } },
+        unidades: { select: { id: true, codigo: true, denominacion: true } },
+        sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
       },
       orderBy: { fecha_inicio: 'desc' },
     });
 
+    // `unidad` es el comando; el destino propiamente dicho es la sub-unidad (null en
+    // históricos cargados antes de que el destino la guardara).
     return asignaciones.map((a) => ({
       id: a.id.toString(),
       unidad_id: a.unidad_id ? a.unidad_id.toString() : null,
       unidad: a.unidades?.denominacion ?? null,
       codigo_unidad: a.unidades?.codigo ?? null,
-      tipo_unidad: a.unidades?.tipo ?? null,
+      sub_unidad_id: a.sub_unidad_id ? a.sub_unidad_id.toString() : null,
+      sub_unidad: a.sub_unidades?.denominacion ?? null,
+      codigo_sub_unidad: a.sub_unidades?.codigo ?? null,
       posicion_destino: a.posicion_destino,
       fecha_inicio: a.fecha_inicio ? a.fecha_inicio.toISOString().split('T')[0] : null,
       fecha_fin: a.fecha_fin ? a.fecha_fin.toISOString().split('T')[0] : null,
@@ -605,6 +610,7 @@ export class PersonalPerfilService {
             fecha_inicio: true,
             grado_id: true,
             escalafon_id: true,
+            situacion_id: true,
             derecha: true,
             numor: true,
           },
@@ -615,21 +621,17 @@ export class PersonalPerfilService {
 
     const relacionActiva = persona.relaciones_laborales[0];
 
+    // Editarla en el lugar no es lo que hace liquidación: cierra la relación y abre otra.
+    if (dto.situacion_id && BigInt(dto.situacion_id) !== relacionActiva?.situacion_id) {
+      throw new UnprocessableEntityException(
+        'La situación no se edita desde el perfil: usá "Cambiar situación", que pide la fecha y la orden',
+      );
+    }
+
     const cambiaDerecha = dto.derecha !== undefined && dto.derecha !== relacionActiva?.derecha;
     const cambiaNumor = dto.numor !== undefined && dto.numor !== relacionActiva?.numor;
     if ((cambiaDerecha || cambiaNumor) && !permisos.includes('derecha.gestionar')) {
       throw new ForbiddenException('No tenés el permiso para modificar la derecha ni el numor');
-    }
-
-    // Con alcance de unidad no se puede mover personal fuera de la propia unidad: seria una via
-    // para sacarse gente de encima o para apropiarse de personal ajeno.
-    if (alcance && dto.unidad_id) {
-      const unidadPropia = unidadIdDeAlcance(alcance);
-      if (unidadPropia !== null && dto.unidad_id.toString() !== unidadPropia.toString()) {
-        throw new BadRequestException(
-          'No podes cambiar el destino de un funcionario a otra unidad',
-        );
-      }
     }
 
     if (dto.fecha_nacimiento || dto.fecha_inicio) {
@@ -683,8 +685,8 @@ export class PersonalPerfilService {
       });
 
       const tocaRelacion =
-        dto.fecha_inicio || dto.grado_id || dto.unidad_id || dto.situacion_id || dto.regimen_id ||
-        dto.programa_id || dto.escalafon_id || dto.sub_unidad_id !== undefined ||
+        dto.fecha_inicio || dto.grado_id || dto.situacion_id || dto.regimen_id ||
+        dto.programa_id || dto.escalafon_id ||
         dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined ||
         dto.observaciones_laborales !== undefined || dto.mutaciones !== undefined ||
         dto.codigos_legajo !== undefined;
@@ -723,12 +725,9 @@ export class PersonalPerfilService {
           data: {
             ...(dto.fecha_inicio && { fecha_inicio: new Date(dto.fecha_inicio) }),
             ...(dto.grado_id && { grado_id: BigInt(dto.grado_id) }),
-            ...(dto.unidad_id && { unidad_id: BigInt(dto.unidad_id) }),
-            ...(dto.situacion_id && { situacion_id: BigInt(dto.situacion_id) }),
             ...(dto.regimen_id && { regimen_id: BigInt(dto.regimen_id) }),
             ...(dto.programa_id && { programa_id: BigInt(dto.programa_id) }),
             ...(dto.escalafon_id && { escalafon_id: BigInt(dto.escalafon_id) }),
-            ...(dto.sub_unidad_id !== undefined && { sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null }),
             ...(dto.prima_tecnica !== undefined && { prima_tecnica: dto.prima_tecnica }),
             ...(dto.tiene_mando !== undefined && { tiene_mando: dto.tiene_mando }),
             ...(dto.observaciones_laborales !== undefined && { observaciones: dto.observaciones_laborales }),

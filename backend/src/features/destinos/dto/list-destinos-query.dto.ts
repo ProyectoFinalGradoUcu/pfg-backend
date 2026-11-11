@@ -25,11 +25,17 @@ export class ListDestinosQueryDto {
   @IsString()
   query?: string;
 
-  @ApiPropertyOptional({ example: 5, description: 'Filtra por unidad' })
+  @ApiPropertyOptional({ example: 1, description: 'Filtra por comando (unidad de liquidación)' })
   @IsOptional()
   @Transform(({ value }) => Number(value))
   @IsInt()
   unidad_id?: number;
+
+  @ApiPropertyOptional({ example: 5, description: 'Filtra por sub-unidad (el destino)' })
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  sub_unidad_id?: number;
 
   @ApiPropertyOptional({ example: true, description: 'true = destinos vigentes, false = historial' })
   @IsOptional()

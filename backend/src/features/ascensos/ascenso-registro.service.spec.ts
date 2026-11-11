@@ -186,12 +186,14 @@ describe('AscensoRegistroService', () => {
           superprima: true,
           mutaciones: 'Mutado de SG a AT',
           categoria_viatico: 3,
+          codigos_legajo: '-1-4-7-8-',
         }),
       });
 
       await service.registrar(params());
 
       const data = prisma.relaciones_laborales.create.mock.calls[0][0].data;
+      expect(data.codigos_legajo).toBe('-1-4-7-8-');
       expect(data.unidad_id).toBe(2n);
       expect(data.situacion_id).toBe(7n);
       expect(data.escalafon_id).toBe(14n);

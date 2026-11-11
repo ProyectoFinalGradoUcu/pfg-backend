@@ -7,7 +7,8 @@
 -- arranque en producción: permisos, roles base, usuario administrador,
 -- y datos de auditoría.
 --
--- Idempotente: usa ON CONFLICT DO NOTHING / DO UPDATE en todos los inserts.
+-- Idempotente: usa ON CONFLICT DO NOTHING en todos los inserts que tocan tablas
+-- compartidas con liquidación (acciones, contextos, roles, usuarios): nunca pisa filas de ellos.
 -- ============================================================================
 
 BEGIN;
@@ -210,7 +211,7 @@ SELECT nombre, descripcion FROM (VALUES
   ('derecha.cambios',                'Se aplicaron cambios de posición en la derecha'),
   ('numor.reordenar',                'Se reordenó el numor de un grupo')
 ) AS t(nombre, descripcion)
-ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
+ON CONFLICT (nombre) DO NOTHING;  -- acciones/contextos son compartidos con liquidación: no se pisan los de ellos
 
 -- Contextos de auditoría
 INSERT INTO contextos (nombre, descripcion)
@@ -237,7 +238,7 @@ SELECT nombre, descripcion FROM (VALUES
   ('Derecha',             'Cambios en la derecha y el numor del personal'),
   ('Vuelos',              'Períodos, horas de vuelo y unidades de vuelo')
 ) AS t(nombre, descripcion)
-ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
+ON CONFLICT (nombre) DO NOTHING;  -- acciones/contextos son compartidos con liquidación: no se pisan los de ellos
 
 COMMIT;
 

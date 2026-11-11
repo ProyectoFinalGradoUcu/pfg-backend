@@ -50,6 +50,7 @@ describe('SubalternosService', () => {
       asignaciones_comision: { deleteMany: jest.fn() },
       relaciones_familiares: { count: jest.fn().mockResolvedValue(0) },
       personas_documentos: { deleteMany: jest.fn() },
+      sub_unidades: { findUnique: jest.fn().mockResolvedValue({ unidad_id: 1n, vigente: true }) },
       $transaction: jest.fn((cb) => cb(prisma)),
     };
     service = new SubalternosService(prisma, derecha as any);
@@ -62,6 +63,7 @@ describe('SubalternosService', () => {
     fecha_inicio: '2024-01-15',
     regimen_id: 1,
     unidad_id: 1,
+    sub_unidad_id: 3,
     programa_id: 1,
     situacion_id: 1,
     escalafon_id: 1,
@@ -129,6 +131,25 @@ describe('SubalternosService', () => {
       expect(result.items[0].destino).toBeNull();
     });
 
+    it('sin destino cargado muestra la base de la relación laboral (personal de liquidación)', async () => {
+      prisma.personas.findMany.mockResolvedValue([
+        makePersona({
+          destinos: [],
+          relaciones_laborales: [
+            {
+              grados: { denominacion: 'Sargento' },
+              situaciones: { denominacion: 'Actividad' },
+              sub_unidades: { denominacion: 'B.A.I.' },
+            },
+          ],
+        }),
+      ]);
+
+      const result = await service.findAllPersonas({});
+
+      expect(result.items[0].destino).toBe('B.A.I.');
+    });
+
     it('pide solo el destino vigente y el más reciente', async () => {
       await service.findAllPersonas({});
 
@@ -184,7 +205,7 @@ describe('SubalternosService', () => {
       await service.findAllPersonas({ destino: [3, 4], gradoId: [14, 15], escalafonId: [1, 2] });
 
       const { where } = prisma.personas.count.mock.calls.at(-1)[0];
-      expect(where.destinos.some.unidad_id).toEqual({ in: [3n, 4n] });
+      expect(where.AND).toContainEqual({ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [3n, 4n] } } } });
       expect(where.relaciones_laborales.some).toEqual(
         expect.objectContaining({ grado_id: { in: [14n, 15n] }, escalafon_id: { in: [1n, 2n] } }),
       );
@@ -194,7 +215,7 @@ describe('SubalternosService', () => {
       await service.findAllPersonas({ destino: [], gradoId: [], escalafonId: [] });
 
       const { where } = prisma.personas.count.mock.calls.at(-1)[0];
-      expect(where).not.toHaveProperty('destinos');
+      expect(where).not.toHaveProperty('AND');
       expect(where.relaciones_laborales.some).not.toHaveProperty('grado_id');
       expect(where.relaciones_laborales.some).not.toHaveProperty('escalafon_id');
     });
@@ -313,14 +334,13 @@ describe('SubalternosService', () => {
       prisma.personas.findMany = jest.fn().mockResolvedValue([]);
     });
 
-    it('filtra por la unidad del destino vigente', async () => {
+    it('filtra por la base de la relación laboral activa, no por la tabla destinos', async () => {
       await service.findAllPersonas({ destino: [5] });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
-      expect(where.destinos).toEqual({
-        some: { unidad_id: { in: [5n] }, fecha_fin: null },
-      });
+      expect(where.AND).toEqual([{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [5n] } } } }]);
+      expect(where).not.toHaveProperty('destinos');
     });
 
     it('ya no filtra por la unidad de la relación laboral', async () => {
@@ -331,12 +351,13 @@ describe('SubalternosService', () => {
       expect(where.relaciones_laborales.some).not.toHaveProperty('unidad_id');
     });
 
-    it('sin filtro de destino no restringe por destinos', async () => {
+    it('sin filtro de destino no restringe por base', async () => {
       await service.findAllPersonas({});
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
       expect(where).not.toHaveProperty('destinos');
+      expect(where).not.toHaveProperty('AND');
     });
 
     it('mantiene los filtros de estado y rango en la relación laboral', async () => {
@@ -365,7 +386,7 @@ describe('SubalternosService', () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await service.create(dto);
       expect(prisma.destinos.create).toHaveBeenCalledWith({
-        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dto.fecha_inicio) },
+        data: { persona_id: 1n, unidad_id: 1n, sub_unidad_id: 3n, fecha_inicio: new Date(dto.fecha_inicio) },
       });
     });
 
@@ -510,8 +531,79 @@ describe('SubalternosService', () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await service.createPersonal(dtoMilitar);
       expect(prisma.destinos.create).toHaveBeenCalledWith({
-        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
+        data: { persona_id: 1n, unidad_id: 1n, sub_unidad_id: 3n, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
       });
+    });
+  });
+
+  describe('createPersonal · base', () => {
+    const dtoMilitar: any = { ...dto, es_civil: false, tipo_funcionario: 'subalterno' };
+
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+    });
+
+    it('el comando sale de la base aunque no venga unidad_id', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue({ unidad_id: 4n, vigente: true });
+
+      await service.createPersonal({ ...dtoMilitar, unidad_id: undefined });
+
+      expect(prisma.sub_unidades.findUnique).toHaveBeenCalledWith({
+        where: { id: 3n },
+        select: { unidad_id: true, vigente: true },
+      });
+      expect(prisma.relaciones_laborales.create.mock.calls[0][0].data).toMatchObject({
+        unidad_id: 4n,
+        sub_unidad_id: 3n,
+      });
+      expect(prisma.destinos.create.mock.calls[0][0].data).toMatchObject({ unidad_id: 4n, sub_unidad_id: 3n });
+    });
+
+    it('sin base y sin alcance de unidad responde 400', async () => {
+      await expect(service.createPersonal({ ...dtoMilitar, sub_unidad_id: undefined })).rejects.toThrow(
+        'Falta la base del funcionario (sub_unidad_id)',
+      );
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un comando que no es el de la base', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue({ unidad_id: 2n, vigente: true });
+
+      await expect(service.createPersonal({ ...dtoMilitar, unidad_id: 1 })).rejects.toThrow(
+        'El comando no corresponde a la base elegida',
+      );
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una base que no existe', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue(null);
+
+      await expect(service.createPersonal(dtoMilitar)).rejects.toThrow(BadRequestException);
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una base que no está vigente', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue({ unidad_id: 1n, vigente: false });
+
+      await expect(service.createPersonal(dtoMilitar)).rejects.toThrow('La base elegida no está vigente');
+    });
+
+    it('el personal civil no pide base', async () => {
+      prisma.personas.findMany = jest.fn().mockResolvedValue([
+        { id: 50n, cedula: '99999999', primer_nombre: 'Pedro', primer_apellido: 'Ramos', es_civil: false },
+      ]);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      await service.createPersonal({
+        cedula: '12345678',
+        primer_nombre: 'Ana',
+        primer_apellido: 'Ruiz',
+        es_civil: true,
+        familiares: [{ cedula: '99999999' }],
+      } as any);
+
+      expect(prisma.sub_unidades.findUnique).not.toHaveBeenCalled();
+      expect(prisma.personas.create).toHaveBeenCalled();
     });
   });
 
@@ -659,7 +751,7 @@ describe('SubalternosService', () => {
   // ─── Alcance por unidad (spec 002) ─────────────────────────────────────────
 
   describe('alcance por unidad', () => {
-    const UNIDAD: any = { tipo: 'unidad', unidadIds: ['7'] };
+    const UNIDAD: any = { tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['1'] };
     const GLOBAL: any = { tipo: 'global' };
 
     beforeEach(() => {
@@ -667,13 +759,13 @@ describe('SubalternosService', () => {
       prisma.personas.findMany = jest.fn().mockResolvedValue([]);
     });
 
-    it('fuerza la unidad propia en el listado e ignora el filtro destino del query', async () => {
+    it('fuerza las bases propias en el listado e ignora el filtro destino del query', async () => {
       await service.findAllPersonas({ destino: '99' } as any, UNIDAD);
 
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            destinos: { some: { fecha_fin: null, unidad_id: { in: [7n] } } },
+            AND: [{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [7n] } } } }],
           }),
         }),
       );
@@ -685,7 +777,7 @@ describe('SubalternosService', () => {
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            destinos: { some: { unidad_id: { in: [99n] }, fecha_fin: null } },
+            AND: [{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [99n] } } } }],
           }),
         }),
       );
@@ -703,22 +795,46 @@ describe('SubalternosService', () => {
       );
     });
 
-    it('rechaza dar de alta personal en una unidad ajena', async () => {
+    it('rechaza dar de alta personal en una base ajena', async () => {
       await expect(
-        service.create({ ...dto, unidad_id: 99 } as any, UNIDAD),
-      ).rejects.toThrow(BadRequestException);
+        service.create({ ...dto, sub_unidad_id: 99 } as any, UNIDAD),
+      ).rejects.toThrow('Solo podés dar de alta personal en tus propias bases');
+      expect(prisma.sub_unidades.findUnique).not.toHaveBeenCalled();
     });
 
-    it('fuerza la unidad propia al dar de alta sin declararla', async () => {
+    it('con una sola base usa esa si no se declara ninguna', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
 
-      await service.create({ ...dto, unidad_id: undefined } as any, UNIDAD);
+      await service.create({ ...dto, unidad_id: undefined, sub_unidad_id: undefined } as any, UNIDAD);
 
+      expect(prisma.sub_unidades.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 7n } }),
+      );
       expect(prisma.relaciones_laborales.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ unidad_id: 7n }),
+          data: expect.objectContaining({ unidad_id: 1n, sub_unidad_id: 7n }),
         }),
       );
+    });
+
+    it('con varias bases exige elegir una', async () => {
+      const VARIAS: any = { tipo: 'unidad', subUnidadIds: ['7', '8'], comandoIds: ['1'] };
+
+      await expect(
+        service.createPersonal({ ...dto, sub_unidad_id: undefined, es_civil: false } as any, VARIAS),
+      ).rejects.toThrow('Falta la base del funcionario (sub_unidad_id)');
+    });
+
+    it('acepta cualquiera de las bases propias', async () => {
+      const VARIAS: any = { tipo: 'unidad', subUnidadIds: ['7', '8'], comandoIds: ['1'] };
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      await service.createPersonal(
+        { ...dto, sub_unidad_id: 8, es_civil: false, tipo_funcionario: 'subalterno' } as any,
+        VARIAS,
+      );
+
+      expect(prisma.destinos.create.mock.calls[0][0].data).toMatchObject({ unidad_id: 1n, sub_unidad_id: 8n });
     });
 
     it('devuelve NotFoundException al editar una persona de otra unidad', async () => {

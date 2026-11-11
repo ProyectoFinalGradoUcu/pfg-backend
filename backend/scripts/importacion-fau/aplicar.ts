@@ -9,7 +9,7 @@ import { claveComision, CURSOS_DE_ASCENSO } from './complementos.js';
 import { MOTIVOS_NUEVOS } from './motivos.js';
 import { Opciones, Plan } from './plan.js';
 
-const TABLAS_LIQUIDACION = new Set(['unidades', 'sub_unidades', 'grados', 'escalafones']);
+const TABLAS_LIQUIDACION = new Set(['grados', 'escalafones']);
 
 export interface Resultado {
   catalogosCreados: Record<string, number>;
@@ -22,6 +22,8 @@ export interface Resultado {
   vuelos: number;
   derechasCompletadas: number;
   historialDerecha: number;
+  derechasPorPrecedencia: number;
+  activosSinDerecha: number;
   legajos: number;
   cursos: number;
   ascensos: number;
@@ -45,26 +47,16 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     return v;
   };
   const res: Resultado = { catalogosCreados: {}, personas: 0, completadas: 0, relaciones: 0, destinos: 0, periodosVuelo: 0, periodosVueloCerrados: 0,
-    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
+    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, derechasPorPrecedencia: 0, activosSinDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
     participaciones: 0 };
 
   // Catálogos, en orden de dependencia ──────────────────────────────────────
-  const orden = ['unidades', 'sub_unidades', 'grados', 'escalafones', 'unidades_vuelo'];
+  const orden = ['grados', 'escalafones', 'unidades_vuelo'];
   const nuevos = [...cat.nuevos.entries()].sort(([, a], [, b]) => orden.indexOf(a.tabla) - orden.indexOf(b.tabla));
   for (const [ref, n] of nuevos) {
     if (TABLAS_LIQUIDACION.has(n.tabla) && !op.crearCatalogos) continue;
     let nuevoId: string;
-    if (n.tabla === 'unidades') {
-      nuevoId = await insertarOBuscar(db,
-        'INSERT INTO unidades (codigo, denominacion, vigente) VALUES ($1, $2, $3) ON CONFLICT (codigo) DO NOTHING RETURNING id::text',
-        'SELECT id::text FROM unidades WHERE codigo = $1', [n.codigo, n.denominacion, n.vigente]);
-    } else if (n.tabla === 'sub_unidades') {
-      const unidad = id(n.unidad);
-      nuevoId = await insertarOBuscar(db,
-        `INSERT INTO sub_unidades (unidad_id, codigo, denominacion, vigente) VALUES ($4, $1, $2, $3)
-         ON CONFLICT (unidad_id, codigo) DO NOTHING RETURNING id::text`,
-        'SELECT id::text FROM sub_unidades WHERE codigo = $1 AND unidad_id = $4', [n.codigo, n.denominacion, n.vigente, unidad]);
-    } else if (n.tabla === 'grados') {
+    if (n.tabla === 'grados') {
       nuevoId = await insertarOBuscar(db,
         `INSERT INTO grados (codigo, denominacion, orden, vigente, es_oficial, es_subalterno)
          VALUES ($1, $2, $4, $3, false, $5) ON CONFLICT (codigo) DO NOTHING RETURNING id::text`,
@@ -171,10 +163,10 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
   }
   for (const d of plan.destinos) {
     await db.query(
-      `INSERT INTO destinos (persona_id, unidad_id, fecha_inicio, fecha_fin, numero_orden, posicion_destino, observaciones,
+      `INSERT INTO destinos (persona_id, unidad_id, sub_unidad_id, fecha_inicio, fecha_fin, numero_orden, posicion_destino, observaciones,
          boletin, numero_destino, fecha_orden, numero_resolucion, fecha_resolucion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [id(d.persona), id(d.unidad), d.fechaInicio, d.fechaFin, d.numeroOrden, d.posicion, d.observaciones,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [id(d.persona), id(d.unidad), id(d.subUnidad), d.fechaInicio, d.fechaFin, d.numeroOrden, d.posicion, d.observaciones,
         d.boletin ?? null, d.numeroDestino ?? null, d.fechaOrden ?? null, d.numeroResolucion ?? null, d.fechaResolucion ?? null],
     );
     res.destinos++;
@@ -328,6 +320,14 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     );
     res.comisiones++;
   }
+
+  // Al final, con todos los activos creados: ordena las escalas que quedaron sin derecha (los
+  // subalternos, que el Access no la trae), con la misma carga que la migración.
+  res.derechasPorPrecedencia = (await db.query('SELECT public.cargar_derecha_inicial() AS n')).rows[0].n;
+  res.activosSinDerecha = Number((await db.query(
+    `SELECT count(*) AS n FROM relaciones_laborales r JOIN derecha_jerarquia_grados j ON j.grado_id = r.grado_id
+      WHERE r.fecha_fin IS NULL AND r.estado = 'activo' AND r.derecha IS NULL`,
+  )).rows[0].n);
 
   return res;
 }

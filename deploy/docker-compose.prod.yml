@@ -17,23 +17,22 @@ services:
       -c max_connections=100
     volumes:
       - pg_data:/var/lib/postgresql/data
-      # Solo corre con el volumen vacío. seed_demo.sql son datos de demostración.
-      - ./src/database/scripts/legacy/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
-      - ./src/database/scripts/migracion_integracion_personal.sql:/docker-entrypoint-initdb.d/02_migracion_integracion_personal.sql:ro
-      - ./src/database/scripts/seed_integracion_personal.sql:/docker-entrypoint-initdb.d/03_seed_integracion_personal.sql:ro
-      - ./src/database/scripts/migration_aprobacion_cursos.sql:/docker-entrypoint-initdb.d/04_aprobacion_cursos.sql:ro
-      # DDL del módulo de ascensos: va ANTES del seed, que ya usa las columnas nuevas.
-      - ./src/database/scripts/migration_ascensos.sql:/docker-entrypoint-initdb.d/05_migration_ascensos.sql:ro
-      - ./src/database/scripts/seed_demo.sql:/docker-entrypoint-initdb.d/06_seed_demo.sql:ro
-      - ./src/database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/07_destinos_v2.sql:ro
-      # Cursos y reglas FAU: necesitan el catálogo de grados y unidades ya cargado.
-      - ./src/database/scripts/seed_ascensos.sql:/docker-entrypoint-initdb.d/08_seed_ascensos.sql:ro
-      - ./src/database/scripts/seed_retiros.sql:/docker-entrypoint-initdb.d/09_seed_retiros.sql:ro
-      - ./src/database/scripts/migration_retiros_v2.sql:/docker-entrypoint-initdb.d/10_retiros_v2.sql:ro
-      - ./src/database/scripts/migration_ascensos_v2.sql:/docker-entrypoint-initdb.d/11_ascensos_v2.sql:ro
-      - ./src/database/scripts/migration_archivos.sql:/docker-entrypoint-initdb.d/12_migration_archivos.sql:ro
+      # Init: SOLO corre con el volumen vacío. Arma lo mismo que la integración:
+      #   01 base de liquidación (su db-init.sql, sin tocar)
+      #   02 sus migraciones, con su runner
+      #   03 nuestro paquete (database/paquete-personal.txt)
+      # Nunca datos de demo: seed_demo.sql es solo local.
+      # Con un volumen que ya existe no corre nada de esto: lo pendiente del paquete lo
+      # aplica deploy/migrate.sh en cada deploy.
+      # Los archivos de liquidación van comprimidos; postgres ejecuta el .sql.gz directamente.
+      - ./src/database/liquidacion/db-init.sql.gz:/docker-entrypoint-initdb.d/01_liquidacion_db_init.sql.gz:ro
+      - ./src/database/init/02_liquidacion_migraciones.sh:/docker-entrypoint-initdb.d/02_liquidacion_migraciones.sh:ro
+      - ./src/database/init/03_paquete_personal.sh:/docker-entrypoint-initdb.d/03_paquete_personal.sh:ro
+      - ./src/database:/database:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      # -h 127.0.0.1: durante el init postgres solo escucha por socket; por TCP responde
+      # recién cuando terminó todo el init.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -70,6 +69,26 @@ services:
       - ./src/deploy/minio/init.sh:/init.sh:ro
     depends_on:
       minio:
+        condition: service_healthy
+    restart: "no"
+
+  # Aplica el paquete de Personal (database/paquete-personal.txt) sobre la base.
+  # Es el mismo script que se corre sobre la base de liquidación en la integración.
+  # Lo lanza deploy/migrate.sh: docker compose --profile tools run --rm paquete-personal
+  paquete-personal:
+    image: postgres:16-alpine
+    profiles: ["tools"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./src/database:/database:ro
+    entrypoint: ["sh", "/database/aplicar-paquete-personal.sh"]
+    depends_on:
+      postgres:
         condition: service_healthy
     restart: "no"
 

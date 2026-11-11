@@ -59,11 +59,11 @@ export class ListOrdenesQueryDto {
   @IsInt()
   grado_destino_id?: number;
 
-  @ApiPropertyOptional({ example: 5 })
+  @ApiPropertyOptional({ example: 3, description: 'Base (sub-unidad) de la relación laboral nueva del ascendido' })
   @IsOptional()
   @Transform(aNumero)
   @IsInt()
-  unidad_id?: number;
+  sub_unidad_id?: number;
 
   @ApiPropertyOptional({ example: 8, description: 'Usuario que registró la orden' })
   @IsOptional()

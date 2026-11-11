@@ -27,14 +27,21 @@ const makeRol = (nombre: string, permisos: string[]) => ({
   },
 });
 
-const makeUnidad = (roles: ReturnType<typeof makeRol>[] = []) => ({
-  unidades: {
+const makeBase = (roles: ReturnType<typeof makeRol>[] = []) => ({
+  sub_unidades: {
     id: 7n,
     codigo: 'EF',
     denominacion: 'Escuela de Formación',
-    unidades_roles: roles,
+    unidades: { id: 2n, denominacion: 'Comando Aéreo de Personal' },
+    sub_unidades_roles: roles,
   },
 });
+
+const EFA = {
+  id: '7',
+  denominacion: 'Escuela de Formación',
+  comando: { id: '2', denominacion: 'Comando Aéreo de Personal' },
+};
 
 const makeUsuario = (overrides: Partial<any> = {}) => ({
   id: 1n,
@@ -44,8 +51,8 @@ const makeUsuario = (overrides: Partial<any> = {}) => ({
   intentos_fallidos: 0,
   bloqueado_hasta: null,
   usuarios_roles: [],
-  // Unidades de la CUENTA: relación N:M via usuarios_unidades.
-  usuarios_unidades: [],
+  // Bases de la CUENTA: relación N:M via usuarios_sub_unidades.
+  usuarios_sub_unidades: [],
   ...overrides,
 });
 
@@ -87,11 +94,11 @@ describe('AuthService', () => {
   // ─── signIn: unión de permisos ──────────────────────────────────────────────
 
   describe('signIn', () => {
-    it('un usuario sin unidades conserva exactamente los permisos de sus roles directos', async () => {
+    it('un usuario sin bases conserva exactamente los permisos de sus roles directos', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(
         makeUsuario({
           usuarios_roles: [makeRol('Usuario', ['personas.ver'])],
-          usuarios_unidades: [],
+          usuarios_sub_unidades: [],
         }),
       );
 
@@ -101,11 +108,11 @@ describe('AuthService', () => {
       expect(user.unidades).toEqual([]);
     });
 
-    it('un usuario sin unidades asignadas no hereda nada', async () => {
+    it('un usuario sin bases asignadas no hereda nada', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(
         makeUsuario({
           usuarios_roles: [makeRol('Usuario', ['personas.ver'])],
-          usuarios_unidades: [],
+          usuarios_sub_unidades: [],
         }),
       );
 
@@ -115,12 +122,12 @@ describe('AuthService', () => {
       expect(user.unidades).toEqual([]);
     });
 
-    it('hereda los permisos de los roles de su unidad sin tener roles directos', async () => {
+    it('hereda los permisos de los roles de su base sin tener roles directos', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(
         makeUsuario({
           usuarios_roles: [],
-          usuarios_unidades: [
-            makeUnidad([
+          usuarios_sub_unidades: [
+            makeBase([
               makeRol('Control de cursos', ['cursos.gestionar.unidad']),
             ]),
           ],
@@ -131,14 +138,14 @@ describe('AuthService', () => {
 
       expect(user.permisos).toEqual(['cursos.gestionar.unidad']);
       expect(user.roles).toEqual(['Control de cursos']);
-      expect(user.unidades).toEqual([{ id: '7', denominacion: 'Escuela de Formación' }]);
+      expect(user.unidades).toEqual([EFA]);
     });
 
-    it('devuelve la unión de los permisos directos y los de la unidad', async () => {
+    it('devuelve la unión de los permisos directos y los de la base', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(
         makeUsuario({
           usuarios_roles: [makeRol('Usuario', ['personas.ver'])],
-          usuarios_unidades: [makeUnidad([makeRol('Control de cursos', ['cursos.gestionar'])])],
+          usuarios_sub_unidades: [makeBase([makeRol('Control de cursos', ['cursos.gestionar'])])],
         }),
       );
 
@@ -147,12 +154,12 @@ describe('AuthService', () => {
       expect(user.permisos).toEqual(['personas.ver', 'cursos.gestionar']);
     });
 
-    it('no duplica un permiso que llega por rol directo y por unidad a la vez', async () => {
+    it('no duplica un permiso que llega por rol directo y por base a la vez', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(
         makeUsuario({
           usuarios_roles: [makeRol('Usuario', ['cursos.ver'])],
-          usuarios_unidades: [
-            makeUnidad([
+          usuarios_sub_unidades: [
+            makeBase([
               makeRol('Control de cursos', ['cursos.ver', 'cursos.gestionar']),
             ]),
           ],
@@ -165,31 +172,31 @@ describe('AuthService', () => {
       expect(user.permisos.filter((p) => p === 'cursos.ver')).toHaveLength(1);
     });
 
-    it('solo deja los roles directos si la unidad no tiene ningún rol asignado', async () => {
+    it('solo deja los roles directos si la base no tiene ningún rol asignado', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(
         makeUsuario({
           usuarios_roles: [makeRol('Usuario', ['personas.ver'])],
-          usuarios_unidades: [makeUnidad([])],
+          usuarios_sub_unidades: [makeBase([])],
         }),
       );
 
       const { user } = await login();
 
       expect(user.permisos).toEqual(['personas.ver']);
-      expect(user.unidades).toEqual([{ id: '7', denominacion: 'Escuela de Formación' }]);
+      expect(user.unidades).toEqual([EFA]);
     });
 
-    it('firma las unidades dentro del token para que el guard resuelva el alcance', async () => {
+    it('firma las bases con su comando dentro del token para que el guard resuelva el alcance', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(
         makeUsuario({
-          usuarios_unidades: [makeUnidad([])],
+          usuarios_sub_unidades: [makeBase([])],
         }),
       );
 
       const { token } = await login();
       const payload = jwt.decode(token) as Record<string, unknown>;
 
-      expect(payload.unidades).toEqual([{ id: '7', denominacion: 'Escuela de Formación' }]);
+      expect(payload.unidades).toEqual([EFA]);
       expect(payload.iat).toEqual(expect.any(Number));
     });
 

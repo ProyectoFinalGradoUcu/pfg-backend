@@ -31,6 +31,8 @@ export function escribirInforme(
     `- Tipo de funcionario completado en períodos activos existentes: ${res.tiposCompletados}`,
     `- Comisiones importadas (--comisiones): ${res.comisiones}`,
     `- Altas en el historial de Derecha/Numor: ${res.historialDerecha}`,
+    `- Activos ordenados por precedencia en escalas sin Derecha (subalternos): ${res.derechasPorPrecedencia}`,
+    `- Activos que siguen sin Derecha (ubicarlos desde Configuración de derecha): ${res.activosSinDerecha}`,
     `- Niveles educativos (legajo): ${res.legajos}`,
     `- Cursos aprobados (pasaje de grado, Nivel 7/9, especialidades): ${res.cursos}`,
     `- Ascensos (historial): ${res.ascensos}`,
@@ -44,6 +46,15 @@ export function escribirInforme(
     '',
     ...Object.entries(plan.conteo).sort().map(([k, n]) => `- ${k}: ${n}`),
   ];
+
+  if (plan.destinosSinEquivalente.size) {
+    lineas.push('', '## Destinos sin equivalente en liquidación', '',
+      'Sus filas no se cargan y no se crea ninguna unidad ni sub-unidad: resolverlos a mano.', '',
+      '| Destino en el Access | Activos | Filas |', '|---|---|---|',
+      ...[...plan.destinosSinEquivalente.entries()]
+        .sort((a, b) => b[1].activos - a[1].activos || b[1].filas - a[1].filas)
+        .map(([d, n]) => `| ${d} | ${n.activos} | ${n.filas} |`));
+  }
 
   const faltantes = [...cat.nuevos.values()].filter((n) => n.tabla !== 'unidades_vuelo');
   if (faltantes.length && !op.crearCatalogos) {

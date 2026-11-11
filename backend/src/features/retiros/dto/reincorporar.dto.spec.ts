@@ -4,7 +4,7 @@ import { ReincorporarDto } from './reincorporar.dto';
 
 // La API aceptaba orden y boletín vacíos o de solo espacios.
 describe('ReincorporarDto · número de orden y boletín', () => {
-  const base = { fecha_reincorporacion: '2026-10-01', grado_reincorporacion_id: 3, unidad_id: 5 };
+  const base = { fecha_reincorporacion: '2026-10-01', grado_reincorporacion_id: 3, sub_unidad_id: 5 };
 
   const errores = async (extra: Record<string, unknown>) => {
     const dto = plainToInstance(ReincorporarDto, { ...base, ...extra });

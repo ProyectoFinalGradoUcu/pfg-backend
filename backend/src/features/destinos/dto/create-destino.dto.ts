@@ -14,9 +14,12 @@ export class CreateDestinoDto {
   @IsInt()
   persona_id: number;
 
-  @ApiProperty({ example: 5, description: 'Unidad en la que pasa a revistar' })
+  @ApiProperty({
+    example: 5,
+    description: 'Sub-unidad en la que pasa a revistar (B.A.I., E.M.A., ...). El comando sale de ella.',
+  })
   @IsInt()
-  unidad_id: number;
+  sub_unidad_id: number;
 
   @ApiProperty({ example: '2026-09-01', description: 'Fecha desde la que revista en la unidad' })
   @IsDateString()

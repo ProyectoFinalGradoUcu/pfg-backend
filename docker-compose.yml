@@ -10,36 +10,57 @@ services:
       - "5434:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./database/scripts/legacy/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
-      - ./database/scripts/migracion_integracion_personal.sql:/docker-entrypoint-initdb.d/02_migracion_integracion_personal.sql:ro
-      - ./database/scripts/seed_integracion_personal.sql:/docker-entrypoint-initdb.d/03_seed_integracion_personal.sql:ro
-      - ./database/scripts/migration_aprobacion_cursos.sql:/docker-entrypoint-initdb.d/04_aprobacion_cursos.sql:ro
-      # DDL del módulo de ascensos: va ANTES del seed, que ya usa las columnas nuevas.
-      - ./database/scripts/migration_ascensos.sql:/docker-entrypoint-initdb.d/05_migration_ascensos.sql:ro
-      - ./database/scripts/seed_demo.sql:/docker-entrypoint-initdb.d/06_seed_demo.sql:ro
-      - ./database/scripts/migration_destinos_v2.sql:/docker-entrypoint-initdb.d/07_destinos_v2.sql:ro
-      # Cursos y reglas FAU: necesitan el catálogo de grados y unidades ya cargado.
-      - ./database/scripts/seed_ascensos.sql:/docker-entrypoint-initdb.d/08_seed_ascensos.sql:ro
-      # Catálogos de motivos de baja y tipos de movimiento que usa el módulo de retiros.
-      - ./database/scripts/seed_retiros.sql:/docker-entrypoint-initdb.d/09_seed_retiros.sql:ro
-      # Va después del seed: backfillea el retiro que seed_demo inserta.
-      - ./database/scripts/migration_retiros_v2.sql:/docker-entrypoint-initdb.d/10_retiros_v2.sql:ro
-      # Antigüedad de servicio pasa a un campo tipado propio, no un JSON genérico.
-      - ./database/scripts/migration_ascensos_v2.sql:/docker-entrypoint-initdb.d/11_ascensos_v2.sql:ro
-      - ./database/scripts/migration_archivos.sql:/docker-entrypoint-initdb.d/12_migration_archivos.sql:ro
-      - ./database/scripts/migration_derecha_numor.sql:/docker-entrypoint-initdb.d/13_migration_derecha_numor.sql:ro
-      - ./database/scripts/migration_vuelos.sql:/docker-entrypoint-initdb.d/14_migration_vuelos.sql:ro
-      - ./database/scripts/migration_campos_reportes.sql:/docker-entrypoint-initdb.d/15_migration_campos_reportes.sql:ro
-      - ./database/scripts/migration_comisiones.sql:/docker-entrypoint-initdb.d/16_migration_comisiones.sql:ro
-      - ./database/scripts/migration_comisiones_cargo.sql:/docker-entrypoint-initdb.d/17_migration_comisiones_cargo.sql:ro
-      - ./database/scripts/migration_comisiones_importadas.sql:/docker-entrypoint-initdb.d/18_migration_comisiones_importadas.sql:ro
-      - ./database/scripts/migration_comisiones_alcance.sql:/docker-entrypoint-initdb.d/19_migration_comisiones_alcance.sql:ro
+      # Solo la base de liquidación, tal cual la tienen ellos (corre con el volumen vacío).
+      # Encima van sus migraciones (servicio liquidacion-migraciones) y después nuestro
+      # paquete (servicio paquete-personal), igual que en la integración. Ver `make reset`.
+      # Va comprimido; postgres ejecuta los .sql.gz del init directamente.
+      - ./database/liquidacion/db-init.sql.gz:/docker-entrypoint-initdb.d/01_liquidacion_db_init.sql.gz:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pfg_user -d pfg_database"]
+      # -h 127.0.0.1: mientras corre el init, postgres solo escucha por socket; por TCP
+      # recién responde cuando terminó db-init.sql.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U pfg_user -d pfg_database"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+  # Migraciones de liquidación con SU runner, igual que en su repo
+  # (docker-compose --profile tools run --rm migrations). Vienen comprimidas en
+  # database/liquidacion/migraciones.tar.gz; ver database/correr-migraciones-liquidacion.sh.
+  liquidacion-migraciones:
+    image: postgres:16-alpine
+    profiles: ["tools"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: pfg_database
+      DB_USER: pfg_user
+      DB_PASSWORD: pfg_password
+    volumes:
+      - ./database:/database:ro
+    entrypoint: ["sh", "/database/correr-migraciones-liquidacion.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # Nuestro paquete encima de la base de liquidación: el mismo comando que se corre allá.
+  paquete-personal:
+    image: postgres:16-alpine
+    profiles: ["tools"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: pfg_database
+      DB_USER: pfg_user
+      DB_PASSWORD: pfg_password
+    volumes:
+      - ./database:/database:ro
+    entrypoint: ["sh", "/database/aplicar-paquete-personal.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   minio:
     image: minio/minio:latest

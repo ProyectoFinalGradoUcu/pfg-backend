@@ -16,6 +16,15 @@ export const PARAMETRO_CATEGORIA: ParametroReporte = {
   ayuda: 'Opcional. Vacío = oficiales y subalternos.',
 };
 
+/** Filtro por base (sub-unidad de la relación laboral). Las opciones se muestran con su comando. */
+export const PARAMETRO_BASE: ParametroReporte = {
+  clave: 'sub_unidad_id',
+  etiqueta: 'Base',
+  tipo: 'select',
+  fuenteOpciones: 'sub_unidades',
+  ayuda: 'Opcional. Vacío = todas las bases.',
+};
+
 /** Lee `filtros.categoria`; cualquier otro valor equivale a no filtrar. */
 export function categoriaDeFiltros(
   filtros: Record<string, string | undefined>,

@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../lib/prisma.service';
 import {
   AlcanceResuelto,
-  unidadIdDeAlcance,
 } from '../../lib/alcance/alcance.types';
 import {
   assertPersonaEnAlcance,
@@ -23,7 +22,7 @@ export class HistorialCursosService {
     // El historial es un dato del funcionario, asi que se segmenta por la unidad de la PERSONA
     // y no por la del curso, aunque el endpoint este protegido por permisos de cursos.
     const where =
-      alcance && unidadIdDeAlcance(alcance) !== null
+      alcance?.tipo === 'unidad'
         ? { personas: wherePersonasPorAlcance(alcance) }
         : {};
 
