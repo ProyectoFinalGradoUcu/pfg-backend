@@ -531,24 +531,8 @@ JOIN roles r ON r.nombre = 'Operador de Personal' AND r.aplicacion = 'personal'
 WHERE u.username = 'jefe.bai@fau.mil.uy' AND u.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;
 
--- Derecha y numor iniciales (misma carga que migration_derecha_numor.sql)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM public.relaciones_laborales WHERE derecha IS NOT NULL) THEN
-        WITH activos AS (
-            SELECT r.id, j.escala,
-                   ROW_NUMBER() OVER (PARTITION BY j.escala ORDER BY j.posicion, r.id) AS derecha,
-                   ROW_NUMBER() OVER (PARTITION BY r.grado_id, r.escalafon_id ORDER BY r.id) AS numor
-            FROM public.relaciones_laborales r
-            JOIN public.derecha_jerarquia_grados j ON j.grado_id = r.grado_id
-            WHERE r.fecha_fin IS NULL AND r.estado = 'activo'
-        )
-        UPDATE public.relaciones_laborales r
-        SET derecha = a.derecha, numor = a.numor, escala_derecha = a.escala
-        FROM activos a
-        WHERE a.id = r.id;
-    END IF;
-END $$;
+-- Derecha y numor iniciales
+SELECT public.cargar_derecha_inicial();
 
 COMMIT;
 

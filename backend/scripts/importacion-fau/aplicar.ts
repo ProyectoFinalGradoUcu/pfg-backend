@@ -22,6 +22,8 @@ export interface Resultado {
   vuelos: number;
   derechasCompletadas: number;
   historialDerecha: number;
+  derechasPorPrecedencia: number;
+  activosSinDerecha: number;
   legajos: number;
   cursos: number;
   ascensos: number;
@@ -45,7 +47,7 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     return v;
   };
   const res: Resultado = { catalogosCreados: {}, personas: 0, completadas: 0, relaciones: 0, destinos: 0, periodosVuelo: 0, periodosVueloCerrados: 0,
-    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
+    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, derechasPorPrecedencia: 0, activosSinDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
     participaciones: 0 };
 
   // Catálogos, en orden de dependencia ──────────────────────────────────────
@@ -318,6 +320,14 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     );
     res.comisiones++;
   }
+
+  // Al final, con todos los activos creados: ordena las escalas que quedaron sin derecha (los
+  // subalternos, que el Access no la trae), con la misma carga que la migración.
+  res.derechasPorPrecedencia = (await db.query('SELECT public.cargar_derecha_inicial() AS n')).rows[0].n;
+  res.activosSinDerecha = Number((await db.query(
+    `SELECT count(*) AS n FROM relaciones_laborales r JOIN derecha_jerarquia_grados j ON j.grado_id = r.grado_id
+      WHERE r.fecha_fin IS NULL AND r.estado = 'activo' AND r.derecha IS NULL`,
+  )).rows[0].n);
 
   return res;
 }

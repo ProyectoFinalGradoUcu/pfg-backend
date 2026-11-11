@@ -95,6 +95,7 @@ export class Catalogos {
   situaciones = new Map<string, string>();
   regimenLeyNueva: string | null = null;
   programa300: string | null = null;
+  cargaDerecha = false;
   remunerados = new Set<string>(); // grado_id con remuneración vigente
   /** Lo que habría que crear, por clave Ref. */
   nuevos = new Map<Ref, NuevoCatalogo>();
@@ -112,6 +113,7 @@ export class Catalogos {
     for (const s of await q('SELECT id::text, codigo, denominacion FROM situaciones')) c.situaciones.set(s.codigo, s.id);
     c.regimenLeyNueva = (await db.query("SELECT id::text FROM regimenes WHERE numero_ley = '19.695' AND vigente")).rows[0]?.id ?? null;
     c.programa300 = (await db.query("SELECT id::text FROM programas WHERE codigo = '300'")).rows[0]?.id ?? null;
+    c.cargaDerecha = (await db.query("SELECT to_regprocedure('public.cargar_derecha_inicial()') IS NOT NULL AS ok")).rows[0].ok;
     const rem = await db.query(
       'SELECT DISTINCT grado_id::text AS id FROM remuneraciones_grado WHERE vigente_hasta IS NULL OR vigente_hasta >= now()',
     );
@@ -208,6 +210,7 @@ export class Catalogos {
     const f: string[] = [];
     if (!this.regimenLeyNueva) f.push('régimen 19.695');
     if (!this.programa300) f.push('programa 300');
+    if (!this.cargaDerecha) f.push('función cargar_derecha_inicial (aplicar el paquete de personal)');
     for (const s of ['SIT01', 'SIT04', 'SIT07', 'SIT08', 'SIT12', 'SIT17']) if (!this.situaciones.has(s)) f.push(`situación ${s}`);
     return f;
   }
