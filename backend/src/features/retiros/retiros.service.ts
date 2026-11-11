@@ -1313,6 +1313,7 @@ export class RetirosService {
           tiene_mando: cerrada.tiene_mando,
           mutaciones: cerrada.mutaciones,
           conducta: cerrada.conducta,
+          codigos_legajo: cerrada.codigos_legajo,
           observaciones: dto.observaciones ?? cerrada.observaciones,
         },
       });

@@ -55,6 +55,7 @@ export const makeRelacion = (o: Partial<any> = {}) => ({
   categoria_viatico: 3,
   usa_fonasa: true,
   observaciones: 'Observaciones de carrera',
+  codigos_legajo: '-1-4-7-8-',
   unidades: { id: 5n, codigo: 'CG', denominacion: 'Cuartel General' },
   grados: { id: 3n, codigo: 'SG', denominacion: 'Sargento', es_oficial: false, es_subalterno: true },
   situaciones: { id: 7n, codigo: 'SIT07', denominacion: 'Personal Subalterno en actividad.' },
