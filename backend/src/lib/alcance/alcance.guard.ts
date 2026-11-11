@@ -55,7 +55,8 @@ export class AlcanceGuard implements CanActivate {
       }
       request.alcance = {
         tipo: 'unidad',
-        unidadIds: user.unidades.map((u) => u.id),
+        subUnidadIds: user.unidades.map((u) => u.id),
+        comandoIds: [...new Set(user.unidades.map((u) => u.comando.id))],
       };
       return true;
     }

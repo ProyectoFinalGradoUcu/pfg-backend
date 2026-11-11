@@ -6,6 +6,7 @@ import { SubalternosService } from './subalternos.service.js';
 import { PersonasCargaService } from './personas-carga.service.js';
 import { PersonalPerfilService } from './personal-perfil.service.js';
 import { LegajoMilitarService } from './legajo-militar.service.js';
+import { CambioSituacionService } from './cambio-situacion.service.js';
 import { PersonasDocumentosService } from './personas-documentos.service.js';
 import { AuthModule } from '../auth/auth.module';
 import { RetirosModule } from '../retiros/retiros.module.js';
@@ -21,6 +22,7 @@ import { DerechaModule } from '../derecha/derecha.module';
     PersonalPerfilService,
     LegajoMilitarService,
     PersonasDocumentosService,
+    CambioSituacionService,
   ],
 })
 export class SubalternosModule {}

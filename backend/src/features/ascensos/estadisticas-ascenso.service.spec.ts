@@ -53,10 +53,10 @@ describe('EstadisticasAscensoService', () => {
     });
 
     it('con alcance de unidad filtra por la relación laboral nueva', async () => {
-      await service.estadisticas({}, { tipo: 'unidad', unidadIds: ['5'] });
+      await service.estadisticas({}, { tipo: 'unidad', subUnidadIds: ['5'], comandoIds: [] });
 
       const where = prisma.ascensos.count.mock.calls[0][0].where;
-      expect(where.relacion_laboral_nueva.unidad_id).toEqual({ in: [5n] });
+      expect(where.relacion_laboral_nueva).toEqual({ sub_unidad_id: { in: [5n] } });
     });
   });
 

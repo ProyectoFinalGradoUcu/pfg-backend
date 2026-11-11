@@ -1,0 +1,47 @@
+# Paquete de Personal: lo que se aplica ENCIMA de la base de liquidación, en este orden.
+#
+# Es la única lista. La usan:
+#   - database/aplicar-paquete-personal.sh  (el comando que se corre allá y acá)
+#   - make reset / make paquete             (local)
+#   - deploy/migrate.sh                     (nuestra VM)
+#
+# Una ruta por línea, relativa a esta carpeta (database/). Cada script tiene que:
+#   - poder correrse dos veces sin cambiar nada la segunda,
+#   - no insertar ni modificar catálogos de liquidación (unidades, sub_unidades, grados...),
+#   - agregar columnas en tablas de ellos solo nullable o con default,
+#   - ir dentro de BEGIN ... COMMIT.
+#
+# NO van acá: seed_demo.sql ni nada que cargue datos de demo.
+
+# Columnas nuestras en personas, relaciones_laborales, roles y usuarios + tablas propias.
+# Tiene que ir primero.
+scripts/migracion_integracion_personal.sql
+# Acciones, contextos, permisos, roles 'personal' y usuario administrador.
+scripts/seed_integracion_personal.sql
+# Solo hace algo en bases con el modelo viejo de destinos (nuestra VM). En una base nueva no hace nada.
+scripts/migration_destinos_v2.sql
+
+scripts/migration_aprobacion_cursos.sql
+
+scripts/migration_ascensos.sql
+scripts/seed_ascensos.sql
+scripts/migration_ascensos_v2.sql
+
+scripts/seed_retiros.sql
+scripts/migration_retiros_v2.sql
+
+scripts/migration_archivos.sql
+
+scripts/migration_derecha_numor.sql
+
+scripts/migration_vuelos.sql
+scripts/migration_campos_reportes.sql
+scripts/migration_comisiones.sql
+scripts/migration_comisiones_cargo.sql
+scripts/migration_comisiones_importadas.sql
+# El destino guarda la sub-unidad (B.A.I., E.M.A., ...); la unidad es su comando.
+scripts/migration_destinos_sub_unidad.sql
+# Alcance y roles heredados por base (sub-unidad) en lugar de por comando.
+scripts/migration_alcance_por_base.sql
+# Los cursos de unidad pasan a ser de una base (sub-unidad); la unidad es su comando.
+scripts/migration_cursos_sub_unidad.sql

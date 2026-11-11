@@ -1,4 +1,5 @@
-import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from '../definiciones/_helpers';
+import { whereRelacionPorBase } from '../alcance-reportes';
+import { categoriaDeFiltros, fmtFecha, PARAMETRO_BASE, PARAMETRO_CATEGORIA, unir } from '../definiciones/_helpers';
 import { FuenteCustom } from './fuentes.types';
 
 export const personalFuente: FuenteCustom = {
@@ -12,7 +13,8 @@ export const personalFuente: FuenteCustom = {
     { clave: 'fecha_nacimiento', etiqueta: 'Fecha nac.', tipo: 'fecha' },
     { clave: 'grado', etiqueta: 'Grado', tipo: 'texto' },
     { clave: 'escalafon', etiqueta: 'Escalafón', tipo: 'texto' },
-    { clave: 'unidad', etiqueta: 'Unidad', tipo: 'texto' },
+    { clave: 'base', etiqueta: 'Base', tipo: 'texto' },
+    { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
     { clave: 'situacion', etiqueta: 'Situación', tipo: 'texto' },
     { clave: 'ley', etiqueta: 'Ley', tipo: 'texto' },
     { clave: 'email', etiqueta: 'E-mail', tipo: 'texto' },
@@ -24,7 +26,7 @@ export const personalFuente: FuenteCustom = {
       { valor: 'activo', etiqueta: 'Activo' },
       { valor: 'inactivo', etiqueta: 'Inactivo' },
     ] },
-    { clave: 'unidad_id', etiqueta: 'Unidad', tipo: 'select', fuenteOpciones: 'unidades' },
+    { clave: PARAMETRO_BASE.clave, etiqueta: PARAMETRO_BASE.etiqueta, tipo: 'select', fuenteOpciones: PARAMETRO_BASE.fuenteOpciones },
     PARAMETRO_CATEGORIA,
   ],
 
@@ -33,7 +35,7 @@ export const personalFuente: FuenteCustom = {
     const rels = await prisma.relaciones_laborales.findMany({
       where: {
         ...(filtros.estado ? { estado: filtros.estado } : {}),
-        ...(filtros.unidad_id ? { unidad_id: BigInt(filtros.unidad_id) } : {}),
+        ...whereRelacionPorBase(filtros),
         ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       include: {
@@ -41,6 +43,7 @@ export const personalFuente: FuenteCustom = {
         grados: true,
         escalafones: true,
         unidades: true,
+        sub_unidades: true,
         situaciones: true,
         regimenes: true,
       },
@@ -54,7 +57,8 @@ export const personalFuente: FuenteCustom = {
       fecha_nacimiento: fmtFecha(r.personas?.fecha_nacimiento),
       grado: r.grados?.denominacion ?? '',
       escalafon: r.escalafones?.codigo ?? '',
-      unidad: r.unidades?.denominacion ?? '',
+      base: r.sub_unidades?.denominacion ?? '',
+      comando: r.unidades?.denominacion ?? '',
       situacion: r.situaciones?.denominacion ?? '',
       ley: r.regimenes?.numero_ley ?? '',
       email: r.personas?.email ?? '',

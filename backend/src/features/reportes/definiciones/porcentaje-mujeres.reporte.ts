@@ -1,3 +1,4 @@
+import { whereRelacionPorBase } from '../alcance-reportes';
 import {
   ColumnaReporte,
   ContextoEjecucion,
@@ -5,7 +6,7 @@ import {
   ResultadoReporte,
   SeccionReporte,
 } from '../reportes.types';
-import { categoriaDeFiltros, PARAMETRO_CATEGORIA } from './_helpers';
+import { categoriaDeFiltros, PARAMETRO_BASE, PARAMETRO_CATEGORIA } from './_helpers';
 
 /** Normaliza el campo libre `personas.genero` a 'F' | 'M' | null. */
 function clasificarGenero(genero: string | null | undefined): 'F' | 'M' | null {
@@ -54,24 +55,17 @@ export const porcentajeMujeresReporte: DefinicionReporte = {
     'Distribución de personal femenino y masculino por grado, separando Personal Superior (oficiales) y Subalterno.',
   categoria: 'Personal',
   parametros: [
-    {
-      clave: 'unidad_id',
-      etiqueta: 'Unidad',
-      tipo: 'select',
-      fuenteOpciones: 'unidades',
-      ayuda: 'Opcional. Si se deja vacío incluye toda la Fuerza.',
-    },
+    { ...PARAMETRO_BASE, ayuda: 'Opcional. Si se deja vacío incluye toda la Fuerza.' },
     PARAMETRO_CATEGORIA,
   ],
 
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
-    const unidadId = filtros.unidad_id ? BigInt(filtros.unidad_id) : undefined;
     const categoria = categoriaDeFiltros(filtros);
 
     const relaciones = await prisma.relaciones_laborales.findMany({
       where: {
         estado: 'activo',
-        ...(unidadId ? { unidad_id: unidadId } : {}),
+        ...whereRelacionPorBase(filtros),
         ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       select: {

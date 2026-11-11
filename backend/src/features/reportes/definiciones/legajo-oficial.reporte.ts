@@ -48,7 +48,7 @@ export const legajoOficialReporte: DefinicionReporte = {
         },
         destinos: {
           orderBy: { fecha_inicio: 'desc' },
-          include: { unidades: true },
+          include: { unidades: true, sub_unidades: true },
         },
         ascensos: { orderBy: { fecha_ascenso: 'asc' }, include: { grados: true } },
         funcionarios_cursos: { orderBy: { fecha_inicio: 'asc' }, include: { cursos: true } },
@@ -78,7 +78,10 @@ export const legajoOficialReporte: DefinicionReporte = {
         campo('Correo electrónico', p.email),
         campo('Escalafón', activa?.escalafones?.denominacion),
         campo('Grado actual', activa?.grados?.denominacion),
-        campo('Destino actual', asignacion?.unidades?.denominacion ?? activa?.unidades?.denominacion),
+        campo(
+          'Destino actual',
+          asignacion?.sub_unidades?.denominacion ?? asignacion?.unidades?.denominacion ?? activa?.unidades?.denominacion,
+        ),
         campo('Cargo actual', asignacion?.posicion_destino),
         campo('Año de ingreso', fmtFecha(ingreso)),
         campo('Fecha de egreso', fmtFecha(egreso)),

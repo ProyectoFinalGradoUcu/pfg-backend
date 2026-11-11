@@ -94,6 +94,7 @@ export class RetirosService {
         fecha_inicio: true,
         fecha_fin: true,
         unidades: { select: { id: true, codigo: true, denominacion: true } },
+        sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
         grados: { select: { id: true, codigo: true, denominacion: true } },
       },
     },
@@ -118,6 +119,12 @@ export class RetirosService {
         ? {
             id: r.relaciones_laborales.unidades.id.toString(),
             denominacion: r.relaciones_laborales.unidades.denominacion,
+          }
+        : null,
+      sub_unidad: r.relaciones_laborales?.sub_unidades
+        ? {
+            id: r.relaciones_laborales.sub_unidades.id.toString(),
+            denominacion: r.relaciones_laborales.sub_unidades.denominacion,
           }
         : null,
       fecha_retiro: soloFecha(r.fecha_retiro),
@@ -148,7 +155,7 @@ export class RetirosService {
         : undefined;
 
     const relacionWhere: Record<string, unknown> = {};
-    if (query.unidad_id) relacionWhere.unidad_id = BigInt(query.unidad_id);
+    if (query.sub_unidad_id) relacionWhere.sub_unidad_id = BigInt(query.sub_unidad_id);
     if (query.categoria) relacionWhere.tipo_funcionario = query.categoria;
 
     const where: any = {
@@ -225,6 +232,7 @@ export class RetirosService {
         grado_id: true,
         unidad_id: true,
         unidades: { select: { id: true, codigo: true, denominacion: true } },
+        sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
         situaciones: { select: { id: true, codigo: true, denominacion: true } },
       },
     });
@@ -280,6 +288,7 @@ export class RetirosService {
           fecha_inicio: true,
           fecha_fin: true,
           unidades: { select: { id: true, codigo: true, denominacion: true } },
+          sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
         },
       }),
       this.prisma.funcionarios_cursos.findMany({
@@ -349,6 +358,12 @@ export class RetirosService {
                   denominacion: i.relacion.unidades.denominacion,
                 }
               : null,
+            sub_unidad: i.relacion.sub_unidades
+              ? {
+                  id: i.relacion.sub_unidades.id.toString(),
+                  denominacion: i.relacion.sub_unidades.denominacion,
+                }
+              : null,
             situacion: i.relacion.situaciones
               ? { id: i.relacion.situaciones.id.toString(), codigo: i.relacion.situaciones.codigo }
               : null,
@@ -361,6 +376,12 @@ export class RetirosService {
               ? {
                   id: i.destino.unidades.id.toString(),
                   denominacion: i.destino.unidades.denominacion,
+                }
+              : null,
+            sub_unidad: i.destino.sub_unidades
+              ? {
+                  id: i.destino.sub_unidades.id.toString(),
+                  denominacion: i.destino.sub_unidades.denominacion,
                 }
               : null,
             fecha_inicio: soloFecha(i.destino.fecha_inicio),
@@ -527,6 +548,12 @@ export class RetirosService {
               ? {
                   id: r.relaciones_laborales.unidades.id.toString(),
                   denominacion: r.relaciones_laborales.unidades.denominacion,
+                }
+              : null,
+            sub_unidad: r.relaciones_laborales.sub_unidades
+              ? {
+                  id: r.relaciones_laborales.sub_unidades.id.toString(),
+                  denominacion: r.relaciones_laborales.sub_unidades.denominacion,
                 }
               : null,
             grado: r.relaciones_laborales.grados
@@ -845,12 +872,17 @@ export class RetirosService {
     if (cierres.destino_id) {
       const otro = await tx.destinos.findFirst({
         where: { persona_id: personaId, fecha_fin: null, id: { not: BigInt(cierres.destino_id) } },
-        select: { id: true, fecha_inicio: true, unidades: { select: { denominacion: true } } },
+        select: {
+          id: true,
+          fecha_inicio: true,
+          unidades: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
+        },
       });
       if (otro) {
         throw new ConflictException(
           `No se puede anular el retiro: después del retiro se le asignó otro destino ` +
-            `(${otro.unidades?.denominacion ?? `destino ${otro.id}`}, desde ${soloFechaIso(otro.fecha_inicio)}). ` +
+            `(${otro.sub_unidades?.denominacion ?? otro.unidades?.denominacion ?? `destino ${otro.id}`}, desde ${soloFechaIso(otro.fecha_inicio)}). ` +
             'Cerrá o quitá ese destino y volvé a anular.',
         );
       }
@@ -1117,6 +1149,7 @@ export class RetirosService {
           include: {
             grados: { select: { id: true, codigo: true, denominacion: true, es_oficial: true, es_subalterno: true } },
             unidades: { select: { id: true, denominacion: true } },
+            sub_unidades: { select: { id: true, denominacion: true } },
             escalafones: { select: { id: true, denominacion: true } },
             regimenes: { select: { id: true, denominacion: true } },
             programas: { select: { id: true, denominacion: true } },
@@ -1147,6 +1180,7 @@ export class RetirosService {
           unidad_id: true,
           fecha_inicio: true,
           unidades: { select: { id: true, denominacion: true } },
+          sub_unidades: { select: { id: true, denominacion: true } },
         },
       }),
     ]);
@@ -1227,6 +1261,7 @@ export class RetirosService {
         prima_solidaria_familiar: c.prima_solidaria_familiar,
       },
       unidad_anterior: ref(c.unidades),
+      sub_unidad_anterior: ref(c.sub_unidades),
       grados_validos: categoria
         ? grados
             .filter((g) => gradoAdmitido(g, categoria))
@@ -1236,6 +1271,7 @@ export class RetirosService {
         ? {
             id: e.destinoAbierto.id.toString(),
             unidad: ref(e.destinoAbierto.unidades),
+            sub_unidad: ref(e.destinoAbierto.sub_unidades),
             fecha_inicio: soloFecha(e.destinoAbierto.fecha_inicio),
           }
         : null,
@@ -1266,14 +1302,19 @@ export class RetirosService {
 
     validarParCalculo(dto);
 
-    const unidadId = BigInt(dto.unidad_id);
-    const [gradoReincorporacion, unidad] = await Promise.all([
+    // Vuelve a una base; el comando de la relación y del destino sale de ella.
+    const subUnidadId = BigInt(dto.sub_unidad_id);
+    const [gradoReincorporacion, base] = await Promise.all([
       this.validarGradoReincorporacion(dto.grado_reincorporacion_id, categoria),
-      this.prisma.unidades.findUnique({ where: { id: unidadId }, select: { id: true, vigente: true } }),
+      this.prisma.sub_unidades.findUnique({
+        where: { id: subUnidadId },
+        select: { id: true, vigente: true, unidad_id: true },
+      }),
     ]);
-    if (!unidad || !unidad.vigente) {
-      throw new UnprocessableEntityException('Unidad no encontrada o no vigente');
+    if (!base || !base.vigente) {
+      throw new UnprocessableEntityException('Base no encontrada o no vigente');
     }
+    const unidadId = base.unidad_id;
 
     const cierreDestino = diaAnterior(fecha);
     if (destinoAbierto?.fecha_inicio && cierreDestino < destinoAbierto.fecha_inicio) {
@@ -1288,7 +1329,7 @@ export class RetirosService {
           persona_id: retiro.persona_id,
           regimen_id: cerrada.regimen_id,
           unidad_id: unidadId,
-          sub_unidad_id: unidadId === cerrada.unidad_id ? cerrada.sub_unidad_id : null,
+          sub_unidad_id: subUnidadId,
           programa_id: cerrada.programa_id,
           situacion_id: situacion.id,
           escalafon_id: cerrada.escalafon_id,
@@ -1338,6 +1379,7 @@ export class RetirosService {
         data: {
           persona_id: retiro.persona_id,
           unidad_id: unidadId,
+          sub_unidad_id: subUnidadId,
           fecha_inicio: fecha,
           posicion_destino: dto.posicion_destino ?? null,
           numero_orden: dto.numero_orden ?? null,

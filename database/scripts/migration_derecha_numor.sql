@@ -101,26 +101,76 @@ CREATE INDEX IF NOT EXISTS ix_historial_derecha_numor_persona
 CREATE INDEX IF NOT EXISTS ix_historial_derecha_numor_lote
     ON public.historial_derecha_numor (lote_id);
 
--- Carga inicial. Todavía no se conoce la derecha real: se ordena por jerarquía
--- y después por el orden de alta, y se ajusta a mano desde la pantalla. Solo
--- corre si nadie tiene derecha asignada.
-DO $$
+-- Carga inicial de cada escala sin derecha ni numor: la base nueva, o los
+-- subalternos después de importar (el Access solo trae la de los oficiales).
+-- Dentro del grado, el mismo orden que "Sugerir orden > Antigüedad" de la
+-- pantalla, y los empates por ingreso y edad (art. 51 de la Ley 19.775).
+CREATE OR REPLACE FUNCTION public.cargar_derecha_inicial() RETURNS INTEGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    cargados INTEGER;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM public.relaciones_laborales WHERE derecha IS NOT NULL) THEN
-        WITH activos AS (
-            SELECT r.id, j.escala,
-                   ROW_NUMBER() OVER (PARTITION BY j.escala ORDER BY j.posicion, r.id) AS derecha,
-                   ROW_NUMBER() OVER (PARTITION BY r.grado_id, r.escalafon_id ORDER BY r.id) AS numor
+    WITH escalas_vacias AS (
+        SELECT DISTINCT j.escala
+        FROM public.derecha_jerarquia_grados j
+        WHERE NOT EXISTS (
+            SELECT 1
             FROM public.relaciones_laborales r
-            JOIN public.derecha_jerarquia_grados j ON j.grado_id = r.grado_id
-            WHERE r.fecha_fin IS NULL AND r.estado = 'activo'
+            JOIN public.derecha_jerarquia_grados jr ON jr.grado_id = r.grado_id
+            WHERE jr.escala = j.escala AND (r.derecha IS NOT NULL OR r.numor IS NOT NULL)
         )
+    ),
+    -- Una por persona: con dos vigentes gana la más reciente, como en la aplicación.
+    vigentes AS (
+        SELECT DISTINCT ON (r.persona_id) r.id, r.persona_id, r.grado_id, r.escalafon_id,
+               COALESCE(r.fecha_ultimo_ascenso, r.fecha_inicio) AS ingreso_grado
+        FROM public.relaciones_laborales r
+        WHERE r.fecha_fin IS NULL AND r.estado = 'activo'
+        ORDER BY r.persona_id, r.fecha_inicio DESC, r.id DESC
+    ),
+    -- Liquidación cierra la relación y abre otra en cada cambio: el ingreso es la primera.
+    ingreso AS (
+        SELECT persona_id, min(fecha_inicio) AS fecha
+        FROM public.relaciones_laborales
+        GROUP BY persona_id
+    ),
+    orden AS (
+        SELECT v.id, j.escala,
+               ROW_NUMBER() OVER (
+                   PARTITION BY j.escala
+                   ORDER BY j.posicion, v.ingreso_grado NULLS LAST, lm.fecha_egreso_eta NULLS LAST,
+                            i.fecha NULLS LAST, p.fecha_nacimiento NULLS LAST, v.id) AS derecha,
+               ROW_NUMBER() OVER (
+                   PARTITION BY v.grado_id, v.escalafon_id
+                   ORDER BY v.ingreso_grado NULLS LAST, lm.fecha_egreso_eta NULLS LAST,
+                            i.fecha NULLS LAST, p.fecha_nacimiento NULLS LAST, v.id) AS numor
+        FROM vigentes v
+        JOIN public.derecha_jerarquia_grados j ON j.grado_id = v.grado_id
+        JOIN escalas_vacias e ON e.escala = j.escala
+        JOIN public.personas p ON p.id = v.persona_id
+        LEFT JOIN public.legajo_militar lm ON lm.persona_id = v.persona_id
+        LEFT JOIN ingreso i ON i.persona_id = v.persona_id
+    ),
+    cargadas AS (
         UPDATE public.relaciones_laborales r
-        SET derecha = a.derecha, numor = a.numor, escala_derecha = a.escala
-        FROM activos a
-        WHERE a.id = r.id;
-    END IF;
+        SET derecha = o.derecha, numor = o.numor, escala_derecha = o.escala
+        FROM orden o
+        WHERE o.id = r.id
+        RETURNING r.persona_id, r.derecha, r.numor
+    ),
+    historial AS (
+        INSERT INTO public.historial_derecha_numor (persona_id, tipo, valor_anterior, valor_nuevo, operacion, motivo, lote_id)
+        SELECT c.persona_id, t.tipo, NULL, t.valor, 'ALTA',
+               'Carga inicial por precedencia (Ley 19.775, art. 51)', l.id
+        FROM cargadas c
+        CROSS JOIN (SELECT gen_random_uuid() AS id) l
+        CROSS JOIN LATERAL (VALUES ('DERECHA', c.derecha), ('NUMOR', c.numor)) AS t(tipo, valor)
+    )
+    SELECT count(*) INTO cargados FROM cargadas;
+    RETURN cargados;
 END $$;
+
+SELECT public.cargar_derecha_inicial();
 
 INSERT INTO public.permisos (nombre, descripcion, aplicacion)
 VALUES ('derecha.gestionar', 'Modificar la derecha y el numor del personal', 'personal')

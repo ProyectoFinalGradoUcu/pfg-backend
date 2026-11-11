@@ -33,13 +33,16 @@ const ROLES_CON_PERMISOS = {
   include: { roles_permisos: { include: { permisos: true } } },
 } as const;
 
-/** Lo que hace falta leer de un usuario para firmar su token: roles directos y de sus unidades. */
+/** Lo que hace falta leer de un usuario para firmar su token: roles directos y de sus bases. */
 const USUARIO_SESION_INCLUDE = {
   usuarios_roles: { include: { roles: ROLES_CON_PERMISOS } },
-  usuarios_unidades: {
+  usuarios_sub_unidades: {
     include: {
-      unidades: {
-        include: { unidades_roles: { include: { roles: ROLES_CON_PERMISOS } } },
+      sub_unidades: {
+        include: {
+          unidades: { select: { id: true, denominacion: true } },
+          sub_unidades_roles: { include: { roles: ROLES_CON_PERMISOS } },
+        },
       },
     },
   },
@@ -125,13 +128,12 @@ export class AuthService {
   }
 
   private emitirSesion(usuario: UsuarioSesion): SignInResult {
-    // Unidades del usuario (relación N:M via usuarios_unidades).
-    const unidadesUsuario = usuario.usuarios_unidades.map((uu) => uu.unidades);
+    const basesUsuario = usuario.usuarios_sub_unidades.map((us) => us.sub_unidades);
 
-    // Roles efectivos = roles directos ∪ roles de todas las unidades.
+    // Roles efectivos = roles directos ∪ roles de todas sus bases.
     const rolesDirectos = usuario.usuarios_roles.map((ur) => ur.roles);
-    const rolesDeUnidades = unidadesUsuario.flatMap(
-      (u) => u.unidades_roles.map((ur) => ur.roles),
+    const rolesDeUnidades = basesUsuario.flatMap(
+      (b) => b.sub_unidades_roles.map((sr) => sr.roles),
     );
     const rolesEfectivos = [...rolesDirectos, ...rolesDeUnidades];
 
@@ -144,9 +146,10 @@ export class AuthService {
       ),
     );
 
-    const unidades = unidadesUsuario.map((u) => ({
-      id: u.id.toString(),
-      denominacion: u.denominacion,
+    const unidades = basesUsuario.map((b) => ({
+      id: b.id.toString(),
+      denominacion: b.denominacion,
+      comando: { id: b.unidades.id.toString(), denominacion: b.unidades.denominacion },
     }));
 
     const payload: AuthPayload = {

@@ -142,6 +142,7 @@ export const makePrismaMock = () => ({
   ocupaciones_vivienda: { findFirst: jest.fn() },
   grados: { findUnique: jest.fn(), findMany: jest.fn() },
   unidades: { findUnique: jest.fn() },
+  sub_unidades: { findUnique: jest.fn() },
   $transaction: jest.fn(),
   $queryRaw: jest.fn(),
 });

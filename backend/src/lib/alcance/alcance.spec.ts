@@ -2,7 +2,7 @@ import { ExecutionContext, ForbiddenException, NotFoundException } from '@nestjs
 import { Reflector } from '@nestjs/core';
 import { AlcanceGuard } from './alcance.guard';
 import { ALCANCE_KEY } from './alcance.decorator';
-import { AlcanceResuelto, unidadIdsDeAlcance, unidadIdDeAlcance } from './alcance.types';
+import { AlcanceResuelto, comandoIdsDeAlcance, subUnidadIdsDeAlcance } from './alcance.types';
 import {
   assertCursoGestionableEnAlcance,
   assertCursoVisibleEnAlcance,
@@ -24,8 +24,13 @@ const makeUser = (overrides: Partial<any> = {}) => ({
 });
 
 const GLOBAL: AlcanceResuelto = { tipo: 'global' };
-const UNIDAD: AlcanceResuelto = { tipo: 'unidad', unidadIds: ['7'] };
-const MULTI_UNIDAD: AlcanceResuelto = { tipo: 'unidad', unidadIds: ['7', '8'] };
+// Bases 7 (B.A.I.) y 8 (B.A.II.), las dos del comando 2 (C.A.O.).
+const UNIDAD: AlcanceResuelto = { tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['2'] };
+const MULTI_UNIDAD: AlcanceResuelto = { tipo: 'unidad', subUnidadIds: ['7', '8'], comandoIds: ['2'] };
+
+const BAI = { id: '7', denominacion: 'B.A.I.', comando: { id: '2', denominacion: 'C.A.O.' } };
+const BAII = { id: '8', denominacion: 'B.A.II.', comando: { id: '2', denominacion: 'C.A.O.' } };
+const ETA = { id: '12', denominacion: 'E.T.A.', comando: { id: '3', denominacion: 'C.A.P.' } };
 
 const makeContext = (user: any) => {
   const request: Record<string, unknown> = { user };
@@ -73,11 +78,25 @@ describe('AlcanceGuard', () => {
   it('resuelve alcance de unidad si el usuario solo tiene la variante .unidad', () => {
     const guard = new AlcanceGuard(makeReflector('personas.ver'));
     const { ctx, request } = makeContext(
-      makeUser({ permisos: ['personas.ver.unidad'], unidades: [{ id: '7', denominacion: 'EF' }] }),
+      makeUser({ permisos: ['personas.ver.unidad'], unidades: [BAI] }),
     );
 
     expect(guard.canActivate(ctx)).toBe(true);
-    expect(request.alcance).toEqual({ tipo: 'unidad', unidadIds: ['7'] });
+    expect(request.alcance).toEqual({ tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['2'] });
+  });
+
+  it('con varias bases junta los ids y deja cada comando una sola vez', () => {
+    const guard = new AlcanceGuard(makeReflector('personas.ver'));
+    const { ctx, request } = makeContext(
+      makeUser({ permisos: ['personas.ver.unidad'], unidades: [BAI, BAII, ETA] }),
+    );
+
+    expect(guard.canActivate(ctx)).toBe(true);
+    expect(request.alcance).toEqual({
+      tipo: 'unidad',
+      subUnidadIds: ['7', '8', '12'],
+      comandoIds: ['2', '3'],
+    });
   });
 
   it('el permiso global gana si el usuario tiene los dos', () => {
@@ -85,7 +104,7 @@ describe('AlcanceGuard', () => {
     const { ctx, request } = makeContext(
       makeUser({
         permisos: ['personas.ver', 'personas.ver.unidad'],
-        unidades: [{ id: '7', denominacion: 'EF' }],
+        unidades: [BAI],
       }),
     );
 
@@ -131,27 +150,24 @@ describe('AlcanceGuard', () => {
   });
 });
 
-describe('unidadIdsDeAlcance', () => {
+describe('subUnidadIdsDeAlcance', () => {
   it('devuelve null con alcance global', () => {
-    expect(unidadIdsDeAlcance(GLOBAL)).toBeNull();
+    expect(subUnidadIdsDeAlcance(GLOBAL)).toBeNull();
   });
 
-  it('devuelve un array de bigints con alcance de unidad', () => {
-    expect(unidadIdsDeAlcance(UNIDAD)).toEqual([7n]);
-  });
-
-  it('devuelve múltiples bigints con alcance multi-unidad', () => {
-    expect(unidadIdsDeAlcance(MULTI_UNIDAD)).toEqual([7n, 8n]);
+  it('devuelve las bases como bigints', () => {
+    expect(subUnidadIdsDeAlcance(UNIDAD)).toEqual([7n]);
+    expect(subUnidadIdsDeAlcance(MULTI_UNIDAD)).toEqual([7n, 8n]);
   });
 });
 
-describe('unidadIdDeAlcance (compat)', () => {
+describe('comandoIdsDeAlcance', () => {
   it('devuelve null con alcance global', () => {
-    expect(unidadIdDeAlcance(GLOBAL)).toBeNull();
+    expect(comandoIdsDeAlcance(GLOBAL)).toBeNull();
   });
 
-  it('devuelve el primer id como bigint con alcance de unidad', () => {
-    expect(unidadIdDeAlcance(UNIDAD)).toBe(7n);
+  it('devuelve los comandos de las bases', () => {
+    expect(comandoIdsDeAlcance(MULTI_UNIDAD)).toEqual([2n]);
   });
 });
 
@@ -160,15 +176,15 @@ describe('wherePersonasPorAlcance', () => {
     expect(wherePersonasPorAlcance(GLOBAL)).toEqual({});
   });
 
-  it('filtra por relación laboral activa en la unidad con alcance de unidad', () => {
+  it('filtra por la base de la relación laboral activa', () => {
     expect(wherePersonasPorAlcance(UNIDAD)).toEqual({
-      relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [7n] } } },
+      relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [7n] } } },
     });
   });
 
-  it('filtra por múltiples unidades con alcance multi-unidad', () => {
+  it('con varias bases filtra por todas, no por su comando', () => {
     expect(wherePersonasPorAlcance(MULTI_UNIDAD)).toEqual({
-      relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [7n, 8n] } } },
+      relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [7n, 8n] } } },
     });
   });
 });
@@ -178,9 +194,9 @@ describe('whereCursosVisiblesPorAlcance', () => {
     expect(whereCursosVisiblesPorAlcance(GLOBAL)).toEqual({});
   });
 
-  it('incluye los cursos de la unidad y los generales con alcance de unidad', () => {
+  it('incluye los cursos de sus bases y los generales, no los de otras bases del comando', () => {
     expect(whereCursosVisiblesPorAlcance(UNIDAD)).toEqual({
-      OR: [{ unidad_id: { in: [7n] } }, { unidad_id: null }],
+      OR: [{ sub_unidad_id: { in: [7n] } }, { sub_unidad_id: null, unidad_id: null }],
     });
   });
 });
@@ -202,12 +218,20 @@ describe('assertPersonaEnAlcance', () => {
     expect(prisma.personas.findFirst).not.toHaveBeenCalled();
   });
 
-  it('pasa si la persona pertenece a la unidad', async () => {
+  it('pasa si la persona revista en una de sus bases', async () => {
     prisma.personas.findFirst.mockResolvedValue({ id: 10n });
 
     await expect(
       assertPersonaEnAlcance(prisma as unknown as PrismaService, 10n, UNIDAD),
     ).resolves.toBeUndefined();
+    expect(prisma.personas.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 10n,
+          relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [7n] } } },
+        },
+      }),
+    );
   });
 
   it('lanza NotFoundException y no ForbiddenException si la persona es de otra unidad', async () => {
@@ -237,7 +261,7 @@ describe('assertCursoVisibleEnAlcance', () => {
 
     expect(prisma.cursos.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 1n, OR: [{ unidad_id: { in: [7n] } }, { unidad_id: null }] },
+        where: { id: 1n, OR: [{ sub_unidad_id: { in: [7n] } }, { sub_unidad_id: null, unidad_id: null }] },
       }),
     );
   });
@@ -258,7 +282,7 @@ describe('assertCursoGestionableEnAlcance', () => {
     prisma = makePrismaMock();
   });
 
-  it('exige que el curso sea de la propia unidad, sin aceptar los generales', async () => {
+  it('exige que el curso sea de una de sus bases, sin aceptar los generales', async () => {
     prisma.cursos.findFirst.mockResolvedValue({ id: 1n });
 
     await assertCursoGestionableEnAlcance(
@@ -268,7 +292,7 @@ describe('assertCursoGestionableEnAlcance', () => {
     );
 
     expect(prisma.cursos.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 1n, unidad_id: { in: [7n] } } }),
+      expect.objectContaining({ where: { id: 1n, sub_unidad_id: { in: [7n] } } }),
     );
   });
 
