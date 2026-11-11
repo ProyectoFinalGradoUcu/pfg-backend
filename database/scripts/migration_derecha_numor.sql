@@ -103,8 +103,8 @@ CREATE INDEX IF NOT EXISTS ix_historial_derecha_numor_lote
 
 -- Carga inicial de cada escala sin derecha ni numor: la base nueva, o los
 -- subalternos después de importar (el Access solo trae la de los oficiales).
--- Precedencia del art. 51 de la Ley 19.775 salvo el grado anterior, que la base
--- no guarda. Se ajusta a mano desde la pantalla.
+-- Dentro del grado, el mismo orden que "Sugerir orden > Antigüedad" de la
+-- pantalla, y los empates por ingreso y edad (art. 51 de la Ley 19.775).
 CREATE OR REPLACE FUNCTION public.cargar_derecha_inicial() RETURNS INTEGER
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -122,7 +122,8 @@ BEGIN
     ),
     -- Una por persona: con dos vigentes gana la más reciente, como en la aplicación.
     vigentes AS (
-        SELECT DISTINCT ON (r.persona_id) r.id, r.persona_id, r.grado_id, r.escalafon_id, r.fecha_ultimo_ascenso
+        SELECT DISTINCT ON (r.persona_id) r.id, r.persona_id, r.grado_id, r.escalafon_id,
+               COALESCE(r.fecha_ultimo_ascenso, r.fecha_inicio) AS ingreso_grado
         FROM public.relaciones_laborales r
         WHERE r.fecha_fin IS NULL AND r.estado = 'activo'
         ORDER BY r.persona_id, r.fecha_inicio DESC, r.id DESC
@@ -137,16 +138,17 @@ BEGIN
         SELECT v.id, j.escala,
                ROW_NUMBER() OVER (
                    PARTITION BY j.escala
-                   ORDER BY j.posicion, v.fecha_ultimo_ascenso NULLS LAST, i.fecha NULLS LAST,
-                            p.fecha_nacimiento NULLS LAST, v.id) AS derecha,
+                   ORDER BY j.posicion, v.ingreso_grado NULLS LAST, lm.fecha_egreso_eta NULLS LAST,
+                            i.fecha NULLS LAST, p.fecha_nacimiento NULLS LAST, v.id) AS derecha,
                ROW_NUMBER() OVER (
                    PARTITION BY v.grado_id, v.escalafon_id
-                   ORDER BY v.fecha_ultimo_ascenso NULLS LAST, i.fecha NULLS LAST,
-                            p.fecha_nacimiento NULLS LAST, v.id) AS numor
+                   ORDER BY v.ingreso_grado NULLS LAST, lm.fecha_egreso_eta NULLS LAST,
+                            i.fecha NULLS LAST, p.fecha_nacimiento NULLS LAST, v.id) AS numor
         FROM vigentes v
         JOIN public.derecha_jerarquia_grados j ON j.grado_id = v.grado_id
         JOIN escalas_vacias e ON e.escala = j.escala
         JOIN public.personas p ON p.id = v.persona_id
+        LEFT JOIN public.legajo_militar lm ON lm.persona_id = v.persona_id
         LEFT JOIN ingreso i ON i.persona_id = v.persona_id
     ),
     cargadas AS (
