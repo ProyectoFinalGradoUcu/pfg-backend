@@ -1462,6 +1462,7 @@ describe('RetirosService', () => {
         prima_tecnica: 'A',
         prima_solidaria_familiar: 'SI',
         observaciones: 'Observaciones de carrera',
+        codigos_legajo: '-1-4-7-8-',
       });
     });
 
