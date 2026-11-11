@@ -31,6 +31,8 @@ export function escribirInforme(
     `- Tipo de funcionario completado en períodos activos existentes: ${res.tiposCompletados}`,
     `- Comisiones importadas (--comisiones): ${res.comisiones}`,
     `- Altas en el historial de Derecha/Numor: ${res.historialDerecha}`,
+    `- Activos ordenados por precedencia en escalas sin Derecha (subalternos): ${res.derechasPorPrecedencia}`,
+    `- Activos que siguen sin Derecha (ubicarlos desde Configuración de derecha): ${res.activosSinDerecha}`,
     `- Niveles educativos (legajo): ${res.legajos}`,
     `- Cursos aprobados (pasaje de grado, Nivel 7/9, especialidades): ${res.cursos}`,
     `- Ascensos (historial): ${res.ascensos}`,
