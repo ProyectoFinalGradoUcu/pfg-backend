@@ -333,6 +333,43 @@ describe('MisionesService', () => {
 
       expect(prisma.misiones.findFirst).not.toHaveBeenCalled();
     });
+
+    it('guarda numero_orden y boletin', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision());
+      prisma.misiones.update.mockResolvedValue(makeMision());
+
+      await service.editarMision(1, { numero_orden: 'OD CAMBIADA', boletin: 'BP CAMBIADO' });
+
+      expect(prisma.misiones.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ numero_orden: 'OD CAMBIADA', boletin: 'BP CAMBIADO' }),
+        }),
+      );
+    });
+
+    it('vacía numero_orden y boletin al recibir null', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision());
+      prisma.misiones.update.mockResolvedValue(makeMision());
+
+      await service.editarMision(1, { numero_orden: null, boletin: null });
+
+      expect(prisma.misiones.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ numero_orden: null, boletin: null }),
+        }),
+      );
+    });
+
+    it('no toca numero_orden ni boletin si no vienen en el body', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision());
+      prisma.misiones.update.mockResolvedValue(makeMision());
+
+      await service.editarMision(1, { pais: 'Uruguay' });
+
+      const { data } = prisma.misiones.update.mock.calls[0][0];
+      expect(data).not.toHaveProperty('numero_orden');
+      expect(data).not.toHaveProperty('boletin');
+    });
   });
 
   // ─── eliminarMision ───────────────────────────────────────────────────────────
@@ -579,6 +616,32 @@ describe('MisionesService', () => {
         service.editarConvocatoria(1, 10, { numero_orden: null as any }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('vacía numero_orden con null si queda el boletin', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ numero_orden: 'ORD-OLD', boletin: 'BOL-OLD' }),
+      );
+      prisma.convocatorias.update.mockResolvedValue(makeConvocatoria());
+
+      await service.editarConvocatoria(1, 10, { numero_orden: null });
+
+      expect(prisma.convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ numero_orden: null }) }),
+      );
+    });
+
+    it('vacía boletin con null si queda el numero_orden', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ numero_orden: 'ORD-OLD', boletin: 'BOL-OLD' }),
+      );
+      prisma.convocatorias.update.mockResolvedValue(makeConvocatoria());
+
+      await service.editarConvocatoria(1, 10, { boletin: null });
+
+      expect(prisma.convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ boletin: null }) }),
+      );
+    });
   });
 
   // ─── eliminarConvocatoria ─────────────────────────────────────────────────────
@@ -760,6 +823,32 @@ describe('MisionesService', () => {
       await expect(
         service.editarFuncionarioConvocatoria(1, 10, 100, { numero_orden: null as any }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('vacía numero_orden con null si queda el boletin', async () => {
+      prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(
+        makeAsignacion({ numero_orden: 'ORD-OLD', boletin: 'BOL-OLD' }),
+      );
+      prisma.funcionarios_convocatorias.update.mockResolvedValue(makeAsignacion());
+
+      await service.editarFuncionarioConvocatoria(1, 10, 100, { numero_orden: null });
+
+      expect(prisma.funcionarios_convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ numero_orden: null }) }),
+      );
+    });
+
+    it('vacía boletin con null si queda el numero_orden', async () => {
+      prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(
+        makeAsignacion({ numero_orden: 'ORD-OLD', boletin: 'BOL-OLD' }),
+      );
+      prisma.funcionarios_convocatorias.update.mockResolvedValue(makeAsignacion());
+
+      await service.editarFuncionarioConvocatoria(1, 10, 100, { boletin: null });
+
+      expect(prisma.funcionarios_convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ boletin: null }) }),
+      );
     });
   });
 
