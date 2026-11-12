@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CursosService } from './cursos.service';
@@ -8,6 +8,7 @@ import { AlcanceResuelto } from '../../lib/alcance/alcance.types';
 import { CursoDto } from './dto/curso.dto';
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { CalificarDesignacionesDto } from './dto/calificar-designaciones.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
 
 const GLOBAL: AlcanceResuelto = { tipo: 'global' };
@@ -905,9 +906,87 @@ describe('CursosService', () => {
     });
 
     it.todo('lanza error si se intenta calificar un curso aún no finalizado (fecha_fin futura)');
-    it.todo('calificación masiva: guarda varios resultados en una sola operación');
-    it.todo('calificación masiva: si una nota es inválida, no guarda ninguna (rollback)');
-    it.todo('calificación masiva: el contador de pendientes baja correctamente tras guardar');
+  });
+
+  // ─── calificarDesignaciones ───────────────────────────────────────────────
+
+  describe('calificarDesignaciones', () => {
+    const makeDesignacion = (id: bigint, overrides: Partial<any> = {}) => ({
+      id,
+      persona_id: id * 10n,
+      curso_id: 1n,
+      aprobado: null,
+      calificacion: null,
+      observacion_calificacion: null,
+      ...overrides,
+    });
+
+    it('guarda varios resultados en una sola transacción', async () => {
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([{ id: 1n }, { id: 2n }]);
+      prisma.funcionarios_cursos.update
+        .mockResolvedValueOnce(makeDesignacion(1n, { aprobado: true, calificacion: '9' }))
+        .mockResolvedValueOnce(makeDesignacion(2n, { aprobado: false }));
+
+      const result = await service.calificarDesignaciones(1, {
+        resultados: [
+          { designacionId: 1, aprobado: true, calificacion: 9 },
+          { designacionId: 2, aprobado: false },
+        ],
+      });
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith({
+        where: { id: 1n },
+        data: { aprobado: true, calificacion: '9', observacion_calificacion: null },
+      });
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith({
+        where: { id: 2n },
+        data: { aprobado: false, calificacion: null, observacion_calificacion: null },
+      });
+      expect(result).toEqual([
+        { id: '1', curso_id: '1', persona_id: '10', aprobado: true, calificacion: 9, observacion: null },
+        { id: '2', curso_id: '1', persona_id: '20', aprobado: false, calificacion: null, observacion: null },
+      ]);
+    });
+
+    it('solo busca designaciones del curso indicado', async () => {
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([{ id: 1n }]);
+      prisma.funcionarios_cursos.update.mockResolvedValue(makeDesignacion(1n, { aprobado: true }));
+
+      await service.calificarDesignaciones(7, { resultados: [{ designacionId: 1, aprobado: true }] });
+
+      expect(prisma.funcionarios_cursos.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: [1n] }, curso_id: 7n } }),
+      );
+    });
+
+    it('no guarda ninguna si alguna designación no pertenece al curso', async () => {
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([{ id: 1n }]);
+
+      await expect(
+        service.calificarDesignaciones(1, {
+          resultados: [
+            { designacionId: 1, aprobado: true },
+            { designacionId: 99, aprobado: true },
+          ],
+        }),
+      ).rejects.toThrow(new NotFoundException('No existen designaciones con id 99 para el curso 1'));
+      expect(prisma.funcionarios_cursos.update).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rechaza designaciones repetidas sin tocar la base', async () => {
+      await expect(
+        service.calificarDesignaciones(1, {
+          resultados: [
+            { designacionId: 1, aprobado: true },
+            { designacionId: 1, aprobado: false },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.funcionarios_cursos.findMany).not.toHaveBeenCalled();
+      expect(prisma.funcionarios_cursos.update).not.toHaveBeenCalled();
+    });
   });
 
   // ─── DTOs ─────────────────────────────────────────────────────────────────
@@ -961,6 +1040,44 @@ describe('CursosService', () => {
           nombre_modulo: 'Módulo A',
           descripcion: 'Descripción del módulo',
           orden_modulo: 1,
+        });
+        const errors = await validate(dto);
+        expect(errors).toHaveLength(0);
+      });
+    });
+
+    describe('CalificarDesignacionesDto', () => {
+      it('rechaza la lista vacía', async () => {
+        const dto = plainToInstance(CalificarDesignacionesDto, { resultados: [] });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'resultados')).toBe(true);
+      });
+
+      it('rechaza todo el lote si una nota está fuera de rango', async () => {
+        const dto = plainToInstance(CalificarDesignacionesDto, {
+          resultados: [
+            { designacionId: 1, aprobado: true, calificacion: 8 },
+            { designacionId: 2, aprobado: true, calificacion: 11 },
+          ],
+        });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'resultados')).toBe(true);
+      });
+
+      it('rechaza una fila sin aprobado/desaprobado', async () => {
+        const dto = plainToInstance(CalificarDesignacionesDto, {
+          resultados: [{ designacionId: 1, calificacion: 8 }],
+        });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'resultados')).toBe(true);
+      });
+
+      it('es válido con resultados completos', async () => {
+        const dto = plainToInstance(CalificarDesignacionesDto, {
+          resultados: [
+            { designacionId: 1, aprobado: true, calificacion: 8 },
+            { designacionId: 2, aprobado: false },
+          ],
         });
         const errors = await validate(dto);
         expect(errors).toHaveLength(0);
