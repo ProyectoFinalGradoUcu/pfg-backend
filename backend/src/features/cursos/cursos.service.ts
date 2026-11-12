@@ -23,6 +23,7 @@ import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { CalificarDesignacionesDto } from './dto/calificar-designaciones.dto';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 import {
   ordenarPersonasPorDerechaNumor,
@@ -700,20 +701,70 @@ export class CursosService {
 
     const actualizado = await this.prisma.funcionarios_cursos.update({
       where: { id: BigInt(designacionId) },
-      data: {
-        aprobado: dto.aprobado,
-        calificacion: dto.calificacion != null ? dto.calificacion.toString() : null,
-        observacion_calificacion: dto.observacion ?? null,
-      },
+      data: this.datosCalificacion(dto),
     });
 
+    return this.toCalificacionResponse(actualizado);
+  }
+
+  // Todo o nada: si una designación no es del curso o falla un update, no se guarda ninguna.
+  async calificarDesignaciones(cursoId: number, dto: CalificarDesignacionesDto, alcance?: AlcanceResuelto) {
+    const ids = dto.resultados.map((r) => r.designacionId);
+    if (new Set(ids).size !== ids.length) {
+      throw new BadRequestException('Hay designaciones repetidas en la calificación');
+    }
+
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
+    const existentes = await this.prisma.funcionarios_cursos.findMany({
+      where: { id: { in: ids.map((id) => BigInt(id)) }, curso_id: BigInt(cursoId) },
+      select: { id: true },
+    });
+    if (existentes.length !== ids.length) {
+      const encontradas = new Set(existentes.map((d) => Number(d.id)));
+      const faltantes = ids.filter((id) => !encontradas.has(id));
+      throw new NotFoundException(
+        `No existen designaciones con id ${faltantes.join(', ')} para el curso ${cursoId}`,
+      );
+    }
+
+    const actualizadas = await this.prisma.$transaction(
+      dto.resultados.map((r) =>
+        this.prisma.funcionarios_cursos.update({
+          where: { id: BigInt(r.designacionId) },
+          data: this.datosCalificacion(r),
+        }),
+      ),
+    );
+
+    return actualizadas.map((d) => this.toCalificacionResponse(d));
+  }
+
+  private datosCalificacion(dto: UpdateDesignacionDto) {
     return {
-      id: actualizado.id.toString(),
-      curso_id: actualizado.curso_id.toString(),
-      persona_id: actualizado.persona_id.toString(),
-      aprobado: actualizado.aprobado,
-      calificacion: actualizado.calificacion != null ? Number(actualizado.calificacion) : null,
-      observacion: actualizado.observacion_calificacion,
+      aprobado: dto.aprobado,
+      calificacion: dto.calificacion != null ? dto.calificacion.toString() : null,
+      observacion_calificacion: dto.observacion ?? null,
+    };
+  }
+
+  private toCalificacionResponse(d: {
+    id: bigint;
+    curso_id: bigint;
+    persona_id: bigint;
+    aprobado: boolean | null;
+    calificacion: unknown;
+    observacion_calificacion: string | null;
+  }) {
+    return {
+      id: d.id.toString(),
+      curso_id: d.curso_id.toString(),
+      persona_id: d.persona_id.toString(),
+      aprobado: d.aprobado,
+      calificacion: d.calificacion != null ? Number(d.calificacion) : null,
+      observacion: d.observacion_calificacion,
     };
   }
 

@@ -36,6 +36,7 @@ import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { CalificarDesignacionesDto } from './dto/calificar-designaciones.dto';
 import { BajaDesignacionDto } from './dto/baja-designacion.dto';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator';
 import type { AlcanceResuelto } from '../../lib/alcance/alcance.types';
@@ -146,6 +147,21 @@ export class CursosController {
     @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.cursosService.crearDesignacion(cursoId, dto, alcance);
+  }
+
+  @Patch(':cursoId/designaciones')
+  @RequireAlcance('cursos.gestionar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Registrar resultados en lote', description: 'Califica varias designaciones del curso en una sola transacción: se guardan todas o ninguna.' })
+  @ApiResponse({ status: 200, description: 'Resultados registrados.' })
+  @ApiResponse({ status: 400, description: 'Datos inválidos o designaciones repetidas.' })
+  @ApiResponse({ status: 404, description: 'Alguna designación no pertenece al curso.' })
+  async calificarDesignaciones(
+    @Param('cursoId', ParseIntPipe) cursoId: number,
+    @Body() dto: CalificarDesignacionesDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.cursosService.calificarDesignaciones(cursoId, dto, alcance);
   }
 
   @Patch(':cursoId/designaciones/:designacionId')
