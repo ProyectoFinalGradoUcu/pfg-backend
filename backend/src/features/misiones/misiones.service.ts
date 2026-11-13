@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service';
 import { CreateMisionDto } from './dto/create-mision.dto';
 import { UpdateMisionDto } from './dto/update-mision.dto';
@@ -581,17 +582,53 @@ export class MisionesService {
 
   async listarPersonalEnMision(query: ListPersonalMisionQueryDto = {}) {
     const page = query.page ?? 1;
-    const pageSize = Math.min(query.pageSize ?? 200, 200);
+    const pageSize = Math.min(query.pageSize ?? 10, 200);
+    const now = new Date();
 
-    const where = query.categoria
-      ? { personas: wherePersonaPorCategoria(query.categoria) }
-      : {};
+    // AND explícito: categoría, búsqueda y orden traen sus propios OR y no se pueden mezclar.
+    const condiciones: Prisma.funcionarios_convocatoriasWhereInput[] = [];
+    if (query.categoria) {
+      condiciones.push({ personas: wherePersonaPorCategoria(query.categoria) });
+    }
+    for (const palabra of (query.query ?? '').trim().split(/\s+/).filter(Boolean)) {
+      condiciones.push({
+        personas: {
+          OR: [
+            { cedula: { contains: palabra, mode: 'insensitive' } },
+            { primer_nombre: { contains: palabra, mode: 'insensitive' } },
+            { primer_apellido: { contains: palabra, mode: 'insensitive' } },
+          ],
+        },
+      });
+    }
+    if (query.misionIds?.length) {
+      condiciones.push({ convocatorias: { mision_id: { in: query.misionIds.map((id) => BigInt(id)) } } });
+    }
+    const orden = query.orden?.trim();
+    if (orden) {
+      condiciones.push({
+        OR: [
+          { numero_orden: { contains: orden, mode: 'insensitive' } },
+          { boletin: { contains: orden, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (query.finalizada === true) {
+      condiciones.push({ convocatorias: { fecha_llegada: { not: null, lte: now } } });
+    } else if (query.finalizada === false) {
+      condiciones.push({ convocatorias: { OR: [{ fecha_llegada: null }, { fecha_llegada: { gt: now } }] } });
+    }
+    const where = condiciones.length ? { AND: condiciones } : {};
 
     const [total, asignaciones] = await this.prisma.$transaction([
       this.prisma.funcionarios_convocatorias.count({ where }),
       this.prisma.funcionarios_convocatorias.findMany({
         where,
-        orderBy: [{ convocatorias: { misiones: { nombre_mision: 'asc' } } }, { personas: { primer_apellido: 'asc' } }],
+        orderBy: [
+          { convocatorias: { misiones: { nombre_mision: 'asc' } } },
+          { personas: { primer_apellido: 'asc' } },
+          { id: 'asc' },
+        ],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
