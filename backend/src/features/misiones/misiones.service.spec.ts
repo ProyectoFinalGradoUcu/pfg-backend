@@ -14,6 +14,11 @@ import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convo
 const FECHA_PASADA = new Date('2020-01-01');
 const FECHA_FUTURA = new Date('2099-01-01');
 
+const CHOQUE = {
+  personas: { primer_nombre: 'Juan', primer_apellido: 'Pérez' },
+  convocatorias: { misiones: { nombre_mision: 'Congo' } },
+};
+
 // ─── Factories ────────────────────────────────────────────────────────────────
 
 const makeMision = (overrides: Partial<any> = {}) => ({
@@ -580,6 +585,67 @@ describe('MisionesService', () => {
 
       expect(result.finalizada).toBe(true);
     });
+
+    it('rechaza una fecha de llegada anterior a la de salida', async () => {
+      await expect(
+        service.crearConvocatoria(1, {
+          numero_orden: 'ORD-001',
+          fecha_salida: '2026-09-30',
+          fecha_llegada: '2026-03-01',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.convocatorias.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza funcionarios que ya están en otra convocatoria en ese período', async () => {
+      prisma.funcionarios_convocatorias.findMany.mockResolvedValue([CHOQUE]);
+
+      await expect(
+        service.crearConvocatoria(1, {
+          numero_orden: 'ORD-001',
+          fecha_salida: '2026-03-01',
+          fecha_llegada: '2026-09-30',
+          persona_ids: [10, 20],
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            persona_id: { in: [10n, 20n] },
+            convocatorias: {
+              fecha_salida: { lte: new Date('2026-09-30') },
+              OR: [{ fecha_llegada: null }, { fecha_llegada: { gte: new Date('2026-03-01') } }],
+            },
+          },
+        }),
+      );
+      expect(prisma.convocatorias.create).not.toHaveBeenCalled();
+    });
+
+    it('sin fecha de llegada, cualquier convocatoria con salida posterior se pisa', async () => {
+      prisma.funcionarios_convocatorias.findMany.mockResolvedValue([]);
+
+      await service.crearConvocatoria(1, {
+        numero_orden: 'ORD-001',
+        fecha_salida: '2026-03-01',
+        persona_ids: [10],
+      });
+
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            convocatorias: expect.objectContaining({ fecha_salida: { not: null } }),
+          }),
+        }),
+      );
+    });
+
+    it('no busca solapamientos si la convocatoria no tiene fecha de salida', async () => {
+      await service.crearConvocatoria(1, { numero_orden: 'ORD-001', persona_ids: [10] });
+
+      expect(prisma.funcionarios_convocatorias.findMany).not.toHaveBeenCalled();
+      expect(prisma.funcionarios_convocatorias.createMany).toHaveBeenCalled();
+    });
   });
 
   // ─── editarConvocatoria ───────────────────────────────────────────────────────
@@ -596,6 +662,40 @@ describe('MisionesService', () => {
       const result = await service.editarConvocatoria(1, 10, { numero_orden: 'ORD-NEW' }) as any;
 
       expect(result.numero_orden).toBe('ORD-NEW');
+      expect(prisma.funcionarios_convocatorias.findMany).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una llegada anterior a la salida que ya tenía guardada', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ fecha_salida: new Date('2026-03-01') }),
+      );
+
+      await expect(
+        service.editarConvocatoria(1, 10, { fecha_llegada: '2026-02-01' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.convocatorias.update).not.toHaveBeenCalled();
+    });
+
+    it('al cambiar las fechas, rechaza si un funcionario queda solapado con otra convocatoria', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ fecha_salida: new Date('2026-03-01'), fecha_llegada: new Date('2026-04-01') }),
+      );
+      prisma.funcionarios_convocatorias.findMany
+        .mockResolvedValueOnce([{ persona_id: 10n }])
+        .mockResolvedValueOnce([CHOQUE]);
+
+      await expect(
+        service.editarConvocatoria(1, 10, { fecha_llegada: '2026-09-30' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            persona_id: { in: [10n] },
+            convocatoria_id: { not: 10n },
+          }),
+        }),
+      );
+      expect(prisma.convocatorias.update).not.toHaveBeenCalled();
     });
 
     it('lanza NotFoundException si la convocatoria no existe', async () => {
@@ -797,6 +897,20 @@ describe('MisionesService', () => {
       prisma.funcionarios_convocatorias.findMany.mockResolvedValue([{ persona_id: 10n }]);
 
       await expect(service.agregarFuncionarios(1, 10, dto)).rejects.toThrow(ConflictException);
+    });
+
+    it('rechaza funcionarios que ya están en otra convocatoria en ese período', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ fecha_salida: new Date('2026-03-01'), fecha_llegada: new Date('2026-09-30') }),
+      );
+      prisma.funcionarios_convocatorias.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([CHOQUE]);
+
+      await expect(service.agregarFuncionarios(1, 10, dto)).rejects.toThrow(
+        'Ya están en otra convocatoria en ese período: Juan Pérez (Congo)',
+      );
+      expect(prisma.funcionarios_convocatorias.createMany).not.toHaveBeenCalled();
     });
 
     it('llama a createMany con BigInt de persona_id', async () => {
@@ -1043,6 +1157,11 @@ describe('MisionesService', () => {
       const errors = await validate(toDto({ nombre_mision: 'Congo', pais: 'a'.repeat(101) }));
       expect(errors.some((e) => e.property === 'pais')).toBe(true);
     });
+
+    it('rechaza nombre_mision de solo espacios', async () => {
+      const errors = await validate(toDto({ nombre_mision: '   ', pais: 'RDC' }));
+      expect(errors.some((e) => e.property === 'nombre_mision')).toBe(true);
+    });
   });
 
   // ─── DTO: UpdateMisionDto ─────────────────────────────────────────────────────
@@ -1063,6 +1182,20 @@ describe('MisionesService', () => {
     it('acepta solo pais', async () => {
       const errors = await validate(toDto({ pais: 'Uruguay' }));
       expect(errors).toHaveLength(0);
+    });
+
+    it.each([['vacío', ''], ['de solo espacios', '   ']])(
+      'rechaza nombre_mision %s',
+      async (_caso, nombre_mision) => {
+        const errors = await validate(toDto({ nombre_mision }));
+        expect(errors.map((e) => e.property)).toEqual(['nombre_mision']);
+      },
+    );
+
+    it('recorta los espacios del nombre', async () => {
+      const dto = toDto({ nombre_mision: '  Congo  ' });
+      expect(await validate(dto)).toHaveLength(0);
+      expect(dto.nombre_mision).toBe('Congo');
     });
   });
 

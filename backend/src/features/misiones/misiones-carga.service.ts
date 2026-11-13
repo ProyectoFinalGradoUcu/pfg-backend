@@ -14,6 +14,7 @@ import {
   resumir,
   separarRepetidas,
 } from '../../lib/carga-masiva';
+import { buscarSolapamientos } from './solapamientos';
 
 const COLUMNAS: ColumnaPlantilla[] = [
   { clave: 'mision', titulo: 'Misión', requerida: true, tipo: 'lista', lista: 'misiones', listaEstricta: false, ancho: 40,
@@ -66,10 +67,43 @@ export class MisionesCargaService {
       if (salida && llegada && llegada < salida) throw new Error('La fecha de llegada es anterior a la de salida.');
 
       const novedades: string[] = [];
+      const orden = v['numero_orden'] || null;
+      const boletin = v['boletin'] || null;
 
       let mision = misiones.buscar(v['mision']);
+      if (!mision && !v['pais']) throw new Error(`La misión "${v['mision']}" no existe. Para crearla completá el País.`);
+
+      let convocatoria = mision
+        ? await this.prisma.convocatorias.findFirst({
+            where: {
+              mision_id: mision.id,
+              numero_orden: orden ? { equals: orden, mode: 'insensitive' } : null,
+              boletin: boletin ? { equals: boletin, mode: 'insensitive' } : null,
+            },
+          })
+        : null;
+      if (
+        convocatoria &&
+        ((salida && convocatoria.fecha_salida && convocatoria.fecha_salida.toISOString().slice(0, 10) !== salida) ||
+          (llegada && convocatoria.fecha_llegada && convocatoria.fecha_llegada.toISOString().slice(0, 10) !== llegada))
+      ) {
+        throw new Error('Las fechas no coinciden con las de la convocatoria ya registrada con ese N.º de orden y boletín.');
+      }
+
+      // Antes de crear nada, para no dejar misiones ni convocatorias sin participantes.
+      const choques = await buscarSolapamientos(
+        this.prisma,
+        [persona.id],
+        salida ? new Date(salida) : (convocatoria?.fecha_salida ?? null),
+        llegada ? new Date(llegada) : (convocatoria?.fecha_llegada ?? null),
+        convocatoria?.id,
+      );
+      if (choques.length > 0) {
+        const otra = choques[0].convocatorias.misiones.nombre_mision;
+        throw new Error(`${persona.nombre} ya está en otra convocatoria en ese período (${otra}).`);
+      }
+
       if (!mision) {
-        if (!v['pais']) throw new Error(`La misión "${v['mision']}" no existe. Para crearla completá el País.`);
         const creada = await this.prisma.misiones.create({ data: { nombre_mision: v['mision'], pais: v['pais'] } });
         // Se recarga para que las filas siguientes con el mismo nombre la encuentren.
         misiones = await this.cargarMisiones();
@@ -77,15 +111,6 @@ export class MisionesCargaService {
         novedades.push('misión creada');
       }
 
-      const orden = v['numero_orden'] || null;
-      const boletin = v['boletin'] || null;
-      let convocatoria = await this.prisma.convocatorias.findFirst({
-        where: {
-          mision_id: mision.id,
-          numero_orden: orden ? { equals: orden, mode: 'insensitive' } : null,
-          boletin: boletin ? { equals: boletin, mode: 'insensitive' } : null,
-        },
-      });
       if (!convocatoria) {
         convocatoria = await this.prisma.convocatorias.create({
           data: {
@@ -97,11 +122,6 @@ export class MisionesCargaService {
           },
         });
         novedades.push('convocatoria creada');
-      } else if (
-        (salida && convocatoria.fecha_salida && convocatoria.fecha_salida.toISOString().slice(0, 10) !== salida) ||
-        (llegada && convocatoria.fecha_llegada && convocatoria.fecha_llegada.toISOString().slice(0, 10) !== llegada)
-      ) {
-        throw new Error('Las fechas no coinciden con las de la convocatoria ya registrada con ese N.º de orden y boletín.');
       } else if ((salida && !convocatoria.fecha_salida) || (llegada && !convocatoria.fecha_llegada)) {
         // La convocatoria existía sin fechas: la planilla las completa.
         convocatoria = await this.prisma.convocatorias.update({
