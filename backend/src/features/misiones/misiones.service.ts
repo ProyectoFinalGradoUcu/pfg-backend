@@ -345,9 +345,13 @@ export class MisionesService {
       data: {
         numero_orden: dto.numero_orden,
         boletin: dto.boletin,
-        fecha_salida: dto.fecha_salida ? new Date(dto.fecha_salida) : undefined,
-        fecha_llegada: dto.fecha_llegada ? new Date(dto.fecha_llegada) : undefined,
-        observaciones: dto.observaciones ?? undefined,
+        ...(dto.fecha_salida !== undefined && {
+          fecha_salida: dto.fecha_salida ? new Date(dto.fecha_salida) : null,
+        }),
+        ...(dto.fecha_llegada !== undefined && {
+          fecha_llegada: dto.fecha_llegada ? new Date(dto.fecha_llegada) : null,
+        }),
+        observaciones: dto.observaciones,
       },
     });
 
@@ -530,7 +534,7 @@ export class MisionesService {
       data: {
         numero_orden: dto.numero_orden,
         boletin: dto.boletin,
-        observaciones: dto.observaciones ?? undefined,
+        observaciones: dto.observaciones,
       },
     });
 

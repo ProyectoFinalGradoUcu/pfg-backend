@@ -14,8 +14,8 @@ export class UpdateFuncionarioConvocatoriaDto {
   @MaxLength(50)
   boletin?: string | null;
 
-  @ApiPropertyOptional({ example: 'Observaciones actualizadas' })
+  @ApiPropertyOptional({ example: 'Observaciones actualizadas', nullable: true })
   @IsOptional()
   @IsString()
-  observaciones?: string;
+  observaciones?: string | null;
 }

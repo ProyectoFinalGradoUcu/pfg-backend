@@ -642,6 +642,36 @@ describe('MisionesService', () => {
         expect.objectContaining({ data: expect.objectContaining({ boletin: null }) }),
       );
     });
+
+    it('vacía fecha_salida, fecha_llegada y observaciones al recibir null', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ fecha_salida: new Date('2026-03-01'), fecha_llegada: new Date('2026-09-30') }),
+      );
+      prisma.convocatorias.update.mockResolvedValue(makeConvocatoria());
+
+      await service.editarConvocatoria(1, 10, {
+        fecha_salida: null,
+        fecha_llegada: null,
+        observaciones: null,
+      });
+
+      expect(prisma.convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ fecha_salida: null, fecha_llegada: null, observaciones: null }),
+        }),
+      );
+    });
+
+    it('convierte las fechas recibidas y no toca las que no vienen en el body', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(convExistente);
+      prisma.convocatorias.update.mockResolvedValue(makeConvocatoria());
+
+      await service.editarConvocatoria(1, 10, { fecha_llegada: '2026-09-30' });
+
+      const { data } = prisma.convocatorias.update.mock.calls[0][0];
+      expect(data.fecha_llegada).toEqual(new Date('2026-09-30'));
+      expect(data.fecha_salida).toBeUndefined();
+    });
   });
 
   // ─── eliminarConvocatoria ─────────────────────────────────────────────────────
@@ -848,6 +878,19 @@ describe('MisionesService', () => {
 
       expect(prisma.funcionarios_convocatorias.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ boletin: null }) }),
+      );
+    });
+
+    it('vacía observaciones al recibir null', async () => {
+      prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(
+        makeAsignacion({ observaciones: 'nota vieja' }),
+      );
+      prisma.funcionarios_convocatorias.update.mockResolvedValue(makeAsignacion());
+
+      await service.editarFuncionarioConvocatoria(1, 10, 100, { observaciones: null });
+
+      expect(prisma.funcionarios_convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ observaciones: null }) }),
       );
     });
   });
