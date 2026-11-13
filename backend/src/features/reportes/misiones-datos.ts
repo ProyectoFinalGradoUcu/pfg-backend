@@ -3,6 +3,7 @@ import { PrismaService } from '../../lib/prisma.service';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 import { categoriaDeFiltros, fmtFecha, unir } from './definiciones/_helpers';
 import { ColumnaReporte } from './reportes.types';
+import { wherePersonaReporte } from './alcance-reportes';
 
 export const COLUMNAS_MISIONES: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'Cédula', tipo: 'texto' },
@@ -33,7 +34,7 @@ export async function consultarMisiones(
     ...(filtros.pais ? {
       convocatorias: { misiones: { pais: { contains: filtros.pais, mode: 'insensitive' } } },
     } : {}),
-    ...(categoria ? { personas: wherePersonaPorCategoria(categoria) } : {}),
+    personas: { ...wherePersonaReporte(filtros), ...(categoria && wherePersonaPorCategoria(categoria)) },
   };
   const registros = await prisma.funcionarios_convocatorias.findMany({
     where,

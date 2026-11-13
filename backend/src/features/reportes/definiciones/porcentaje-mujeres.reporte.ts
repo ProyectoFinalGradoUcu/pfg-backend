@@ -1,4 +1,3 @@
-import { whereRelacionPorBase } from '../alcance-reportes';
 import {
   ColumnaReporte,
   ContextoEjecucion,
@@ -7,6 +6,7 @@ import {
   SeccionReporte,
 } from '../reportes.types';
 import { categoriaDeFiltros, PARAMETRO_BASE, PARAMETRO_CATEGORIA } from './_helpers';
+import { consultarFuerzaEfectiva } from '../fuerza-efectiva';
 
 /** Normaliza el campo libre `personas.genero` a 'F' | 'M' | null. */
 function clasificarGenero(genero: string | null | undefined): 'F' | 'M' | null {
@@ -23,6 +23,7 @@ interface Acumulador {
   denominacion: string;
   mujeres: number;
   hombres: number;
+  total: number;
 }
 
 const COLUMNAS: ColumnaReporte[] = [
@@ -37,13 +38,14 @@ function construirFilas(mapa: Map<string, Acumulador>) {
   return [...mapa.values()]
     .sort((a, b) => a.orden - b.orden)
     .map((g) => {
-      const total = g.mujeres + g.hombres;
+      const total = g.total;
+      const conocido = g.mujeres + g.hombres;
       return {
         grado: g.denominacion,
         cantidad_mujeres: g.mujeres,
         cantidad_hombres: g.hombres,
         total,
-        porcentaje_mujeres: total > 0 ? Math.round((g.mujeres / total) * 10000) / 100 : 0,
+        porcentaje_mujeres: conocido > 0 ? Math.round((g.mujeres / conocido) * 10000) / 100 : 0,
       };
     });
 }
@@ -62,27 +64,11 @@ export const porcentajeMujeresReporte: DefinicionReporte = {
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
     const categoria = categoriaDeFiltros(filtros);
 
-    const relaciones = await prisma.relaciones_laborales.findMany({
-      where: {
-        estado: 'activo',
-        ...whereRelacionPorBase(filtros),
-        ...(categoria ? { tipo_funcionario: categoria } : {}),
-      },
-      select: {
-        personas: { select: { genero: true } },
-        grados: {
-          select: {
-            denominacion: true,
-            orden: true,
-            es_oficial: true,
-            es_subalterno: true,
-          },
-        },
-      },
-    });
+    const relaciones = await consultarFuerzaEfectiva(prisma, filtros);
 
     const superior = new Map<string, Acumulador>();
     const subalterno = new Map<string, Acumulador>();
+    const sinClasificar = new Map<string, Acumulador>();
     let totalMujeres = 0;
     let totalHombres = 0;
     let sinDato = 0;
@@ -94,16 +80,15 @@ export const porcentajeMujeresReporte: DefinicionReporte = {
       else sinDato++;
 
       const grado = rel.grados;
-      if (!grado) continue;
-      const destino = grado.es_oficial ? superior : grado.es_subalterno ? subalterno : null;
-      if (!destino) continue;
+      const destino = grado?.es_oficial ? superior : grado?.es_subalterno ? subalterno : sinClasificar;
 
-      const clave = grado.denominacion;
+      const clave = grado?.id.toString() ?? 'sin-grado';
       let acc = destino.get(clave);
       if (!acc) {
-        acc = { orden: grado.orden, denominacion: grado.denominacion, mujeres: 0, hombres: 0 };
+        acc = { orden: grado?.orden ?? Number.MAX_SAFE_INTEGER, denominacion: grado?.denominacion ?? 'Sin grado', mujeres: 0, hombres: 0, total: 0 };
         destino.set(clave, acc);
       }
+      acc.total++;
       if (genero === 'F') acc.mujeres++;
       else if (genero === 'M') acc.hombres++;
     }
@@ -119,6 +104,7 @@ export const porcentajeMujeresReporte: DefinicionReporte = {
       ...(categoria !== 'oficial'
         ? [{ titulo: 'Personal Subalterno', columnas: COLUMNAS, filas: construirFilas(subalterno) }]
         : []),
+      ...(sinClasificar.size ? [{ titulo: 'Sin clasificación de grado', columnas: COLUMNAS, filas: construirFilas(sinClasificar) }] : []),
     ];
 
     return {

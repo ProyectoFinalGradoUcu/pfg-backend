@@ -104,7 +104,7 @@ describe('Fuente custom · destinos', () => {
     await destinosFuente.consultar(prisma, { persona_id: '100' });
 
     expect(prisma.destinos.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { persona_id: 100n } }),
+      expect.objectContaining({ where: { persona_id: 100n, personas: {} } }),
     );
   });
 
@@ -112,7 +112,7 @@ describe('Fuente custom · destinos', () => {
     await destinosFuente.consultar(prisma, {});
 
     expect(prisma.destinos.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: {} }),
+      expect.objectContaining({ where: { personas: {} } }),
     );
   });
 
@@ -191,7 +191,7 @@ describe('Reporte · destinos', () => {
 });
 
 describe('Reporte · legajo del oficial', () => {
-  const prisma: any = { personas: { findUnique: jest.fn() } };
+  const prisma: any = { personas: { findFirst: jest.fn() } };
 
   const makePersona = (overrides: Partial<any> = {}) => ({
     id: 100n,
@@ -226,11 +226,11 @@ describe('Reporte · legajo del oficial', () => {
   });
 
   it('incluye los destinos con su comando y su sub-unidad', async () => {
-    prisma.personas.findUnique.mockResolvedValue(makePersona());
+    prisma.personas.findFirst.mockResolvedValue(makePersona());
 
     await legajoOficialReporte.ejecutar({ prisma, filtros: { persona_id: '100' } });
 
-    expect(prisma.personas.findUnique).toHaveBeenCalledWith(
+    expect(prisma.personas.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         include: expect.objectContaining({
           destinos: expect.objectContaining({ include: { unidades: true, sub_unidades: true } }),
@@ -240,7 +240,7 @@ describe('Reporte · legajo del oficial', () => {
   });
 
   it('toma el destino actual de la sub-unidad de la asignación', async () => {
-    prisma.personas.findUnique.mockResolvedValue(makePersona());
+    prisma.personas.findFirst.mockResolvedValue(makePersona());
 
     const resultado = await legajoOficialReporte.ejecutar({
       prisma,
@@ -254,7 +254,7 @@ describe('Reporte · legajo del oficial', () => {
   });
 
   it('si la asignación no tiene sub-unidad usa su comando', async () => {
-    prisma.personas.findUnique.mockResolvedValue(
+    prisma.personas.findFirst.mockResolvedValue(
       makePersona({ destinos: [makeDestino({ sub_unidades: null })] }),
     );
 
@@ -270,7 +270,7 @@ describe('Reporte · legajo del oficial', () => {
   });
 
   it('cae a la unidad de la relación laboral si no hay ninguna asignación', async () => {
-    prisma.personas.findUnique.mockResolvedValue(makePersona({ destinos: [] }));
+    prisma.personas.findFirst.mockResolvedValue(makePersona({ destinos: [] }));
 
     const resultado = await legajoOficialReporte.ejecutar({
       prisma,
@@ -287,6 +287,6 @@ describe('Reporte · legajo del oficial', () => {
     const resultado = await legajoOficialReporte.ejecutar({ prisma, filtros: {} });
 
     expect(resultado.secciones).toEqual([]);
-    expect(prisma.personas.findUnique).not.toHaveBeenCalled();
+    expect(prisma.personas.findFirst).not.toHaveBeenCalled();
   });
 });

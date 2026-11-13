@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Borders, Workbook } from 'exceljs';
 import { PrismaService } from '../../lib/prisma.service';
+import { wherePersonasPorAlcance } from '../../lib/alcance/alcance.where';
 import { REPORTES } from './definiciones';
 import { FUENTES } from './custom';
 import { FuenteCatalogo, FuenteCustom } from './custom/fuentes.types';
@@ -42,10 +43,10 @@ export class ReportesService {
   }
 
   /* Definición de un reporte. */
-  async obtenerDefinicion(clave: string): Promise<ReporteCatalogo> {
+  async obtenerDefinicion(clave: string, alcance?: AlcanceResuelto): Promise<ReporteCatalogo> {
     const def = this.requerir(clave);
     const parametros = await Promise.all(
-      def.parametros.map((p) => this.resolverParametro(p)),
+      def.parametros.map((p) => this.resolverParametro(p, alcance)),
     );
     const { ejecutar: _ejecutar, ...meta } = def;
     return { ...meta, parametros };
@@ -109,11 +110,11 @@ export class ReportesService {
   // Reportes personalizados.
 
   /* Fuentes de información disponible para armar reportes personalizados. */
-  async listarFuentes(): Promise<FuenteCatalogo[]> {
+  async listarFuentes(alcance?: AlcanceResuelto): Promise<FuenteCatalogo[]> {
     return Promise.all(
       [...this.fuentes.values()].map(async ({ consultar: _c, ...meta }) => ({
         ...meta,
-        filtros: await Promise.all(meta.filtros.map((f) => this.resolverParametro(f))),
+        filtros: await Promise.all(meta.filtros.map((f) => this.resolverParametro(f, alcance))),
       })),
     );
   }
@@ -250,17 +251,18 @@ export class ReportesService {
     return nombre;
   }
 
-  private async resolverParametro(param: ParametroReporte): Promise<ParametroReporte> {
+  private async resolverParametro(param: ParametroReporte, alcance?: AlcanceResuelto): Promise<ParametroReporte> {
     if (!param.fuenteOpciones) return param;
-    const opciones = await this.resolverFuente(param.fuenteOpciones);
+    const opciones = await this.resolverFuente(param.fuenteOpciones, alcance);
     return { ...param, opciones };
   }
 
-  private async resolverFuente(fuente: string): Promise<OpcionParametro[]> {
+  private async resolverFuente(fuente: string, alcance?: AlcanceResuelto): Promise<OpcionParametro[]> {
+    const basesPermitidas = alcance ? subUnidadIdsDeAlcance(alcance) : null;
     switch (fuente) {
       case 'unidades': {
         const unidades = await this.prisma.unidades.findMany({
-          where: { vigente: true },
+          where: { vigente: true, ...(alcance?.tipo === 'unidad' && { id: { in: alcance.comandoIds.map(BigInt) } }) },
           select: { id: true, denominacion: true },
           orderBy: { denominacion: 'asc' },
         });
@@ -269,7 +271,7 @@ export class ReportesService {
       case 'sub_unidades': {
         // Bases vigentes, agrupadas por comando: "B.A.I. (C.A.O.)".
         const bases = await this.prisma.sub_unidades.findMany({
-          where: { vigente: true },
+          where: { vigente: true, ...(basesPermitidas !== null && { id: { in: basesPermitidas } }) },
           select: { id: true, denominacion: true, unidades: { select: { denominacion: true } } },
           orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
         });
@@ -280,6 +282,7 @@ export class ReportesService {
       }
       case 'personas': {
         const personas = await this.prisma.personas.findMany({
+          ...(alcance && { where: wherePersonasPorAlcance(alcance) }),
           select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true },
           orderBy: [{ primer_apellido: 'asc' }, { primer_nombre: 'asc' }],
         });

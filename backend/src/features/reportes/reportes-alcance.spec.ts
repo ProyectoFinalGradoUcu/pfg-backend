@@ -71,12 +71,14 @@ describe('Reportes · alcance por bases', () => {
     });
 
     it('un reporte que no se sabe acotar responde 403 con alcance de unidad', async () => {
-      const ajeno = REPORTES.find((r) => !REPORTES_CON_ALCANCE_UNIDAD.has(r.clave))!;
+      const ajeno = REPORTES[0];
+      REPORTES_CON_ALCANCE_UNIDAD.delete(ajeno.clave);
       const ejecutar = jest.spyOn(ajeno, 'ejecutar');
-
+      try {
       await expect(service.ejecutar(ajeno.clave, {}, UNIDAD)).rejects.toThrow(ForbiddenException);
       await expect(service.exportarXlsx(ajeno.clave, {}, UNIDAD)).rejects.toThrow(ForbiddenException);
       expect(ejecutar).not.toHaveBeenCalled();
+      } finally { REPORTES_CON_ALCANCE_UNIDAD.add(ajeno.clave); }
     });
 
     it('prima técnica: la base elegida dentro del alcance filtra por esa base', async () => {
@@ -119,9 +121,9 @@ describe('Reportes · alcance por bases', () => {
       expect(prisma.relaciones_laborales.findMany.mock.calls[0][0].where).not.toHaveProperty('sub_unidad_id');
     });
 
-    it('una fuente fuera de la lista responde 403 con alcance de unidad', async () => {
-      await expect(service.previewCustom({ fuente: 'destinos' } as any, UNIDAD)).rejects.toThrow(ForbiddenException);
-      expect(prisma.destinos.findMany).not.toHaveBeenCalled();
+    it('la fuente destinos aplica alcance por la base actual de la persona', async () => {
+      await service.previewCustom({ fuente: 'destinos' } as any, UNIDAD);
+      expect(prisma.destinos.findMany.mock.calls[0][0].where.personas).toEqual({ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [30n, 31n] } } } });
     });
   });
 

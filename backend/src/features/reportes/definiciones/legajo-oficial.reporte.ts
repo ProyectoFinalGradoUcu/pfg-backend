@@ -6,6 +6,7 @@ import {
   SeccionReporte,
 } from '../reportes.types';
 import { campo, COLUMNAS_CAMPO_VALOR, fmtFecha, unir } from './_helpers';
+import { wherePersonaReporte } from '../alcance-reportes';
 
 const COL_ASCENSOS: ColumnaReporte[] = [
   { clave: 'grado', etiqueta: 'Grado', tipo: 'texto' },
@@ -39,8 +40,8 @@ export const legajoOficialReporte: DefinicionReporte = {
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
     if (!filtros.persona_id) return { secciones: [] };
 
-    const p = await prisma.personas.findUnique({
-      where: { id: BigInt(filtros.persona_id) },
+    const p = await prisma.personas.findFirst({
+      where: { id: BigInt(filtros.persona_id), ...wherePersonaReporte(filtros) },
       include: {
         relaciones_laborales: {
           orderBy: { fecha_inicio: 'asc' },
@@ -50,17 +51,17 @@ export const legajoOficialReporte: DefinicionReporte = {
           orderBy: { fecha_inicio: 'desc' },
           include: { unidades: true, sub_unidades: true },
         },
-        ascensos: { orderBy: { fecha_ascenso: 'asc' }, include: { grados: true } },
+        ascensos: { where: { anulado_en: null }, orderBy: { fecha_ascenso: 'asc' }, include: { grados: true } },
         funcionarios_cursos: { orderBy: { fecha_inicio: 'asc' }, include: { cursos: true } },
       },
     });
     if (!p) return { secciones: [] };
 
     const rels = p.relaciones_laborales;
-    const activa = rels.find((r) => r.estado === 'activo') ?? rels[rels.length - 1];
+    const activa = rels.find((r) => r.estado === 'activo' && r.fecha_fin === null) ?? rels[rels.length - 1];
     const ingreso = rels[0]?.fecha_inicio ?? null;
-    const egreso = activa?.fecha_fin ?? rels[rels.length - 1]?.fecha_fin ?? null;
-    const asignacion = p.destinos[0];
+    const egreso = activa?.fecha_fin ?? null;
+    const asignacion = p.destinos.find(d => d.fecha_fin === null);
 
     const datos: SeccionReporte = {
       titulo: 'Datos del funcionario',
