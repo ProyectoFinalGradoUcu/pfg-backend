@@ -43,6 +43,8 @@ SELECT nombre, descripcion, 'personal' FROM (VALUES
   ('destinos.gestionar',              'Crear y modificar destinos y asignaciones'),
   ('comisiones.ver',                 'Consultar comisiones e integrantes'),
   ('comisiones.gestionar',           'Gestionar comisiones y asignaciones'),
+  ('comisiones.ver.unidad',          'Consultar pertenencias a comisiones del personal de las propias unidades'),
+  ('comisiones.gestionar.unidad',    'Gestionar pertenencias a comisiones del personal de las propias unidades'),
   -- Misiones
   ('misiones.ver',                    'Consultar misiones'),
   ('misiones.gestionar',              'Crear y modificar misiones'),

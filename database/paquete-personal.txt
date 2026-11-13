@@ -45,3 +45,5 @@ scripts/migration_destinos_sub_unidad.sql
 scripts/migration_alcance_por_base.sql
 # Los cursos de unidad pasan a ser de una base (sub-unidad); la unidad es su comando.
 scripts/migration_cursos_sub_unidad.sql
+scripts/migration_comisiones_alcance.sql
+scripts/migration_cursos_nombre_unico.sql

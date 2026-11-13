@@ -8,18 +8,21 @@ import {
   IsInt,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { FuncionarioCursoDto } from '../../funcionaro/dto/funcionario-curso.dto';
 import { ModuloCursoDto } from './modulo-curso.dto';
 
 export class CursoDto {
 
   @ApiProperty({ example: 'Curso de Aviacion ', maxLength: 200 })
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   nombre_curso: string;
 
   @ApiProperty({ example: 'Institucion Aviacion', maxLength: 100 })
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)

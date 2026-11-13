@@ -6,6 +6,7 @@ import {
   SeccionReporte,
 } from '../reportes.types';
 import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
+import { wherePersonaReporte, whereRelacionPorAlcance } from '../alcance-reportes';
 import {
   categoriaDeFiltros,
   fmtFecha,
@@ -82,9 +83,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       where: {
         tipos_movimiento: { es_alta: true },
         ...(rango ? { fecha_movimiento: rango } : {}),
-        ...(categoria
-          ? { relaciones_laborales: { tipo_funcionario: categoria } }
-          : {}),
+        relaciones_laborales: { ...whereRelacionPorAlcance(filtros), ...(categoria && { tipo_funcionario: categoria }) },
       },
       include: {
         tipos_movimiento: true,
@@ -127,7 +126,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       where: {
         anulado_en: null,
         ...(rango ? { fecha_ascenso: rango } : {}),
-        ...(categoria ? { personas: wherePersonaPorCategoria(categoria) } : {}),
+        personas: { ...wherePersonaReporte(filtros), ...(categoria && wherePersonaPorCategoria(categoria)) },
       },
       include: {
         grados: true,
@@ -173,6 +172,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
     const bajasRaw = await prisma.relaciones_laborales.findMany({
       where: {
         motivo_baja_id: { not: null },
+        ...whereRelacionPorAlcance(filtros),
         ...(rango ? { fecha_fin: rango } : {}),
         ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
@@ -196,7 +196,8 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       ),
       fecha: fmtFecha(rl.fecha_fin),
       causal: rl.motivos_baja?.denominacion ?? '',
-      unidad: rl.unidades?.denominacion ?? '',
+      base: rl.sub_unidades?.denominacion ?? '',
+      comando: rl.unidades?.denominacion ?? '',
       ley: rl.regimenes?.numero_ley ?? '',
     }));
 
@@ -204,9 +205,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       where: {
         anulado: false,
         ...(rango ? { fecha_retiro: rango } : {}),
-        ...(categoria
-          ? { relaciones_laborales: { tipo_funcionario: categoria } }
-          : {}),
+        relaciones_laborales: { ...whereRelacionPorAlcance(filtros), ...(categoria && { tipo_funcionario: categoria }) },
       },
       include: {
         personas: true,

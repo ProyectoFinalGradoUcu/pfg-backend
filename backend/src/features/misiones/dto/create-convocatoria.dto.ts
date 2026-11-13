@@ -7,19 +7,24 @@ import {
   MaxLength,
   ValidateIf,
   IsNotEmpty,
+  Min,
+  Max,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateConvocatoriaDto {
   @ApiPropertyOptional({ example: 'ORD-2026-001', maxLength: 50, description: 'Requerido si no se indica boletín' })
-  @ValidateIf((o) => !o.boletin)
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @ValidateIf((o, value) => value != null || !(typeof o.boletin === 'string' && o.boletin.trim()))
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
   numero_orden?: string;
 
   @ApiPropertyOptional({ example: 'BOL-2026-04', maxLength: 50, description: 'Requerido si no se indica número de orden' })
-  @ValidateIf((o) => !o.numero_orden)
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @ValidateIf((o, value) => value != null || !(typeof o.numero_orden === 'string' && o.numero_orden.trim()))
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
@@ -44,5 +49,7 @@ export class CreateConvocatoriaDto {
   @IsOptional()
   @IsArray()
   @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(Number.MAX_SAFE_INTEGER, { each: true })
   persona_ids?: number[];
 }

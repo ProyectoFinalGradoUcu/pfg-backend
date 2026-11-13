@@ -22,6 +22,7 @@ import {
 } from './legajo-militar.constants.js';
 import { CierreCarreraService } from '../retiros/cierre-carrera.service.js';
 import { DerechaService } from '../derecha/derecha.service.js';
+import { pertenenciaActiva, personaPuedeIntegrar } from '../comisiones/pertenencias.js';
 
 @Injectable()
 export class PersonalPerfilService {
@@ -566,6 +567,7 @@ export class PersonalPerfilService {
       include: {
         comisiones: { select: { denominacion: true } },
         relaciones_laborales: { select: { fecha_inicio: true, fecha_fin: true } },
+        personas: { select: { retiros: { select: { anulado: true } }, relaciones_laborales: { select: { fecha_fin: true } } } },
       },
       orderBy: [{ fecha_inicio: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }],
     });
@@ -577,7 +579,7 @@ export class PersonalPerfilService {
       fecha_fin: fecha(a.fecha_fin),
       numero_orden: a.numero_orden, boletin: a.boletin,
       // Una importada sin fecha de fin sigue abierta solo mientras siga abierto su período.
-      activo: a.fecha_fin === null && (!a.relaciones_laborales || a.relaciones_laborales.fecha_fin === null),
+      activo: pertenenciaActiva(a) && personaPuedeIntegrar(a.personas),
       importada: a.importada, texto_original: a.texto_original,
       periodo: a.relaciones_laborales
         ? { fecha_inicio: fecha(a.relaciones_laborales.fecha_inicio), fecha_fin: fecha(a.relaciones_laborales.fecha_fin) }

@@ -139,6 +139,7 @@ export class CursosController {
       'Designa un grupo de personas a un curso (o a módulos puntuales) bajo una orden/boletín. Sirve para el primer dictado y para re-dictados.',
   })
   @ApiResponse({ status: 201, description: 'Designación registrada exitosamente.' })
+  @ApiResponse({ status: 409, description: 'La persona ya tiene una inscripción; no se sobrescribe el historial.' })
   @ApiResponse({ status: 404, description: 'Curso o módulo no encontrado.' })
   async crearDesignacion(
     @Param('cursoId', ParseIntPipe) cursoId: number,

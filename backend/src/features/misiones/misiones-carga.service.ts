@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { bloquearConvocatorias, validarParticipantes } from './validaciones-misiones';
 import { PrismaService } from '../../lib/prisma.service';
 import {
   Catalogo,
@@ -43,7 +44,7 @@ export class MisionesCargaService {
    * convocatoria por misión + N.º de orden + boletín (y se crea con la primera fila que la nombra).
    */
   async procesarCarga(buffer: Buffer): Promise<ResultadoCarga> {
-    let misiones = await this.cargarMisiones();
+    const misiones = await this.cargarMisiones();
     const filas = await leerHoja(buffer, this.definicion(misiones));
     const padron = await PadronDeCarga.cargar(this.prisma, filas);
 
@@ -65,21 +66,23 @@ export class MisionesCargaService {
       const llegada = parsearFecha(v['fecha_llegada'], 'Fecha de llegada');
       if (salida && llegada && llegada < salida) throw new Error('La fecha de llegada es anterior a la de salida.');
 
+      return this.prisma.$transaction(async tx => {
+      await bloquearConvocatorias(tx);
       const novedades: string[] = [];
 
-      let mision = misiones.buscar(v['mision']);
+      const encontrada = await tx.misiones.findFirst({ where: { nombre_mision: { equals: v['mision'].trim(), mode: 'insensitive' } } });
+      let mision = encontrada ? { id: encontrada.id, nombre: encontrada.nombre_mision!, codigo: null } : undefined;
       if (!mision) {
         if (!v['pais']) throw new Error(`La misión "${v['mision']}" no existe. Para crearla completá el País.`);
-        const creada = await this.prisma.misiones.create({ data: { nombre_mision: v['mision'], pais: v['pais'] } });
+        const creada = await tx.misiones.create({ data: { nombre_mision: v['mision'], pais: v['pais'] } });
         // Se recarga para que las filas siguientes con el mismo nombre la encuentren.
-        misiones = await this.cargarMisiones();
-        mision = misiones.resolver(creada.nombre_mision!);
+        mision = { id: creada.id, nombre: creada.nombre_mision!, codigo: null };
         novedades.push('misión creada');
       }
 
       const orden = v['numero_orden'] || null;
       const boletin = v['boletin'] || null;
-      let convocatoria = await this.prisma.convocatorias.findFirst({
+      let convocatoria = await tx.convocatorias.findFirst({
         where: {
           mision_id: mision.id,
           numero_orden: orden ? { equals: orden, mode: 'insensitive' } : null,
@@ -87,7 +90,7 @@ export class MisionesCargaService {
         },
       });
       if (!convocatoria) {
-        convocatoria = await this.prisma.convocatorias.create({
+        convocatoria = await tx.convocatorias.create({
           data: {
             mision_id: mision.id,
             numero_orden: orden,
@@ -104,7 +107,12 @@ export class MisionesCargaService {
         throw new Error('Las fechas no coinciden con las de la convocatoria ya registrada con ese N.º de orden y boletín.');
       } else if ((salida && !convocatoria.fecha_salida) || (llegada && !convocatoria.fecha_llegada)) {
         // La convocatoria existía sin fechas: la planilla las completa.
-        convocatoria = await this.prisma.convocatorias.update({
+        const participantes = await tx.funcionarios_convocatorias.findMany({ where: { convocatoria_id: convocatoria.id }, select: { persona_id: true } });
+        await validarParticipantes(tx, participantes.map(p => p.persona_id), {
+          fecha_salida: salida ? new Date(salida) : convocatoria.fecha_salida,
+          fecha_llegada: llegada ? new Date(llegada) : convocatoria.fecha_llegada,
+        }, convocatoria.id);
+        convocatoria = await tx.convocatorias.update({
           where: { id: convocatoria.id },
           data: {
             ...(salida && !convocatoria.fecha_salida ? { fecha_salida: new Date(salida) } : {}),
@@ -113,13 +121,14 @@ export class MisionesCargaService {
         });
       }
 
-      const yaAsignado = await this.prisma.funcionarios_convocatorias.findFirst({
+      const yaAsignado = await tx.funcionarios_convocatorias.findFirst({
         where: { convocatoria_id: convocatoria.id, persona_id: persona.id },
         select: { id: true },
       });
       if (yaAsignado) throw new Error(`${persona.nombre} ya está designado en esa convocatoria.`);
+      await validarParticipantes(tx, [persona.id], convocatoria, convocatoria.id);
 
-      const asignacion = await this.prisma.funcionarios_convocatorias.create({
+      const asignacion = await tx.funcionarios_convocatorias.create({
         data: {
           convocatoria_id: convocatoria.id,
           persona_id: persona.id,
@@ -133,6 +142,7 @@ export class MisionesCargaService {
         id: asignacion.id,
         mensaje: `${persona.nombre} → ${mision.nombre}${novedades.length ? ` (${novedades.join(', ')})` : ''}`,
       };
+      });
     });
 
     return resumir([...resultados, ...repetidas]);
