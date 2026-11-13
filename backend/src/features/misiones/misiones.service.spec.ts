@@ -9,6 +9,8 @@ import { UpdateMisionDto } from './dto/update-mision.dto';
 import { CreateConvocatoriaDto } from './dto/create-convocatoria.dto';
 import { AddFuncionariosConvocatoriaDto, FuncionarioConvocatoriaItemDto } from './dto/add-funcionarios-convocatoria.dto';
 import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convocatoria.dto';
+import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
+import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 
 // ─── Fechas de referencia ─────────────────────────────────────────────────────
 const FECHA_PASADA = new Date('2020-01-01');
@@ -855,11 +857,11 @@ describe('MisionesService', () => {
       expect((result.items[0] as any).finalizada).toBe(false);
     });
 
-    it('usa page=1 y pageSize=200 por defecto', async () => {
+    it('usa page=1 y pageSize=10 por defecto', async () => {
       await service.listarPersonalEnMision();
 
       expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ skip: 0, take: 200 }),
+        expect.objectContaining({ skip: 0, take: 10 }),
       );
     });
 
@@ -869,6 +871,100 @@ describe('MisionesService', () => {
       expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 200 }),
       );
+    });
+
+    it('desempata el orden por id para que la paginación sea estable', async () => {
+      await service.listarPersonalEnMision({});
+
+      const { orderBy } = prisma.funcionarios_convocatorias.findMany.mock.calls[0][0];
+      expect(orderBy[orderBy.length - 1]).toEqual({ id: 'asc' });
+    });
+
+    describe('filtros', () => {
+      const whereUsado = () => {
+        const where = prisma.funcionarios_convocatorias.findMany.mock.calls[0][0].where;
+        expect(prisma.funcionarios_convocatorias.count).toHaveBeenCalledWith({ where });
+        return where;
+      };
+
+      it('sin filtros no restringe', async () => {
+        await service.listarPersonalEnMision({ query: '   ', orden: '', misionIds: [] });
+
+        expect(whereUsado()).toEqual({});
+      });
+
+      it('busca cada palabra en cédula, nombre o apellido', async () => {
+        await service.listarPersonalEnMision({ query: ' Ana  García ' });
+
+        const porPalabra = (palabra: string) => ({
+          personas: {
+            OR: [
+              { cedula: { contains: palabra, mode: 'insensitive' } },
+              { primer_nombre: { contains: palabra, mode: 'insensitive' } },
+              { primer_apellido: { contains: palabra, mode: 'insensitive' } },
+            ],
+          },
+        });
+        expect(whereUsado()).toEqual({ AND: [porPalabra('Ana'), porPalabra('García')] });
+      });
+
+      it('filtra por las misiones elegidas', async () => {
+        await service.listarPersonalEnMision({ misionIds: [1, 2] });
+
+        expect(whereUsado()).toEqual({
+          AND: [{ convocatorias: { mision_id: { in: [BigInt(1), BigInt(2)] } } }],
+        });
+      });
+
+      it('filtra por número de orden o boletín', async () => {
+        await service.listarPersonalEnMision({ orden: 'ORD-1' });
+
+        expect(whereUsado()).toEqual({
+          AND: [
+            {
+              OR: [
+                { numero_orden: { contains: 'ORD-1', mode: 'insensitive' } },
+                { boletin: { contains: 'ORD-1', mode: 'insensitive' } },
+              ],
+            },
+          ],
+        });
+      });
+
+      it('finalizada=true trae solo convocatorias con llegada ya pasada', async () => {
+        await service.listarPersonalEnMision({ finalizada: true });
+
+        expect(whereUsado()).toEqual({
+          AND: [{ convocatorias: { fecha_llegada: { not: null, lte: expect.any(Date) } } }],
+        });
+      });
+
+      it('finalizada=false trae las convocatorias sin llegada o con llegada futura', async () => {
+        await service.listarPersonalEnMision({ finalizada: false });
+
+        expect(whereUsado()).toEqual({
+          AND: [
+            {
+              convocatorias: {
+                OR: [{ fecha_llegada: null }, { fecha_llegada: { gt: expect.any(Date) } }],
+              },
+            },
+          ],
+        });
+      });
+
+      it('combina categoría, búsqueda, orden y estado sin pisar sus OR', async () => {
+        await service.listarPersonalEnMision({
+          categoria: 'oficial',
+          query: 'Ana',
+          orden: 'ORD',
+          finalizada: false,
+        });
+
+        const { AND } = whereUsado();
+        expect(AND).toHaveLength(4);
+        expect(AND).toContainEqual({ personas: wherePersonaPorCategoria('oficial') });
+      });
     });
   });
 
@@ -1039,6 +1135,45 @@ describe('MisionesService', () => {
     it('rechaza numero_orden que excede 50 caracteres', async () => {
       const errors = await validate(toDto({ numero_orden: 'x'.repeat(51) }));
       expect(errors.some((e) => e.property === 'numero_orden')).toBe(true);
+    });
+  });
+
+  describe('ListPersonalMisionQueryDto', () => {
+    const toDto = (plain: object) => plainToInstance(ListPersonalMisionQueryDto, plain);
+
+    it('convierte misionIds separados por coma en números', async () => {
+      const dto = toDto({ misionIds: '3, 7' });
+      expect(dto.misionIds).toEqual([3, 7]);
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('acepta misionIds repetidos en la query', async () => {
+      const dto = toDto({ misionIds: ['3', '7'] });
+      expect(dto.misionIds).toEqual([3, 7]);
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('rechaza misionIds no numéricos', async () => {
+      const errors = await validate(toDto({ misionIds: '3,abc' }));
+      expect(errors.some((e) => e.property === 'misionIds')).toBe(true);
+    });
+
+    it('convierte finalizada de texto a booleano', () => {
+      expect(toDto({ finalizada: 'false' }).finalizada).toBe(false);
+      expect(toDto({ finalizada: 'true' }).finalizada).toBe(true);
+    });
+
+    it('acepta búsqueda y orden como texto', async () => {
+      expect(await validate(toDto({ query: 'Ana', orden: 'ORD-1' }))).toHaveLength(0);
+    });
+
+    it('acepta pageSize 200, que es lo que pide el front anterior', async () => {
+      expect(await validate(toDto({ pageSize: '200' }))).toHaveLength(0);
+    });
+
+    it('rechaza pageSize mayor a 200', async () => {
+      const errors = await validate(toDto({ pageSize: '201' }));
+      expect(errors.some((e) => e.property === 'pageSize')).toBe(true);
     });
   });
 });
