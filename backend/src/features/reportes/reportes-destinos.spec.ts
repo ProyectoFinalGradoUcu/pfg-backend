@@ -283,6 +283,15 @@ describe('Reporte · legajo del oficial', () => {
     expect(destinoActual).toEqual({ campo: 'Destino actual', valor: 'Cuartel General' });
   });
 
+  it('sin asignación prioriza la base de la relación laboral sobre su comando', async () => {
+    const persona = makePersona({ destinos: [] });
+    persona.relaciones_laborales[0].sub_unidades = { denominacion: 'B.A.I.' };
+    prisma.personas.findFirst.mockResolvedValue(persona);
+    const resultado = await legajoOficialReporte.ejecutar({ prisma, filtros: { persona_id: '100' } });
+    const datos = resultado.secciones?.find(s => s.titulo === 'Datos del funcionario');
+    expect(datos?.filas.find(f => f.campo === 'Destino actual')?.valor).toBe('B.A.I.');
+  });
+
   it('devuelve vacío sin persona_id', async () => {
     const resultado = await legajoOficialReporte.ejecutar({ prisma, filtros: {} });
 

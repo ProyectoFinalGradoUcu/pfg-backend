@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Borders, Workbook } from 'exceljs';
 import { PrismaService } from '../../lib/prisma.service';
 import { wherePersonasPorAlcance } from '../../lib/alcance/alcance.where';
@@ -81,6 +81,7 @@ export class ReportesService {
     alcance?: AlcanceResuelto,
   ): Promise<ResultadoReporte> {
     const def = this.requerir(clave);
+    this.validarRequeridos(def, filtros);
     const conAlcance = this.aplicarAlcance(
       clave,
       filtros,
@@ -97,6 +98,7 @@ export class ReportesService {
     alcance?: AlcanceResuelto,
   ): Promise<{ buffer: Buffer; nombreArchivo: string }> {
     const def = this.requerir(clave);
+    this.validarRequeridos(def, filtros);
     const conAlcance = this.aplicarAlcance(
       clave,
       filtros,
@@ -108,6 +110,10 @@ export class ReportesService {
   }
 
   // Reportes personalizados.
+  private validarRequeridos(def: DefinicionReporte, filtros: Record<string, string | undefined>): void {
+    const faltante = def.parametros.find(p => p.requerido && !filtros[p.clave]?.trim());
+    if (faltante) throw new BadRequestException(`Seleccioná o completá ${faltante.etiqueta} para generar el reporte.`);
+  }
 
   /* Fuentes de información disponible para armar reportes personalizados. */
   async listarFuentes(alcance?: AlcanceResuelto): Promise<FuenteCatalogo[]> {

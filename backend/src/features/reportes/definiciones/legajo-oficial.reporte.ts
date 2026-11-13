@@ -45,7 +45,7 @@ export const legajoOficialReporte: DefinicionReporte = {
       include: {
         relaciones_laborales: {
           orderBy: { fecha_inicio: 'asc' },
-          include: { grados: true, escalafones: true, unidades: true },
+          include: { grados: true, escalafones: true, unidades: true, sub_unidades: true },
         },
         destinos: {
           orderBy: { fecha_inicio: 'desc' },
@@ -81,7 +81,7 @@ export const legajoOficialReporte: DefinicionReporte = {
         campo('Grado actual', activa?.grados?.denominacion),
         campo(
           'Destino actual',
-          asignacion?.sub_unidades?.denominacion ?? asignacion?.unidades?.denominacion ?? activa?.unidades?.denominacion,
+          asignacion?.sub_unidades?.denominacion ?? asignacion?.unidades?.denominacion ?? activa?.sub_unidades?.denominacion ?? activa?.unidades?.denominacion,
         ),
         campo('Cargo actual', asignacion?.posicion_destino),
         campo('Año de ingreso', fmtFecha(ingreso)),

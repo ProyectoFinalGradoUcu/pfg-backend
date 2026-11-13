@@ -7,6 +7,11 @@ import { misionesFuente } from './custom/misiones.fuente';
 import { ascensosFuente } from './custom/ascensos.fuente';
 
 describe('Reportes: regresiones QA', () => {
+  it('legajo exige funcionario en preview y exportación en vez de devolver un reporte vacío', async () => {
+    const service = new ReportesService({} as any);
+    await expect(service.ejecutar('legajo-oficial', {})).rejects.toThrow('Funcionario');
+    await expect(service.exportarXlsx('legajo-oficial', {})).rejects.toThrow('Funcionario');
+  });
   const alcance = { tipo: 'unidad' as const, subUnidadIds: ['7'], comandoIds: ['1'] };
   it('habilita Destinos y Legajo del Oficial en el catálogo', () => {
     const claves = new ReportesService({} as any).listar().map(r => r.clave);
