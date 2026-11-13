@@ -404,6 +404,7 @@ export class CursosService {
       );
     }
 
+    const campos = this.camposCompletacion(dto);
     const completacion = await this.prisma.$transaction(async (tx) => {
       // 1) Asegurar la inscripción al curso (padre). Si no existe, se crea.
       const inscripcion = await tx.funcionarios_cursos.upsert({
@@ -431,23 +432,16 @@ export class CursosService {
         create: {
           funcionario_curso_id: inscripcion.id,
           modulo_id: BigInt(moduloId),
-          completado: dto.completado ?? false,
-          fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
-          aprobado: dto.aprobado ?? null,
-          calificacion: dto.calificacion != null ? dto.calificacion.toString() : null,
-          observacion_calificacion: dto.observacion ?? null,
-          numero_orden: dto.numero_orden ?? null,
-          boletin: dto.boletin ?? null,
+          completado: false,
+          fecha_finalizacion: null,
+          aprobado: null,
+          calificacion: null,
+          observacion_calificacion: null,
+          numero_orden: null,
+          boletin: null,
+          ...campos,
         },
-        update: {
-          completado: dto.completado ?? false,
-          fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
-          aprobado: dto.aprobado ?? null,
-          calificacion: dto.calificacion != null ? dto.calificacion.toString() : null,
-          observacion_calificacion: dto.observacion ?? null,
-          numero_orden: dto.numero_orden ?? null,
-          boletin: dto.boletin ?? null,
-        },
+        update: campos,
       });
     });
 
@@ -743,10 +737,27 @@ export class CursosService {
   }
 
   private datosCalificacion(dto: UpdateDesignacionDto) {
+    return { aprobado: dto.aprobado, ...this.camposNota(dto) };
+  }
+
+  private camposCompletacion(dto: MarcarCompletacionDto) {
     return {
-      aprobado: dto.aprobado,
-      calificacion: dto.calificacion != null ? dto.calificacion.toString() : null,
-      observacion_calificacion: dto.observacion ?? null,
+      ...(dto.completado != null && { completado: dto.completado }),
+      ...(dto.fecha_finalizacion !== undefined && {
+        fecha_finalizacion: dto.fecha_finalizacion ? new Date(dto.fecha_finalizacion) : null,
+      }),
+      ...(dto.aprobado !== undefined && { aprobado: dto.aprobado }),
+      ...this.camposNota(dto),
+      ...(dto.numero_orden !== undefined && { numero_orden: dto.numero_orden }),
+      ...(dto.boletin !== undefined && { boletin: dto.boletin }),
+    };
+  }
+
+  // Un campo ausente no se toca (recalificar no pisa lo anterior); en null se vacía.
+  private camposNota(dto: { calificacion?: number | null; observacion?: string | null }) {
+    return {
+      ...(dto.calificacion !== undefined && { calificacion: dto.calificacion?.toString() ?? null }),
+      ...(dto.observacion !== undefined && { observacion_calificacion: dto.observacion }),
     };
   }
 

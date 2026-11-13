@@ -829,6 +829,77 @@ describe('CursosService', () => {
     });
   });
 
+  // ─── marcarCompletacion ───────────────────────────────────────────────────
+
+  describe('marcarCompletacion', () => {
+    const completacion = {
+      id: 5n,
+      funcionario_curso_id: 1n,
+      modulo_id: 3n,
+      completado: true,
+      fecha_finalizacion: new Date('2026-05-08'),
+      aprobado: true,
+      calificacion: '8',
+      observacion_calificacion: 'Buen desempeño',
+      numero_orden: 'ORD-1',
+      boletin: 'BOL-1',
+    };
+
+    beforeEach(() => {
+      prisma.modulos_curso.findFirst.mockResolvedValue({ id: 3n, curso_id: 1n });
+      prisma.funcionarios_cursos.upsert.mockResolvedValue({ id: 1n });
+      prisma.funcionarios_modulos_curso.upsert.mockResolvedValue(completacion);
+    });
+
+    it('recalificar sin nota ni observación conserva las anteriores y la orden', async () => {
+      const result = await service.marcarCompletacion(1, 3, { persona_id: 10, aprobado: false });
+
+      const { update } = prisma.funcionarios_modulos_curso.upsert.mock.calls[0][0];
+      expect(update).toEqual({ aprobado: false });
+      expect(result.calificacion).toBe(8);
+      expect(result.observacion).toBe('Buen desempeño');
+    });
+
+    it('borra la nota y la observación cuando vienen en null', async () => {
+      await service.marcarCompletacion(1, 3, { persona_id: 10, calificacion: null, observacion: null });
+
+      const { update } = prisma.funcionarios_modulos_curso.upsert.mock.calls[0][0];
+      expect(update).toEqual({ calificacion: null, observacion_calificacion: null });
+    });
+
+    it('completado en null no se guarda como null', async () => {
+      await service.marcarCompletacion(1, 3, { persona_id: 10, completado: null as any });
+
+      const { create, update } = prisma.funcionarios_modulos_curso.upsert.mock.calls[0][0];
+      expect(update).toEqual({});
+      expect(create.completado).toBe(false);
+    });
+
+    it('al crear la completación usa los valores por defecto', async () => {
+      await service.marcarCompletacion(1, 3, { persona_id: 10, calificacion: 7 });
+
+      const { create } = prisma.funcionarios_modulos_curso.upsert.mock.calls[0][0];
+      expect(create).toEqual({
+        funcionario_curso_id: 1n,
+        modulo_id: 3n,
+        completado: false,
+        fecha_finalizacion: null,
+        aprobado: null,
+        calificacion: '7',
+        observacion_calificacion: null,
+        numero_orden: null,
+        boletin: null,
+      });
+    });
+
+    it('lanza NotFoundException si el módulo no es del curso', async () => {
+      prisma.modulos_curso.findFirst.mockResolvedValue(null);
+
+      await expect(service.marcarCompletacion(1, 99, { persona_id: 10 })).rejects.toThrow(NotFoundException);
+      expect(prisma.funcionarios_modulos_curso.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── actualizarDesignacion ────────────────────────────────────────────────
 
   describe('actualizarDesignacion', () => {
@@ -862,22 +933,31 @@ describe('CursosService', () => {
       expect(result.id).toBe('1');
     });
 
-    it('registra el resultado sin nota — la calificación es opcional', async () => {
-      prisma.funcionarios_cursos.findFirst.mockResolvedValue(designacionExistente);
-      prisma.funcionarios_cursos.update.mockResolvedValue({
-        ...designacionExistente,
-        aprobado: true,
-      });
+    it('recalificar sin nota ni observación conserva las anteriores', async () => {
+      const yaCalificada = { ...designacionExistente, aprobado: true, calificacion: '8', observacion_calificacion: 'Buen desempeño' };
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(yaCalificada);
+      prisma.funcionarios_cursos.update.mockResolvedValue({ ...yaCalificada, aprobado: false });
 
-      const result = await service.actualizarDesignacion(1, 1, { aprobado: true });
+      const result = await service.actualizarDesignacion(1, 1, { aprobado: false });
+
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { aprobado: false } }),
+      );
+      expect(result.calificacion).toBe(8);
+      expect(result.observacion).toBe('Buen desempeño');
+    });
+
+    it('borra la nota y la observación cuando vienen en null', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(designacionExistente);
+      prisma.funcionarios_cursos.update.mockResolvedValue({ ...designacionExistente, aprobado: true });
+
+      await service.actualizarDesignacion(1, 1, { aprobado: true, calificacion: null, observacion: null });
 
       expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { aprobado: true, calificacion: null, observacion_calificacion: null },
         }),
       );
-      expect(result.aprobado).toBe(true);
-      expect(result.calificacion).toBeNull();
     });
 
     it('registra un desaprobado con la observación que lo justifica', async () => {
@@ -937,11 +1017,11 @@ describe('CursosService', () => {
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith({
         where: { id: 1n },
-        data: { aprobado: true, calificacion: '9', observacion_calificacion: null },
+        data: { aprobado: true, calificacion: '9' },
       });
       expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith({
         where: { id: 2n },
-        data: { aprobado: false, calificacion: null, observacion_calificacion: null },
+        data: { aprobado: false },
       });
       expect(result).toEqual([
         { id: '1', curso_id: '1', persona_id: '10', aprobado: true, calificacion: 9, observacion: null },
