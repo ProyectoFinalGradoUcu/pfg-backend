@@ -1,14 +1,17 @@
 import { IsString, IsNotEmpty, MaxLength, IsOptional, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 
 export class CreateMisionDto {
   @ApiProperty({ example: 'Congo (MONUSCO)', maxLength: 200 })
   @IsString()
   @IsNotEmpty()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @MaxLength(200)
   nombre_mision: string;
 
   @ApiProperty({ example: 'República Democrática del Congo', maxLength: 100 })
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)

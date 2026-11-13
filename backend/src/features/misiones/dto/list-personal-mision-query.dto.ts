@@ -1,4 +1,4 @@
-import { IsOptional, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsInt, Min, Max, IsString, IsIn, IsArray, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal';
@@ -22,4 +22,18 @@ export class ListPersonalMisionQueryDto {
 
   @FiltroCategoriaPersonal()
   categoria?: CategoriaPersonal;
+
+  @IsOptional() @IsString() @MaxLength(200)
+  query?: string;
+
+  @IsOptional() @IsString() @MaxLength(50)
+  documento?: string;
+
+  @IsOptional() @IsIn(['activa', 'finalizada'])
+  estado?: 'activa' | 'finalizada';
+
+  @IsOptional()
+  @Transform(({ value }) => (Array.isArray(value) ? value : String(value).split(',')).map(Number))
+  @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(Number.MAX_SAFE_INTEGER, { each: true })
+  mision_ids?: number[];
 }

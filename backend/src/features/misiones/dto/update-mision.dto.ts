@@ -1,15 +1,20 @@
-import { IsString, IsOptional, MaxLength, IsDateString, ValidateIf } from 'class-validator';
+import { IsString, IsOptional, IsNotEmpty, MaxLength, IsDateString, ValidateIf } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateMisionDto {
   @ApiPropertyOptional({ example: 'Congo (MONUSCO)', maxLength: 200 })
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsNotEmpty()
   @IsString()
   @MaxLength(200)
   nombre_mision?: string;
 
   @ApiPropertyOptional({ example: 'República Democrática del Congo', maxLength: 100 })
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsNotEmpty()
   @IsString()
   @MaxLength(100)
   pais?: string;

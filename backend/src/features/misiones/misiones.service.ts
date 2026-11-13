@@ -16,6 +16,8 @@ import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convo
 import { ListFuncionariosConvocatoriaQueryDto } from './dto/list-funcionarios-convocatoria-query.dto';
 import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
+import { Prisma } from '@prisma/client';
+import { bloquearConvocatorias, validarFechasConvocatoria, validarParticipantes } from './validaciones-misiones';
 
 // Computed: una convocatoria está finalizada cuando tiene fecha de llegada y ya pasó
 const esFinalizada = (fechaLlegada: Date | null) =>
@@ -117,6 +119,8 @@ export class MisionesService {
   }
 
   async crearMision(dto: CreateMisionDto) {
+    dto.nombre_mision = dto.nombre_mision.trim();
+    if (!dto.nombre_mision) throw new BadRequestException('El nombre de la misión no puede estar vacío');
     const existe = await this.prisma.misiones.findFirst({
       where: { nombre_mision: { equals: dto.nombre_mision, mode: 'insensitive' } },
     });
@@ -140,6 +144,10 @@ export class MisionesService {
   }
 
   async editarMision(misionId: number, dto: UpdateMisionDto) {
+    if (dto.nombre_mision !== undefined) {
+      if (!dto.nombre_mision?.trim()) throw new BadRequestException('El nombre de la misión no puede estar vacío');
+      dto.nombre_mision = dto.nombre_mision.trim();
+    }
     const mision = await this.prisma.misiones.findUnique({ where: { id: BigInt(misionId) } });
     if (!mision) throw new NotFoundException(`No existe misión con id ${misionId}`);
 
@@ -158,6 +166,8 @@ export class MisionesService {
       data: {
         nombre_mision: dto.nombre_mision ?? undefined,
         pais: dto.pais ?? undefined,
+        ...(dto.numero_orden !== undefined && { numero_orden: dto.numero_orden }),
+        ...(dto.boletin !== undefined && { boletin: dto.boletin }),
         ...(dto.fecha_orden !== undefined && {
           fecha_orden: dto.fecha_orden ? new Date(dto.fecha_orden) : null,
         }),
@@ -233,14 +243,7 @@ export class MisionesService {
     if (query.finalizada === true) {
       where.fecha_llegada = { not: null, lt: now };
     } else if (query.finalizada === false) {
-      where.OR = [
-        ...(where.OR ?? []),
-        { fecha_llegada: null },
-        { fecha_llegada: { gte: now } },
-      ];
-      if (!query.query) {
-        where.OR = [{ fecha_llegada: null }, { fecha_llegada: { gte: now } }];
-      }
+      where.AND = [{ OR: [{ fecha_llegada: null }, { fecha_llegada: { gte: now } }] }];
     }
 
     const [total, convocatorias] = await this.prisma.$transaction([
@@ -282,8 +285,16 @@ export class MisionesService {
     if (!dto.numero_orden && !dto.boletin) {
       throw new BadRequestException('Se requiere al menos número de orden o boletín');
     }
+    const fechas = {
+      fecha_salida: dto.fecha_salida ? new Date(dto.fecha_salida) : null,
+      fecha_llegada: dto.fecha_llegada ? new Date(dto.fecha_llegada) : null,
+    };
+    validarFechasConvocatoria(fechas);
 
     const conv = await this.prisma.$transaction(async (tx) => {
+      await bloquearConvocatorias(tx);
+      const ids = [...new Set(dto.persona_ids ?? [])].map(BigInt);
+      await validarParticipantes(tx, ids, fechas);
       const nueva = await tx.convocatorias.create({
         data: {
           mision_id: BigInt(misionId),
@@ -297,7 +308,7 @@ export class MisionesService {
 
       if (dto.persona_ids?.length) {
         await tx.funcionarios_convocatorias.createMany({
-          data: dto.persona_ids.map((pid) => ({
+          data: ids.map((pid) => ({
             convocatoria_id: nueva.id,
             persona_id: BigInt(pid),
             numero_orden: dto.numero_orden ?? null,
@@ -323,7 +334,9 @@ export class MisionesService {
   }
 
   async editarConvocatoria(misionId: number, convocatoriaId: number, dto: UpdateConvocatoriaDto) {
-    const conv = await this.prisma.convocatorias.findFirst({
+    return this.prisma.$transaction(async tx => {
+    await bloquearConvocatorias(tx);
+    const conv = await tx.convocatorias.findFirst({
       where: { id: BigInt(convocatoriaId), mision_id: BigInt(misionId) },
     });
     if (!conv) {
@@ -337,15 +350,22 @@ export class MisionesService {
     if (!ordenFinal && !boletinFinal) {
       throw new BadRequestException('La convocatoria debe conservar al menos número de orden o boletín');
     }
+    const fechas = {
+      fecha_salida: dto.fecha_salida !== undefined ? dto.fecha_salida ? new Date(dto.fecha_salida) : null : conv.fecha_salida,
+      fecha_llegada: dto.fecha_llegada !== undefined ? dto.fecha_llegada ? new Date(dto.fecha_llegada) : null : conv.fecha_llegada,
+    };
+    validarFechasConvocatoria(fechas);
+    const participantes = await tx.funcionarios_convocatorias.findMany({ where: { convocatoria_id: BigInt(convocatoriaId) }, select: { persona_id: true } });
+    await validarParticipantes(tx, participantes.map(p => p.persona_id), fechas, BigInt(convocatoriaId));
 
-    const actualizado = await this.prisma.convocatorias.update({
+    const actualizado = await tx.convocatorias.update({
       where: { id: BigInt(convocatoriaId) },
       data: {
-        numero_orden: dto.numero_orden ?? undefined,
-        boletin: dto.boletin ?? undefined,
-        fecha_salida: dto.fecha_salida ? new Date(dto.fecha_salida) : undefined,
-        fecha_llegada: dto.fecha_llegada ? new Date(dto.fecha_llegada) : undefined,
-        observaciones: dto.observaciones ?? undefined,
+        ...(dto.numero_orden !== undefined && { numero_orden: dto.numero_orden }),
+        ...(dto.boletin !== undefined && { boletin: dto.boletin }),
+        ...(dto.fecha_salida !== undefined && { fecha_salida: fechas.fecha_salida }),
+        ...(dto.fecha_llegada !== undefined && { fecha_llegada: fechas.fecha_llegada }),
+        ...(dto.observaciones !== undefined && { observaciones: dto.observaciones }),
       },
     });
 
@@ -359,6 +379,7 @@ export class MisionesService {
       observaciones: actualizado.observaciones,
       finalizada: esFinalizada(actualizado.fecha_llegada),
     };
+    });
   }
 
   async eliminarConvocatoria(misionId: number, convocatoriaId: number) {
@@ -452,7 +473,9 @@ export class MisionesService {
     convocatoriaId: number,
     dto: AddFuncionariosConvocatoriaDto,
   ) {
-    const conv = await this.prisma.convocatorias.findFirst({
+    return this.prisma.$transaction(async tx => {
+    await bloquearConvocatorias(tx);
+    const conv = await tx.convocatorias.findFirst({
       where: { id: BigInt(convocatoriaId), mision_id: BigInt(misionId) },
     });
     if (!conv) {
@@ -462,16 +485,11 @@ export class MisionesService {
     }
 
     const personaIds = dto.funcionarios.map((f) => BigInt(f.persona_id));
-    const existentes = await this.prisma.personas.findMany({
-      where: { id: { in: personaIds } },
-      select: { id: true },
-    });
-    if (existentes.length !== personaIds.length) {
-      throw new BadRequestException('Una o más personas no existen en el sistema');
-    }
+    if (new Set(personaIds).size !== personaIds.length) throw new BadRequestException('No se puede repetir una persona en el lote');
+    await validarParticipantes(tx, personaIds, conv, BigInt(convocatoriaId));
 
     // Verificar duplicados
-    const yaAsignados = await this.prisma.funcionarios_convocatorias.findMany({
+    const yaAsignados = await tx.funcionarios_convocatorias.findMany({
       where: {
         convocatoria_id: BigInt(convocatoriaId),
         persona_id: { in: personaIds },
@@ -485,7 +503,7 @@ export class MisionesService {
       );
     }
 
-    await this.prisma.funcionarios_convocatorias.createMany({
+    await tx.funcionarios_convocatorias.createMany({
       data: dto.funcionarios.map((f) => ({
         convocatoria_id: BigInt(convocatoriaId),
         persona_id: BigInt(f.persona_id),
@@ -496,6 +514,7 @@ export class MisionesService {
     });
 
     return { convocatoria_id: convocatoriaId.toString(), agregados: dto.funcionarios.length };
+    });
   }
 
   async editarFuncionarioConvocatoria(
@@ -583,15 +602,27 @@ export class MisionesService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 200, 200);
 
-    const where = query.categoria
-      ? { personas: wherePersonaPorCategoria(query.categoria) }
-      : {};
+    const where: Prisma.funcionarios_convocatoriasWhereInput = {
+      personas: {
+        ...(query.categoria && wherePersonaPorCategoria(query.categoria)),
+        ...(query.query && { OR: ['cedula', 'primer_nombre', 'primer_apellido'].map(c => ({ [c]: { contains: query.query, mode: 'insensitive' } })) }),
+      },
+      convocatorias: {
+        ...(query.mision_ids?.length && { mision_id: { in: query.mision_ids.map(BigInt) } }),
+        ...(query.estado === 'activa' && { OR: [{ fecha_llegada: null }, { fecha_llegada: { gt: new Date() } }] }),
+        ...(query.estado === 'finalizada' && { fecha_llegada: { lte: new Date() } }),
+      },
+      ...(query.documento && { OR: [
+        { numero_orden: { contains: query.documento, mode: 'insensitive' } },
+        { boletin: { contains: query.documento, mode: 'insensitive' } },
+      ] }),
+    };
 
     const [total, asignaciones] = await this.prisma.$transaction([
       this.prisma.funcionarios_convocatorias.count({ where }),
       this.prisma.funcionarios_convocatorias.findMany({
         where,
-        orderBy: [{ convocatorias: { misiones: { nombre_mision: 'asc' } } }, { personas: { primer_apellido: 'asc' } }],
+        orderBy: [{ convocatorias: { misiones: { nombre_mision: 'asc' } } }, { personas: { primer_apellido: 'asc' } }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
