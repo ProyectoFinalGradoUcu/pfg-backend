@@ -9,6 +9,13 @@ export class CreateHistorialCursoDto {
   @Min(1)
   personaId: number;
 
+  @ApiPropertyOptional({ description: 'Base del curso. Obligatoria si el usuario gestiona varias bases.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sub_unidad_id?: number;
+
   @ApiProperty()
   @IsString()
   @IsNotEmpty()

@@ -73,6 +73,7 @@ export class HistorialCursosService {
         nombre_curso: dto.nombre,
         institucion: dto.institucion,
         es_obligatorio: dto.tipo === 'obligatorio',
+        sub_unidad_id: dto.sub_unidad_id,
       }, alcance);
 
       const designacion = await tx.funcionarios_cursos.create({

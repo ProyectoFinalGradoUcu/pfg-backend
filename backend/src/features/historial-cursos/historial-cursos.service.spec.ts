@@ -173,6 +173,15 @@ describe('HistorialCursosService', () => {
       institucion: 'Cruz Roja',
       tipo: 'obligatorio',
     };
+    it('permite elegir una base entre varias sin confundirla con su comando', async () => {
+      prisma.personas.findFirst.mockResolvedValue({ id: 10n });
+      prisma.personas.findUnique.mockResolvedValue(makePersona());
+      prisma.sub_unidades.findUnique.mockResolvedValue({ id: 8n, unidad_id: 1n, vigente: true });
+      prisma.cursos.create.mockResolvedValue(makeCurso());
+      prisma.funcionarios_cursos.create.mockResolvedValue(makeRegistro());
+      await service.create({ ...dto, sub_unidad_id: 8 }, { tipo: 'unidad', subUnidadIds: ['7', '8'], comandoIds: ['1'] });
+      expect(prisma.cursos.create.mock.calls[0][0].data).toMatchObject({ sub_unidad_id: 8n, unidad_id: 1n });
+    });
 
     it('rechaza un nombre existente sin crear curso ni inscripción', async () => {
       prisma.personas.findUnique.mockResolvedValue(makePersona());
