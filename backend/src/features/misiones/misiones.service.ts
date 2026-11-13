@@ -158,9 +158,11 @@ export class MisionesService {
       data: {
         nombre_mision: dto.nombre_mision ?? undefined,
         pais: dto.pais ?? undefined,
+        ...(dto.numero_orden !== undefined && { numero_orden: dto.numero_orden }),
         ...(dto.fecha_orden !== undefined && {
           fecha_orden: dto.fecha_orden ? new Date(dto.fecha_orden) : null,
         }),
+        ...(dto.boletin !== undefined && { boletin: dto.boletin }),
         ...(dto.fecha_boletin !== undefined && {
           fecha_boletin: dto.fecha_boletin ? new Date(dto.fecha_boletin) : null,
         }),
@@ -341,11 +343,15 @@ export class MisionesService {
     const actualizado = await this.prisma.convocatorias.update({
       where: { id: BigInt(convocatoriaId) },
       data: {
-        numero_orden: dto.numero_orden ?? undefined,
-        boletin: dto.boletin ?? undefined,
-        fecha_salida: dto.fecha_salida ? new Date(dto.fecha_salida) : undefined,
-        fecha_llegada: dto.fecha_llegada ? new Date(dto.fecha_llegada) : undefined,
-        observaciones: dto.observaciones ?? undefined,
+        numero_orden: dto.numero_orden,
+        boletin: dto.boletin,
+        ...(dto.fecha_salida !== undefined && {
+          fecha_salida: dto.fecha_salida ? new Date(dto.fecha_salida) : null,
+        }),
+        ...(dto.fecha_llegada !== undefined && {
+          fecha_llegada: dto.fecha_llegada ? new Date(dto.fecha_llegada) : null,
+        }),
+        observaciones: dto.observaciones,
       },
     });
 
@@ -526,9 +532,9 @@ export class MisionesService {
     const actualizado = await this.prisma.funcionarios_convocatorias.update({
       where: { id: asignacion.id },
       data: {
-        numero_orden: dto.numero_orden ?? undefined,
-        boletin: dto.boletin ?? undefined,
-        observaciones: dto.observaciones ?? undefined,
+        numero_orden: dto.numero_orden,
+        boletin: dto.boletin,
+        observaciones: dto.observaciones,
       },
     });
 
