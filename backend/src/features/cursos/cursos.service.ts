@@ -43,7 +43,7 @@ export class CursosService {
 
   async create(dto: CursoDto, alcance?: AlcanceResuelto) {
     const existe = await this.prisma.cursos.findFirst({
-      where: { nombre_curso: dto.nombre_curso },
+      where: { nombre_curso: { equals: dto.nombre_curso, mode: 'insensitive' } },
     });
     if (existe) {
       throw new ConflictException(
@@ -561,7 +561,10 @@ export class CursosService {
 
     if (dto.nombre_curso && dto.nombre_curso !== curso.nombre_curso) {
       const dup = await this.prisma.cursos.findFirst({
-        where: { nombre_curso: dto.nombre_curso, id: { not: BigInt(id) } },
+        where: {
+          nombre_curso: { equals: dto.nombre_curso, mode: 'insensitive' },
+          id: { not: BigInt(id) },
+        },
       });
       if (dup) {
         throw new ConflictException(
@@ -617,6 +620,9 @@ export class CursosService {
 
     const fechaInicio = new Date(dto.fecha_inicio);
     const fechaFin = new Date(dto.fecha_fin);
+    if (fechaFin < fechaInicio) {
+      throw new BadRequestException('La fecha de fin no puede ser anterior a la fecha de inicio');
+    }
     const aNivelModulo = moduloIds.length > 0;
 
     await this.prisma.$transaction(async (tx) => {

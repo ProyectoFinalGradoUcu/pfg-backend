@@ -1,10 +1,15 @@
-import { IsString, IsOptional, MaxLength, IsDateString, ValidateIf } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, IsDateString, ValidateIf } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+const trim = ({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value;
 
 export class UpdateMisionDto {
   @ApiPropertyOptional({ example: 'Congo (MONUSCO)', maxLength: 200 })
   @IsOptional()
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty({ message: 'El nombre de la misión no puede quedar vacío' })
   @MaxLength(200)
   nombre_mision?: string;
 

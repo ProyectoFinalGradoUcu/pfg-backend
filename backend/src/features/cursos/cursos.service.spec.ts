@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CursosService } from './cursos.service';
@@ -9,6 +9,7 @@ import { CursoDto } from './dto/curso.dto';
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
+import { UpdateCursoDto } from './dto/update-curso.dto';
 
 const GLOBAL: AlcanceResuelto = { tipo: 'global' };
 
@@ -227,6 +228,17 @@ describe('CursosService', () => {
         service.create({ nombre_curso: 'Curso de Aviación', institucion: 'EMA' }),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('busca el nombre duplicado sin distinguir mayúsculas', async () => {
+      prisma.cursos.findFirst.mockResolvedValue(makeCurso());
+
+      await expect(
+        service.create({ nombre_curso: 'CURSO DE AVIACIÓN', institucion: 'EMA' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.cursos.findFirst).toHaveBeenCalledWith({
+        where: { nombre_curso: { equals: 'CURSO DE AVIACIÓN', mode: 'insensitive' } },
+      });
+    });
   });
 
   // ─── findAll ──────────────────────────────────────────────────────────────
@@ -426,6 +438,16 @@ describe('CursosService', () => {
 
       await expect(service.editarCurso(1, { nombre_curso: 'Curso B' })).rejects.toThrow(ConflictException);
     });
+
+    it('busca el nombre duplicado sin distinguir mayúsculas', async () => {
+      prisma.cursos.findUnique.mockResolvedValue(makeCurso({ nombre_curso: 'Curso A' }));
+      prisma.cursos.findFirst.mockResolvedValue(makeCurso({ id: 2n, nombre_curso: 'Curso B' }));
+
+      await expect(service.editarCurso(1, { nombre_curso: 'curso b' })).rejects.toThrow(ConflictException);
+      expect(prisma.cursos.findFirst).toHaveBeenCalledWith({
+        where: { nombre_curso: { equals: 'curso b', mode: 'insensitive' }, id: { not: 1n } },
+      });
+    });
   });
 
   // ─── removeCurso ──────────────────────────────────────────────────────────
@@ -593,6 +615,29 @@ describe('CursosService', () => {
       await expect(
         service.crearDesignacion(999, { ...baseDto, numero_orden: 'ORD-001' }),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rechaza una fecha de fin anterior a la de inicio', async () => {
+      await expect(
+        service.crearDesignacion(1, {
+          ...baseDto,
+          numero_orden: 'ORD-001',
+          fecha_inicio: '2026-06-30',
+          fecha_fin: '2026-01-01',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.funcionarios_cursos.upsert).not.toHaveBeenCalled();
+    });
+
+    it('acepta inicio y fin el mismo día', async () => {
+      const result = await service.crearDesignacion(1, {
+        ...baseDto,
+        numero_orden: 'ORD-001',
+        fecha_inicio: '2026-03-01',
+        fecha_fin: '2026-03-01',
+      });
+
+      expect(result.personas_designadas).toBe(2);
     });
 
     it('crea una inscripción (upsert) por cada persona seleccionada', async () => {
@@ -940,6 +985,33 @@ describe('CursosService', () => {
         });
         const errors = await validate(dto);
         expect(errors).toHaveLength(0);
+      });
+
+      it('rechaza un nombre_curso de solo espacios', async () => {
+        const dto = plainToInstance(CursoDto, { nombre_curso: '   ', institucion: 'EMA' });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'nombre_curso')).toBe(true);
+      });
+    });
+
+    describe('UpdateCursoDto', () => {
+      it.each([['vacío', ''], ['de solo espacios', '   ']])(
+        'rechaza nombre_curso %s',
+        async (_caso, nombre_curso) => {
+          const errors = await validate(plainToInstance(UpdateCursoDto, { nombre_curso }));
+          expect(errors.map((e) => e.property)).toEqual(['nombre_curso']);
+        },
+      );
+
+      it('acepta no mandar el nombre', async () => {
+        const errors = await validate(plainToInstance(UpdateCursoDto, { es_obligatorio: true }));
+        expect(errors).toHaveLength(0);
+      });
+
+      it('recorta los espacios del nombre', async () => {
+        const dto = plainToInstance(UpdateCursoDto, { nombre_curso: '  Curso X  ' });
+        expect(await validate(dto)).toHaveLength(0);
+        expect(dto.nombre_curso).toBe('Curso X');
       });
     });
 
