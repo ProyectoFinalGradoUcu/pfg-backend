@@ -6,7 +6,7 @@ import { HistorialCursosController } from './historial-cursos.controller';
 describe('Permisos de registro de historial de cursos (SCRUM-166)', () => {
   const guard = new AlcanceGuard(new Reflector());
 
-  function contexto(permisos: string[], unidades = [{ id: '7' }]) {
+  function contexto(permisos: string[], unidades = [{ id: '7', comando: { id: '1' } }]) {
     const request = { user: { permisos, unidades }, alcance: undefined };
     const context = {
       getHandler: () => HistorialCursosController.prototype.create,
@@ -30,7 +30,7 @@ describe('Permisos de registro de historial de cursos (SCRUM-166)', () => {
   it('resuelve las unidades con cursos.gestionar.unidad', () => {
     const { context, request } = contexto(['cursos.gestionar.unidad']);
     expect(guard.canActivate(context)).toBe(true);
-    expect(request.alcance).toEqual({ tipo: 'unidad', unidadIds: ['7'] });
+    expect(request.alcance).toEqual({ tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['1'] });
   });
 
   it('deniega gestión por unidad sin unidades asignadas', () => {

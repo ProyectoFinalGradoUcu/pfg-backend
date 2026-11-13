@@ -45,6 +45,7 @@ const makePrismaMock = () => ({
     findFirst: jest.fn(),
     create: jest.fn(),
   },
+  sub_unidades: { findUnique: jest.fn().mockResolvedValue({ id: 7n, unidad_id: 1n, vigente: true }) },
   funcionarios_cursos: {
     count: jest.fn(),
     findMany: jest.fn(),
@@ -201,7 +202,7 @@ describe('HistorialCursosService', () => {
 
       expect(prisma.cursos.create).toHaveBeenCalledWith({ data: {
         nombre_curso: dto.nombre, institucion: dto.institucion,
-        es_obligatorio: true, unidad_id: null,
+        es_obligatorio: true, unidad_id: null, sub_unidad_id: null,
       } });
     });
 
@@ -211,23 +212,23 @@ describe('HistorialCursosService', () => {
       prisma.cursos.create.mockResolvedValue(makeCurso());
       prisma.funcionarios_cursos.create.mockResolvedValue(makeRegistro());
 
-      await service.create(dto, { tipo: 'unidad', unidadIds: ['7'] });
+      await service.create(dto, { tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['1'] });
 
       expect(prisma.personas.findFirst).toHaveBeenCalledWith({
         where: { id: 10n, relaciones_laborales: {
-          some: { fecha_fin: null, unidad_id: { in: [7n] } },
+          some: { fecha_fin: null, sub_unidad_id: { in: [7n] } },
         } }, select: { id: true },
       });
       expect(prisma.cursos.create).toHaveBeenCalledWith({ data: {
         nombre_curso: dto.nombre, institucion: dto.institucion,
-        es_obligatorio: true, unidad_id: 7n,
+        es_obligatorio: true, unidad_id: 1n, sub_unidad_id: 7n,
       } });
     });
 
     it('rechaza personas fuera de alcance sin escribir', async () => {
       prisma.personas.findFirst.mockResolvedValue(null);
 
-      await expect(service.create(dto, { tipo: 'unidad', unidadIds: ['7'] }))
+      await expect(service.create(dto, { tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['1'] }))
         .rejects.toThrow(NotFoundException);
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });

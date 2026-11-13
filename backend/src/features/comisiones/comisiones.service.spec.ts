@@ -94,7 +94,7 @@ describe('ComisionesService', () => {
     });
     it.each(['crear', 'editar', 'eliminar', 'lote'])('rechaza %s fuera de alcance sin escrituras', async accion => {
       tx.personas.findMany.mockResolvedValue([]);
-      const alcance = { tipo: 'unidad' as const, unidadIds: ['7'] };
+      const alcance = { tipo: 'unidad' as const, subUnidadIds: ['7'], comandoIds: ['1'] };
       const promesa = accion === 'crear' ? service.crearAsignacion(dto, alcance)
         : accion === 'editar' ? service.editarAsignacion(10n, { cargo: 'Vocal' }, alcance)
         : accion === 'eliminar' ? service.eliminarAsignacion(10n, alcance)

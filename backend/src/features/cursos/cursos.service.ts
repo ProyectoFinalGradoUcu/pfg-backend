@@ -1,16 +1,11 @@
 import {
   BadRequestException,
   Injectable,
-  BadRequestException,
   ConflictException,
-  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
-import {
-  AlcanceResuelto,
-  subUnidadIdsDeAlcance,
-} from '../../lib/alcance/alcance.types';
+import { AlcanceResuelto } from '../../lib/alcance/alcance.types';
 import {
   assertCursoGestionableEnAlcance,
   assertCursoVisibleEnAlcance,
@@ -58,37 +53,6 @@ export class CursosService {
         sub_unidad_id: curso.sub_unidad_id ? curso.sub_unidad_id.toString() : null,
       };
     });
-  }
-
-  /**
-   * Base a la que queda asignado un curso nuevo.
-   * - Alcance global: la que pida (o ninguna = curso general).
-   * - Alcance de unidad: una de sus bases; si tiene una sola y no pidió ninguna, esa.
-   *   No puede crear cursos generales.
-   */
-  private async resolverBaseDelCurso(subUnidadId: number | undefined, alcance?: AlcanceResuelto) {
-    const propias = alcance ? subUnidadIdsDeAlcance(alcance) : null;
-
-    let id: bigint | null = subUnidadId != null ? BigInt(subUnidadId) : null;
-    if (propias !== null) {
-      if (id === null) {
-        if (propias.length !== 1) {
-          throw new BadRequestException('Elegí la base del curso (sub_unidad_id)');
-        }
-        id = propias[0];
-      } else if (!propias.includes(id)) {
-        throw new ForbiddenException('Solo podés crear cursos de tus propias bases');
-      }
-    }
-    if (id === null) return null;
-
-    const base = await this.prisma.sub_unidades.findUnique({
-      where: { id },
-      select: { id: true, unidad_id: true, vigente: true },
-    });
-    if (!base) throw new BadRequestException('sub_unidad_id no existe en la tabla de sub-unidades');
-    if (!base.vigente) throw new BadRequestException('La base elegida no está vigente');
-    return base;
   }
 
   async findAll(query: ListCursosQueryDto = {}, alcance?: AlcanceResuelto) {

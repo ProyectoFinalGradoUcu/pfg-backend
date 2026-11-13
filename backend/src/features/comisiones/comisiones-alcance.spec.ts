@@ -7,7 +7,7 @@ import { ComisionesService } from './comisiones.service';
 import { wherePersonasPorAlcance } from '../../lib/alcance/alcance.where';
 
 describe('Comisiones: alcance por unidad', () => {
-  const alcance = { tipo: 'unidad' as const, unidadIds: ['7', '8'] };
+  const alcance = { tipo: 'unidad' as const, subUnidadIds: ['7', '8'], comandoIds: ['1'] };
   const persona = wherePersonasPorAlcance(alcance);
 
   it('acota listado, estadísticas y cantidad de integrantes al alcance', async () => {
@@ -32,7 +32,7 @@ describe('Comisiones: alcance por unidad', () => {
   });
 
   function contexto(handler: string, permisos: string[]) {
-    const request: any = { user: { permisos, unidades: [{ id: '7' }] } };
+    const request: any = { user: { permisos, unidades: [{ id: '7', comando: { id: '1' } }] } };
     return { request, context: {
       getHandler: () => ComisionesController.prototype[handler], getClass: () => ComisionesController,
       switchToHttp: () => ({ getRequest: () => request }),
@@ -42,7 +42,7 @@ describe('Comisiones: alcance por unidad', () => {
   it.each(['asignaciones', 'asignacion', 'listar', 'funcionarios', 'obtener'])('lectura %s acepta permiso de unidad', handler => {
     const { request, context } = contexto(handler, ['comisiones.ver.unidad']);
     expect(new AlcanceGuard(new Reflector()).canActivate(context)).toBe(true);
-    expect(request.alcance).toEqual({ tipo: 'unidad', unidadIds: ['7'] });
+    expect(request.alcance).toEqual({ tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['1'] });
   });
 
   it.each(['crearAsignacion', 'crearLote', 'editarAsignacion', 'eliminarAsignacion'])('gestión %s exige permiso de escritura y resuelve unidad', handler => {
