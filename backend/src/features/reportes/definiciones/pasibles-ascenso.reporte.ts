@@ -1,3 +1,4 @@
+import { baseDeFiltros, basesDeAlcance } from '../alcance-reportes';
 import {
   ColumnaReporte,
   ContextoEjecucion,
@@ -6,12 +7,13 @@ import {
 } from '../reportes.types';
 import { ElegibilidadService } from '../../ascensos/elegibilidad.service';
 import { ESTADOS_ELEGIBILIDAD } from '../../ascensos/dto/list-pasibles-query.dto';
-import { categoriaDeFiltros, PARAMETRO_CATEGORIA } from './_helpers';
+import { categoriaDeFiltros, PARAMETRO_BASE, PARAMETRO_CATEGORIA } from './_helpers';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'C.I.', tipo: 'texto' },
   { clave: 'funcionario', etiqueta: 'Funcionario', tipo: 'texto' },
-  { clave: 'unidad', etiqueta: 'Unidad', tipo: 'texto' },
+  { clave: 'base', etiqueta: 'Base', tipo: 'texto' },
+  { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
   { clave: 'escalafon', etiqueta: 'Escalafón', tipo: 'texto' },
   { clave: 'grado_actual', etiqueta: 'Grado actual', tipo: 'texto' },
   { clave: 'grado_destino', etiqueta: 'Grado destino', tipo: 'texto' },
@@ -70,12 +72,7 @@ export const pasiblesAscensoReporte: DefinicionReporte = {
         { valor: ESTADOS_ELEGIBILIDAD.join(','), etiqueta: 'Todos' },
       ],
     },
-    {
-      clave: 'unidad_id',
-      etiqueta: 'Unidad',
-      tipo: 'select',
-      fuenteOpciones: 'unidades',
-    },
+    PARAMETRO_BASE,
     PARAMETRO_CATEGORIA,
     {
       clave: 'fecha_referencia',
@@ -102,19 +99,26 @@ export const pasiblesAscensoReporte: DefinicionReporte = {
       .map((e) => e.trim())
       .filter(Boolean);
 
-    const resultado = await elegibilidad.listarPasibles({
+    const bases = basesDeAlcance(filtros);
+    const resultado = await elegibilidad.listarPasibles(
+      {
       estado: estados,
-      unidad_id: filtros.unidad_id ? Number(filtros.unidad_id) : undefined,
+      sub_unidad_id: baseDeFiltros(filtros) !== undefined ? Number(baseDeFiltros(filtros)) : undefined,
       categoria: categoriaDeFiltros(filtros),
       fecha_referencia: filtros.fecha_referencia || undefined,
       horizonte_meses: filtros.horizonte_meses ? Number(filtros.horizonte_meses) : 120,
       pageSize: 500,
-    });
+      },
+      bases
+        ? { tipo: 'unidad', subUnidadIds: bases.map(String), comandoIds: [] }
+        : undefined,
+    );
 
     const filas = resultado.items.map((e) => ({
       cedula: e.persona.cedula,
       funcionario: e.persona.nombre_completo,
-      unidad: e.persona.unidad?.denominacion ?? '',
+      base: e.persona.sub_unidad?.denominacion ?? '',
+      comando: e.persona.unidad?.denominacion ?? '',
       escalafon: e.persona.escalafon?.denominacion ?? '',
       grado_actual: e.grado_actual.denominacion,
       grado_destino: e.grado_destino?.denominacion ?? '',

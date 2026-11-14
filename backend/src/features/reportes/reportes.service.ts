@@ -7,9 +7,10 @@ import { FuenteCatalogo, FuenteCustom } from './custom/fuentes.types';
 import { CustomReporteDto } from './dto/custom-reporte.dto';
 import {
   AlcanceResuelto,
-  unidadIdDeAlcance,
+  subUnidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types';
 import {
+  FILTRO_ALCANCE_BASES,
   FUENTES_CON_ALCANCE_UNIDAD,
   MENSAJE_REPORTE_SIN_ALCANCE,
   REPORTES_CON_ALCANCE_UNIDAD,
@@ -51,8 +52,8 @@ export class ReportesService {
   }
 
   /**
-   * Fuerza `unidad_id` cuando el alcance es de unidad, y bloquea los reportes que no saben
-   * acotarse en vez de dejarlos devolver el padrón completo.
+   * Con alcance de unidad agrega las bases del usuario (`FILTRO_ALCANCE_BASES`) y bloquea los
+   * reportes que no saben acotarse. Si el usuario eligió una unidad en el filtro, se mantiene.
    */
   private aplicarAlcance(
     clave: string,
@@ -60,15 +61,16 @@ export class ReportesService {
     permitidos: Set<string>,
     alcance?: AlcanceResuelto,
   ): Record<string, string | undefined> {
-    if (!alcance) return filtros;
-    const unidadId = unidadIdDeAlcance(alcance);
-    if (unidadId === null) return filtros;
+    // Este filtro lo arma el backend; si viene en el pedido se ignora.
+    const { [FILTRO_ALCANCE_BASES]: _ignorado, ...propios } = filtros;
+    const bases = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+    if (bases === null) return propios;
 
     if (!permitidos.has(clave)) {
       throw new ForbiddenException(MENSAJE_REPORTE_SIN_ALCANCE);
     }
 
-    return { ...filtros, unidad_id: unidadId.toString() };
+    return { ...propios, [FILTRO_ALCANCE_BASES]: bases.join(',') };
   }
 
   /* Ejecuta el reporte y devuelve los datos para mostrar en pantalla */
@@ -263,6 +265,18 @@ export class ReportesService {
           orderBy: { denominacion: 'asc' },
         });
         return unidades.map((u) => ({ valor: u.id.toString(), etiqueta: u.denominacion }));
+      }
+      case 'sub_unidades': {
+        // Bases vigentes, agrupadas por comando: "B.A.I. (C.A.O.)".
+        const bases = await this.prisma.sub_unidades.findMany({
+          where: { vigente: true },
+          select: { id: true, denominacion: true, unidades: { select: { denominacion: true } } },
+          orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
+        });
+        return bases.map((b) => ({
+          valor: b.id.toString(),
+          etiqueta: b.unidades ? `${b.denominacion} (${b.unidades.denominacion})` : b.denominacion,
+        }));
       }
       case 'personas': {
         const personas = await this.prisma.personas.findMany({

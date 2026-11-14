@@ -21,11 +21,31 @@ import { ListUsuariosQueryDto } from './dto/list-usuarios-query.dto';
 
 const DEFAULT_BCRYPT_ROUNDS = 12;
 
+/** Las unidades de una cuenta son bases (sub-unidades); el comando va para mostrarlas. */
+const BASE_SELECT = {
+  id: true,
+  codigo: true,
+  denominacion: true,
+  unidades: { select: { id: true, codigo: true, denominacion: true } },
+} as const;
+
+type Ref = { id: bigint; codigo: string; denominacion: string };
+type BaseDeUsuario = Ref & { unidades: Ref };
+
+const toUnidadDeUsuario = (b: BaseDeUsuario) => ({
+  id: b.id.toString(),
+  codigo: b.codigo,
+  denominacion: b.denominacion,
+  comando: {
+    id: b.unidades.id.toString(),
+    codigo: b.unidades.codigo,
+    denominacion: b.unidades.denominacion,
+  },
+});
+
 const USUARIO_INCLUDE = {
   usuarios_roles: { include: { roles: true } },
-  usuarios_unidades: {
-    include: { unidades: { select: { id: true, codigo: true, denominacion: true } } },
-  },
+  usuarios_sub_unidades: { include: { sub_unidades: { select: BASE_SELECT } } },
   personas: {
     select: {
       id: true,
@@ -52,7 +72,7 @@ const USUARIO_INCLUDE = {
 } as const;
 
 /**
- * Include ampliado para `findOne`: trae además los roles de la unidad con sus permisos,
+ * Include ampliado para `findOne`: trae además los roles de sus bases con sus permisos,
  * necesario para computar `permisosEfectivos` (desglose de origen).
  */
 const USUARIO_INCLUDE_DETAIL = {
@@ -61,14 +81,12 @@ const USUARIO_INCLUDE_DETAIL = {
       roles: { include: { roles_permisos: { include: { permisos: true } } } },
     },
   },
-  usuarios_unidades: {
+  usuarios_sub_unidades: {
     include: {
-      unidades: {
+      sub_unidades: {
         select: {
-          id: true,
-          codigo: true,
-          denominacion: true,
-          unidades_roles: {
+          ...BASE_SELECT,
+          sub_unidades_roles: {
             include: {
               roles: { include: { roles_permisos: { include: { permisos: true } } } },
             },
@@ -333,13 +351,13 @@ export class UsuariosService {
   }
 
   /**
-   * Asigna (o quita, con `null`) la unidad del usuario del sistema.
+   * Reemplaza las unidades (bases) del usuario del sistema.
    *
-   * Es la unidad de la CUENTA, no la del funcionario: define qué personal ve este usuario y
-   * de qué unidad hereda roles. Cambiarla modifica sus permisos efectivos, así que hay que
+   * Son las bases de la CUENTA, no la del funcionario: definen qué personal ve este usuario y
+   * de qué bases hereda roles. Cambiarlas modifica sus permisos efectivos, así que hay que
    * cerrarle la sesión activa.
    *
-   * Acepta un array de unidadIds. Si es vacío, quita todas las unidades.
+   * `unidadIds` son ids de sub-unidades. Vacío quita todas.
    */
   async asignarUnidades(id: string, unidadIds: string[], actor: AuthenticatedUser) {
     const actorId = actor.id;
@@ -350,7 +368,7 @@ export class UsuariosService {
 
     // Validar que las unidades existan y estén vigentes
     if (unidadIds.length > 0) {
-      const unidades = await this.prisma.unidades.findMany({
+      const unidades = await this.prisma.sub_unidades.findMany({
         where: { id: { in: unidadIds.map((u) => BigInt(u)) } },
         select: { id: true, vigente: true },
       });
@@ -365,7 +383,7 @@ export class UsuariosService {
 
     const anteriores = await unidadesDeUsuario(this.prisma, usuario.id);
 
-    // Las unidades heredan roles: sumar una unidad nueva también otorga permisos.
+    // Las bases heredan roles: sumar una base nueva también otorga permisos.
     // Solo cuentan las que se agregan; las que el usuario ya tenía no las está otorgando el actor.
     const agregadas = unidadIds.filter((u) => !anteriores.some((a) => a.id === u));
     if (agregadas.length > 0) {
@@ -374,7 +392,9 @@ export class UsuariosService {
           roles_permisos: {
             some: {
               roles: {
-                unidades_roles: { some: { unidad_id: { in: agregadas.map((u) => BigInt(u)) } } },
+                sub_unidades_roles: {
+                  some: { sub_unidad_id: { in: agregadas.map((u) => BigInt(u)) } },
+                },
               },
             },
           },
@@ -389,15 +409,15 @@ export class UsuariosService {
     }
 
     // Reemplazar todas las asignaciones: borrar las existentes e insertar las nuevas
-    await this.prisma.usuarios_unidades.deleteMany({
+    await this.prisma.usuarios_sub_unidades.deleteMany({
       where: { usuario_id: usuario.id },
     });
 
     if (unidadIds.length > 0) {
-      await this.prisma.usuarios_unidades.createMany({
+      await this.prisma.usuarios_sub_unidades.createMany({
         data: unidadIds.map((uid) => ({
           usuario_id: usuario.id,
-          unidad_id: BigInt(uid),
+          sub_unidad_id: BigInt(uid),
         })),
       });
     }
@@ -450,7 +470,7 @@ export class UsuariosService {
   }
 
   /**
-   * Roles y permisos efectivos (directos y heredados de sus unidades) de un usuario, para
+   * Roles y permisos efectivos (directos y heredados de sus bases) de un usuario, para
    * no dejar que alguien con menos privilegios lo gestione (ver `assertPuedeGestionarA`).
    */
   private async assertPuedeGestionar(
@@ -469,15 +489,17 @@ export class UsuariosService {
       where: { id: usuarioId },
       select: {
         usuarios_roles: { select: { roles: rolConPermisos } },
-        usuarios_unidades: {
-          select: { unidades: { select: { unidades_roles: { select: { roles: rolConPermisos } } } } },
+        usuarios_sub_unidades: {
+          select: {
+            sub_unidades: { select: { sub_unidades_roles: { select: { roles: rolConPermisos } } } },
+          },
         },
       },
     });
     const roles = [
       ...(destino?.usuarios_roles ?? []).map((ur) => ur.roles),
-      ...(destino?.usuarios_unidades ?? []).flatMap((uu) =>
-        uu.unidades.unidades_roles.map((ur) => ur.roles),
+      ...(destino?.usuarios_sub_unidades ?? []).flatMap((us) =>
+        us.sub_unidades.sub_unidades_roles.map((sr) => sr.roles),
       ),
     ];
     assertPuedeGestionarA(
@@ -496,7 +518,7 @@ export class UsuariosService {
     estado: string;
     persona_id: bigint | null;
     bloqueado_hasta: Date | null;
-    usuarios_unidades: { unidades: { id: bigint; codigo: string; denominacion: string } }[];
+    usuarios_sub_unidades: { sub_unidades: BaseDeUsuario }[];
     usuarios_roles: { roles: { id: bigint; nombre: string } }[];
     personas:
       | {
@@ -523,11 +545,7 @@ export class UsuariosService {
       username: usuario.username,
       estado: usuario.estado,
       bloqueadoHasta: usuario.bloqueado_hasta,
-      unidades: usuario.usuarios_unidades.map((uu) => ({
-        id: uu.unidades.id.toString(),
-        codigo: uu.unidades.codigo,
-        denominacion: uu.unidades.denominacion,
-      })),
+      unidades: usuario.usuarios_sub_unidades.map((us) => toUnidadDeUsuario(us.sub_unidades)),
       persona: usuario.personas
         ? {
             id: usuario.personas.id.toString(),
@@ -587,12 +605,9 @@ export class UsuariosService {
     estado: string;
     persona_id: bigint | null;
     bloqueado_hasta: Date | null;
-    usuarios_unidades: {
-      unidades: {
-        id: bigint;
-        codigo: string;
-        denominacion: string;
-        unidades_roles: {
+    usuarios_sub_unidades: {
+      sub_unidades: BaseDeUsuario & {
+        sub_unidades_roles: {
           roles: {
             id: bigint;
             nombre: string;
@@ -649,9 +664,9 @@ export class UsuariosService {
       }
     }
 
-    // Permisos de roles heredados de las unidades
-    for (const uu of usuario.usuarios_unidades) {
-      for (const ur of uu.unidades.unidades_roles) {
+    // Permisos de roles heredados de sus bases
+    for (const us of usuario.usuarios_sub_unidades) {
+      for (const ur of us.sub_unidades.sub_unidades_roles) {
         for (const rp of ur.roles.roles_permisos) {
           const nombre = rp.permisos.nombre;
           if (!permisosMap.has(nombre)) {
@@ -660,7 +675,7 @@ export class UsuariosService {
               alcance: nombre.endsWith('.unidad') ? 'unidad' : 'global',
               origen: 'unidad',
               rol: ur.roles.nombre,
-              unidad: uu.unidades.denominacion,
+              unidad: us.sub_unidades.denominacion,
             });
           }
         }
@@ -676,11 +691,7 @@ export class UsuariosService {
       username: usuario.username,
       estado: usuario.estado,
       bloqueadoHasta: usuario.bloqueado_hasta,
-      unidades: usuario.usuarios_unidades.map((uu) => ({
-        id: uu.unidades.id.toString(),
-        codigo: uu.unidades.codigo,
-        denominacion: uu.unidades.denominacion,
-      })),
+      unidades: usuario.usuarios_sub_unidades.map((us) => toUnidadDeUsuario(us.sub_unidades)),
       persona: usuario.personas
         ? {
             id: usuario.personas.id.toString(),

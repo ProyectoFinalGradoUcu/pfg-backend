@@ -58,6 +58,7 @@ export interface DatosFuncionario {
   grado: { id: string; codigo: string; denominacion: string; orden: number };
   situacion: { id: string; codigo: string; denominacion: string } | null;
   unidad: { id: string; denominacion: string } | null;
+  sub_unidad?: { id: string; denominacion: string } | null;
   escalafon: { id: string; denominacion: string } | null;
   legajo: { nivel_educativo: string | null; fecha_egreso_eta: Date | null } | null;
   cursos: Map<string, { aprobado: boolean | null; dado_de_baja: boolean }>;
@@ -97,6 +98,7 @@ export interface ResultadoElegibilidad {
     nombre_completo: string;
     apellido: string;
     unidad: { id: string; denominacion: string } | null;
+    sub_unidad?: { id: string; denominacion: string } | null;
     escalafon: { id: string; denominacion: string } | null;
     situacion: { id: string; codigo: string; denominacion: string } | null;
   };
@@ -366,6 +368,7 @@ function evaluarContraRegla(
       nombre_completo: `${datos.persona.nombre} ${datos.persona.apellido}`.trim(),
       apellido: datos.persona.apellido,
       unidad: datos.unidad,
+      sub_unidad: datos.sub_unidad ?? null,
       escalafon: datos.escalafon,
       situacion: datos.situacion,
     },

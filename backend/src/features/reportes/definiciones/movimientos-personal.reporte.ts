@@ -6,7 +6,12 @@ import {
   SeccionReporte,
 } from '../reportes.types';
 import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
-import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from './_helpers';
+import {
+  categoriaDeFiltros,
+  fmtFecha,
+  PARAMETRO_CATEGORIA,
+  unir,
+} from './_helpers';
 
 const COL_ALTAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'C.I.', tipo: 'texto' },
@@ -15,7 +20,8 @@ const COL_ALTAS: ColumnaReporte[] = [
   { clave: 'apellido', etiqueta: 'Apellidos', tipo: 'texto' },
   { clave: 'fecha', etiqueta: 'Fecha', tipo: 'fecha' },
   { clave: 'causal', etiqueta: 'Causal', tipo: 'texto' },
-  { clave: 'unidad', etiqueta: 'Unidad', tipo: 'texto' },
+  { clave: 'base', etiqueta: 'Base', tipo: 'texto' },
+  { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
   { clave: 'correo', etiqueta: 'Correo', tipo: 'texto' },
   { clave: 'ley', etiqueta: 'Ley', tipo: 'texto' },
 ];
@@ -28,7 +34,8 @@ const COL_ASCENSOS: ColumnaReporte[] = [
   { clave: 'fecha', etiqueta: 'Fecha', tipo: 'fecha' },
   { clave: 'grado_nuevo', etiqueta: 'Grado nuevo', tipo: 'texto' },
   { clave: 'orden', etiqueta: 'Orden', tipo: 'texto' },
-  { clave: 'unidad', etiqueta: 'Unidad', tipo: 'texto' },
+  { clave: 'base', etiqueta: 'Base', tipo: 'texto' },
+  { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
   { clave: 'ley', etiqueta: 'Ley', tipo: 'texto' },
 ];
 
@@ -39,7 +46,8 @@ const COL_BAJAS_RETIROS: ColumnaReporte[] = [
   { clave: 'apellido', etiqueta: 'Apellidos', tipo: 'texto' },
   { clave: 'fecha', etiqueta: 'Fecha', tipo: 'fecha' },
   { clave: 'causal', etiqueta: 'Causal', tipo: 'texto' },
-  { clave: 'unidad', etiqueta: 'Unidad', tipo: 'texto' },
+  { clave: 'base', etiqueta: 'Base', tipo: 'texto' },
+  { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
   { clave: 'ley', etiqueta: 'Ley', tipo: 'texto' },
 ];
 
@@ -57,15 +65,16 @@ export const movimientosPersonalReporte: DefinicionReporte = {
     'Novedades de personal por período: altas por ingreso, ascensos, bajas y retiros.',
   categoria: 'Personal',
 
-   
-
   parametros: [
     { clave: 'desde', etiqueta: 'Desde', tipo: 'fecha', ayuda: 'Opcional.' },
     { clave: 'hasta', etiqueta: 'Hasta', tipo: 'fecha', ayuda: 'Opcional.' },
     PARAMETRO_CATEGORIA,
   ],
 
-  async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
+  async ejecutar({
+    prisma,
+    filtros,
+  }: ContextoEjecucion): Promise<ResultadoReporte> {
     const rango = rangoFecha(filtros.desde, filtros.hasta);
     const categoria = categoriaDeFiltros(filtros);
 
@@ -73,12 +82,20 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       where: {
         tipos_movimiento: { es_alta: true },
         ...(rango ? { fecha_movimiento: rango } : {}),
-        ...(categoria ? { relaciones_laborales: { tipo_funcionario: categoria } } : {}),
+        ...(categoria
+          ? { relaciones_laborales: { tipo_funcionario: categoria } }
+          : {}),
       },
       include: {
         tipos_movimiento: true,
         relaciones_laborales: {
-          include: { personas: true, grados: true, unidades: true, regimenes: true },
+          include: {
+            personas: true,
+            grados: true,
+            unidades: true,
+            sub_unidades: true,
+            regimenes: true,
+          },
         },
       },
       orderBy: { fecha_movimiento: 'desc' },
@@ -88,11 +105,18 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       return {
         cedula: rel?.personas?.cedula ?? '',
         grado: rel?.grados?.denominacion ?? '',
-        nombre: unir(rel?.personas?.primer_nombre, rel?.personas?.segundo_nombre),
-        apellido: unir(rel?.personas?.primer_apellido, rel?.personas?.segundo_apellido),
+        nombre: unir(
+          rel?.personas?.primer_nombre,
+          rel?.personas?.segundo_nombre,
+        ),
+        apellido: unir(
+          rel?.personas?.primer_apellido,
+          rel?.personas?.segundo_apellido,
+        ),
         fecha: fmtFecha(m.fecha_movimiento),
         causal: m.observaciones ?? m.tipos_movimiento?.nombre ?? '',
-        unidad: rel?.unidades?.denominacion ?? '',
+        base: rel?.sub_unidades?.denominacion ?? '',
+        comando: rel?.unidades?.denominacion ?? '',
         correo: rel?.personas?.email ?? '',
         ley: rel?.regimenes?.numero_ley ?? '',
       };
@@ -113,7 +137,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
             relaciones_laborales: {
               where: { estado: 'activo' },
               take: 1,
-              include: { unidades: true, regimenes: true },
+              include: { unidades: true, sub_unidades: true, regimenes: true },
             },
           },
         },
@@ -133,11 +157,15 @@ export const movimientosPersonalReporte: DefinicionReporte = {
         cedula: a.personas?.cedula ?? '',
         grado_viejo: gradoViejo,
         nombre: unir(a.personas?.primer_nombre, a.personas?.segundo_nombre),
-        apellido: unir(a.personas?.primer_apellido, a.personas?.segundo_apellido),
+        apellido: unir(
+          a.personas?.primer_apellido,
+          a.personas?.segundo_apellido,
+        ),
         fecha: fmtFecha(a.fecha_ascenso),
         grado_nuevo: a.grados?.denominacion ?? '',
         orden: a.numero_orden ?? a.observaciones ?? '',
-        unidad: rel?.unidades?.denominacion ?? '',
+        base: rel?.sub_unidades?.denominacion ?? '',
+        comando: rel?.unidades?.denominacion ?? '',
         ley: rel?.regimenes?.numero_ley ?? '',
       };
     });
@@ -152,6 +180,7 @@ export const movimientosPersonalReporte: DefinicionReporte = {
         personas: true,
         grados: true,
         unidades: true,
+        sub_unidades: true,
         regimenes: true,
         motivos_baja: true,
       },
@@ -161,7 +190,10 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       cedula: rl.personas?.cedula ?? '',
       grado: rl.grados?.denominacion ?? '',
       nombre: unir(rl.personas?.primer_nombre, rl.personas?.segundo_nombre),
-      apellido: unir(rl.personas?.primer_apellido, rl.personas?.segundo_apellido),
+      apellido: unir(
+        rl.personas?.primer_apellido,
+        rl.personas?.segundo_apellido,
+      ),
       fecha: fmtFecha(rl.fecha_fin),
       causal: rl.motivos_baja?.denominacion ?? '',
       unidad: rl.unidades?.denominacion ?? '',
@@ -172,13 +204,20 @@ export const movimientosPersonalReporte: DefinicionReporte = {
       where: {
         anulado: false,
         ...(rango ? { fecha_retiro: rango } : {}),
-        ...(categoria ? { relaciones_laborales: { tipo_funcionario: categoria } } : {}),
+        ...(categoria
+          ? { relaciones_laborales: { tipo_funcionario: categoria } }
+          : {}),
       },
       include: {
         personas: true,
         // La relación que este retiro cerró, no la más reciente de la persona
         relaciones_laborales: {
-          include: { grados: true, unidades: true, regimenes: true },
+          include: {
+            grados: true,
+            unidades: true,
+            sub_unidades: true,
+            regimenes: true,
+          },
         },
       },
       orderBy: { fecha_retiro: 'desc' },
@@ -189,10 +228,14 @@ export const movimientosPersonalReporte: DefinicionReporte = {
         cedula: r.personas?.cedula ?? '',
         grado: rel?.grados?.denominacion ?? '',
         nombre: unir(r.personas?.primer_nombre, r.personas?.segundo_nombre),
-        apellido: unir(r.personas?.primer_apellido, r.personas?.segundo_apellido),
+        apellido: unir(
+          r.personas?.primer_apellido,
+          r.personas?.segundo_apellido,
+        ),
         fecha: fmtFecha(r.fecha_retiro),
         causal: r.motivo ?? '',
-        unidad: rel?.unidades?.denominacion ?? '',
+        base: rel?.sub_unidades?.denominacion ?? '',
+        comando: rel?.unidades?.denominacion ?? '',
         ley: rel?.regimenes?.numero_ley ?? '',
       };
     });

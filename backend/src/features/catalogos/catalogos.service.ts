@@ -1,154 +1,33 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
-import { CreateUnidadDto } from './dto/create-unidad.dto.js';
-import { UpdateUnidadDto } from './dto/update-unidad.dto.js';
 
 @Injectable()
 export class CatalogosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ─── Unidades: alta, edición y baja ────────────────────────────────────────
-  // El catálogo lo comparten destinos y las relaciones laborales de
-  // liquidación, así que la baja es lógica: nunca se borra una fila.
+  // Unidades (comandos) y sub-unidades: el alta, la edición y la baja están en
+  // CatalogoUnidadesService. Acá solo se listan.
 
-  private mapUnidad(u: {
-    id: bigint;
-    codigo: string;
-    denominacion: string;
-    tipo: string | null;
-    vigente: boolean;
-  }) {
-    return {
-      id: u.id.toString(),
-      codigo: u.codigo,
-      denominacion: u.denominacion,
-      tipo: u.tipo,
-      vigente: u.vigente,
-    };
-  }
-
-  /**
-   * Una unidad no se puede dar de baja mientras siga en uso. Dos motivos:
-   *
-   * 1. Destinos vigentes: quedaría un funcionario revistando en una unidad que
-   *    el resto del sistema considera inexistente.
-   * 2. Relaciones laborales vigentes: `unidades` y `relaciones_laborales` son
-   *    tablas del sistema de liquidación de sueldos, que comparte esta base y
-   *    calcula por relación laboral. Darla de baja le dejaría relaciones activas
-   *    apuntando a una unidad no vigente.
-   */
-  private async assertUnidadSinUso(unidadId: bigint, denominacion: string) {
-    const [destinados, relaciones] = await Promise.all([
-      this.prisma.destinos.count({
-        where: { unidad_id: unidadId, fecha_fin: null },
-      }),
-      this.prisma.relaciones_laborales.count({
-        where: { unidad_id: unidadId, fecha_fin: null },
-      }),
-    ]);
-
-    if (destinados > 0) {
-      throw new ConflictException(
-        `No se puede dar de baja la unidad "${denominacion}": tiene ${destinados} ` +
-          `${destinados === 1 ? 'funcionario' : 'funcionarios'} con destino vigente. ` +
-          'Reasignalos antes de darla de baja.',
-      );
-    }
-
-    if (relaciones > 0) {
-      throw new ConflictException(
-        `No se puede dar de baja la unidad "${denominacion}": hay ${relaciones} ` +
-          `${relaciones === 1 ? 'relación laboral vigente' : 'relaciones laborales vigentes'} ` +
-          'que la referencian, y liquidación las usa para calcular sueldos. ' +
-          'Cambiá la unidad de esos funcionarios antes de darla de baja.',
-      );
-    }
-  }
-
-  async crearUnidad(dto: CreateUnidadDto) {
-    const codigoEnUso = await this.prisma.unidades.findFirst({
-      where: { codigo: { equals: dto.codigo, mode: 'insensitive' } },
-    });
-    if (codigoEnUso) {
-      throw new ConflictException(`Ya existe una unidad con código "${dto.codigo}"`);
-    }
-
-    const denominacionEnUso = await this.prisma.unidades.findFirst({
-      where: { denominacion: { equals: dto.denominacion, mode: 'insensitive' } },
-    });
-    if (denominacionEnUso) {
-      throw new ConflictException(`Ya existe una unidad llamada "${dto.denominacion}"`);
-    }
-
-    const unidad = await this.prisma.unidades.create({
-      data: {
-        codigo: dto.codigo,
-        denominacion: dto.denominacion,
-        tipo: dto.tipo ?? null,
-        vigente: true,
-      },
-    });
-
-    return this.mapUnidad(unidad);
-  }
-
-  async editarUnidad(unidadId: number, dto: UpdateUnidadDto) {
-    const unidad = await this.prisma.unidades.findUnique({ where: { id: BigInt(unidadId) } });
-    if (!unidad) throw new NotFoundException(`No existe unidad con id ${unidadId}`);
-
-    if (dto.denominacion && dto.denominacion !== unidad.denominacion) {
-      const dup = await this.prisma.unidades.findFirst({
-        where: {
-          denominacion: { equals: dto.denominacion, mode: 'insensitive' },
-          id: { not: BigInt(unidadId) },
-        },
-      });
-      if (dup) {
-        throw new ConflictException(`Ya existe una unidad llamada "${dto.denominacion}"`);
-      }
-    }
-
-    if (dto.vigente === false) {
-      await this.assertUnidadSinUso(BigInt(unidadId), unidad.denominacion);
-    }
-
-    const actualizada = await this.prisma.unidades.update({
-      where: { id: BigInt(unidadId) },
-      data: {
-        ...(dto.denominacion !== undefined && { denominacion: dto.denominacion }),
-        ...(dto.tipo !== undefined && { tipo: dto.tipo }),
-        ...(dto.vigente !== undefined && { vigente: dto.vigente }),
-      },
-    });
-
-    return this.mapUnidad(actualizada);
-  }
-
-  /**
-   * Baja lógica. Los destinos históricos y las relaciones laborales que la
-   * referencian quedan intactos, pero no puede haber nadie revistando en ella.
-   */
-  async darDeBajaUnidad(unidadId: number) {
-    const unidad = await this.prisma.unidades.findUnique({ where: { id: BigInt(unidadId) } });
-    if (!unidad) throw new NotFoundException(`No existe unidad con id ${unidadId}`);
-
-    await this.assertUnidadSinUso(BigInt(unidadId), unidad.denominacion);
-
-    const actualizada = await this.prisma.unidades.update({
-      where: { id: BigInt(unidadId) },
-      data: { vigente: false },
-    });
-
-    return this.mapUnidad(actualizada);
-  }
-
-  async findUnidades() {
+  /** Por defecto solo los vigentes (para los selectores). `incluirBajas` es para la pantalla del catálogo. */
+  async findUnidades(incluirBajas = false) {
     const items = await this.prisma.unidades.findMany({
-      where: { vigente: true },
+      where: incluirBajas ? {} : { vigente: true },
       orderBy: { denominacion: 'asc' },
-      select: { id: true, codigo: true, denominacion: true },
+      select: {
+        id: true,
+        codigo: true,
+        denominacion: true,
+        vigente: true,
+        _count: { select: { sub_unidades: { where: { vigente: true } } } },
+      },
     });
-    return items.map((i) => ({ id: Number(i.id), codigo: i.codigo, denominacion: i.denominacion }));
+    return items.map((i) => ({
+      id: Number(i.id),
+      codigo: i.codigo,
+      denominacion: i.denominacion,
+      vigente: i.vigente,
+      total_bases: i._count.sub_unidades,
+    }));
   }
 
   async findSituaciones() {
@@ -240,9 +119,26 @@ export class CatalogosService {
   async findSubUnidades() {
     const items = await this.prisma.sub_unidades.findMany({
       where: { vigente: true },
-      orderBy: { denominacion: 'asc' },
-      select: { id: true, codigo: true, denominacion: true },
+      orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
+      select: {
+        id: true,
+        codigo: true,
+        denominacion: true,
+        unidad_id: true,
+        unidades: { select: { codigo: true, denominacion: true } },
+      },
     });
-    return items.map((i) => ({ id: Number(i.id), codigo: i.codigo, denominacion: i.denominacion }));
+    // El comando va para agrupar y para mostrar la base como "B.A.I. (C.A.O.)".
+    return items.map((i) => ({
+      id: Number(i.id),
+      codigo: i.codigo,
+      denominacion: i.denominacion,
+      unidad_id: Number(i.unidad_id),
+      comando: {
+        id: Number(i.unidad_id),
+        codigo: i.unidades.codigo,
+        denominacion: i.unidades.denominacion,
+      },
+    }));
   }
 }

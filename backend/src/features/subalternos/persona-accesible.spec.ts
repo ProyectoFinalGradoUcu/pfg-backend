@@ -38,7 +38,7 @@ describe('PersonaAccesibleGuard', () => {
 
     await expect(
       guard.canActivate(
-        contextoCon({ params: { personaId: '42' }, alcance: { tipo: 'unidad', unidadIds: ['3'] } }),
+        contextoCon({ params: { personaId: '42' }, alcance: { tipo: 'unidad', subUnidadIds: ['3'], comandoIds: [] } }),
       ),
     ).rejects.toThrow(NotFoundException);
   });

@@ -153,7 +153,10 @@ export class CreatePersonalDto {
   @IsInt()
   regimen_id?: number;
 
-  @ApiPropertyOptional({ example: 1 })
+  @ApiPropertyOptional({
+    example: 1,
+    description: 'Comando. Se toma de la base; si se manda, tiene que coincidir.',
+  })
   @IsOptional()
   @IsInt()
   unidad_id?: number;
@@ -194,7 +197,10 @@ export class CreatePersonalDto {
   @IsBoolean()
   tiene_mando?: boolean;
 
-  @ApiPropertyOptional({ description: 'ID de sub-unidad (opcional)' })
+  @ApiPropertyOptional({
+    example: 2,
+    description: 'Base (sub-unidad). Obligatoria para el personal militar.',
+  })
   @IsOptional()
   @IsInt()
   sub_unidad_id?: number;

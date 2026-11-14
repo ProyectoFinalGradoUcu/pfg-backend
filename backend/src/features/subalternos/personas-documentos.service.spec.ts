@@ -16,7 +16,7 @@ import { ArchivosService, calcularSha256 } from '../archivos/archivos.service';
 
 const PDF = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]);
 const GLOBAL = { tipo: 'global' as const };
-const UNIDAD = { tipo: 'unidad' as const, unidadIds: ['3'] };
+const UNIDAD = { tipo: 'unidad' as const, subUnidadIds: ['3'], comandoIds: [] };
 
 const makeArchivoFila = (overrides: Partial<any> = {}) => ({
   id: 87n,

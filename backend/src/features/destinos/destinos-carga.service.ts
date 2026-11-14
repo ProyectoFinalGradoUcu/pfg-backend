@@ -18,7 +18,8 @@ import { DestinosService } from './destinos.service';
 
 const COLUMNAS: ColumnaPlantilla[] = [
   { clave: 'cedula', titulo: 'Cédula', requerida: true, ayuda: 'Funcionario ya registrado en Personal. Sin puntos ni guión.' },
-  { clave: 'unidad', titulo: 'Unidad', requerida: true, tipo: 'lista', lista: 'unidades', ancho: 45 },
+  { clave: 'destino', titulo: 'Destino', requerida: true, tipo: 'lista', lista: 'sub_unidades', ancho: 45,
+    ayuda: 'Sub-unidad donde revista (B.A.I., E.M.A., ...). El comando sale de ella.' },
   { clave: 'fecha_inicio', titulo: 'Fecha de inicio', requerida: true, tipo: 'fecha' },
   { clave: 'fecha_fin', titulo: 'Fecha de fin', tipo: 'fecha',
     ayuda: 'Vacía = es el destino actual del funcionario. Con fecha = destino anterior (historial).' },
@@ -28,7 +29,8 @@ const COLUMNAS: ColumnaPlantilla[] = [
   { clave: 'observaciones', titulo: 'Observaciones', ancho: 40 },
 ];
 
-type UnidadCatalogo = { id: bigint; codigo: string; nombre: string };
+/** Sub-unidad de liquidación con su comando (`unidad_id`). */
+type SubUnidadCatalogo = { id: bigint; codigo: string; nombre: string; unidad_id: bigint };
 
 const fmt = (d: Date | null) => (d ? d.toISOString().slice(0, 10).split('-').reverse().join('/') : '');
 
@@ -40,16 +42,16 @@ export class DestinosCargaService {
   ) {}
 
   async generarPlantilla(): Promise<Buffer> {
-    return construirPlantilla(this.definicion(await this.cargarUnidades()));
+    return construirPlantilla(this.definicion(await this.cargarSubUnidades()));
   }
 
   /**
    * Con fecha de fin es historial y no toca el destino actual. Sin fecha de fin es el destino
-   * actual: si es la misma unidad lo corrige, si es otra hace el pase como el alta manual.
+   * actual: si es la misma sub-unidad lo corrige, si es otra hace el pase como el alta manual.
    */
   async procesarCarga(buffer: Buffer): Promise<ResultadoCarga> {
-    const unidades = await this.cargarUnidades();
-    const filas = await leerHoja(buffer, this.definicion(unidades));
+    const subUnidades = await this.cargarSubUnidades();
+    const filas = await leerHoja(buffer, this.definicion(subUnidades));
     const padron = await PadronDeCarga.cargar(this.prisma, filas);
 
     const actuales = filas.filter((f) => !f.valores['fecha_fin']);
@@ -62,7 +64,7 @@ export class DestinosCargaService {
 
     const resultados = await procesarEnSerie([...actualesUnicas, ...historicas], async (fila) => {
       const persona = padron.militar(fila.valores['cedula']);
-      const datos = this.validarFila(fila, unidades);
+      const datos = this.validarFila(fila, subUnidades);
       return datos.fechaFin
         ? this.registrarHistorico(persona.id, datos)
         : this.registrarActual(persona.id, datos);
@@ -71,17 +73,17 @@ export class DestinosCargaService {
     return resumir([...resultados, ...repetidas]);
   }
 
-  private validarFila(fila: FilaLeida, unidades: Catalogo<UnidadCatalogo>) {
+  private validarFila(fila: FilaLeida, subUnidades: Catalogo<SubUnidadCatalogo>) {
     const v = fila.valores;
-    if (!v['unidad']) throw new Error('Falta la unidad.');
-    const unidad = unidades.resolver(v['unidad']);
+    if (!v['destino']) throw new Error('Falta el destino.');
+    const destino = subUnidades.resolver(v['destino']);
     const fechaInicio = parsearFecha(v['fecha_inicio'], 'Fecha de inicio');
     if (!fechaInicio) throw new Error('Falta la fecha de inicio.');
     const fechaFin = parsearFecha(v['fecha_fin'], 'Fecha de fin');
     if (fechaFin && fechaFin < fechaInicio) throw new Error('La fecha de fin es anterior a la fecha de inicio.');
     if (!v['numero_orden'] && !v['boletin']) throw new Error('Falta el N.º de orden o el boletín (al menos uno).');
     return {
-      unidad,
+      destino,
       fechaInicio,
       fechaFin,
       posicion_destino: v['posicion_destino'] || null,
@@ -100,16 +102,19 @@ export class DestinosCargaService {
         fecha_inicio: { lte: fin },
         OR: [{ fecha_fin: null }, { fecha_fin: { gte: inicio } }],
       },
-      include: { unidades: { select: { denominacion: true } } },
+      include: {
+        unidades: { select: { denominacion: true } },
+        sub_unidades: { select: { denominacion: true } },
+      },
       orderBy: { fecha_inicio: 'asc' },
     });
     if (superpuesto) {
-      if (superpuesto.unidad_id === d.unidad.id && superpuesto.fecha_inicio?.getTime() === inicio.getTime()) {
+      if (superpuesto.sub_unidad_id === d.destino.id && superpuesto.fecha_inicio?.getTime() === inicio.getTime()) {
         throw new Error('Ese destino ya está registrado.');
       }
       const hasta = superpuesto.fecha_fin ? `al ${fmt(superpuesto.fecha_fin)}` : 'en adelante (destino actual)';
       throw new Error(
-        `Se superpone con el destino en ${superpuesto.unidades?.denominacion ?? 'otra unidad'} ` +
+        `Se superpone con el destino en ${superpuesto.sub_unidades?.denominacion ?? superpuesto.unidades?.denominacion ?? 'otra unidad'} ` +
           `del ${fmt(superpuesto.fecha_inicio)} ${hasta}.` +
           (superpuesto.fecha_fin ? '' : ' Incluí el destino actual sin fecha de fin con su fecha de inicio real.'),
       );
@@ -118,7 +123,8 @@ export class DestinosCargaService {
     const creado = await this.prisma.destinos.create({
       data: {
         persona_id: personaId,
-        unidad_id: d.unidad.id,
+        unidad_id: d.destino.unidad_id,
+        sub_unidad_id: d.destino.id,
         fecha_inicio: inicio,
         fecha_fin: fin,
         posicion_destino: d.posicion_destino,
@@ -127,14 +133,14 @@ export class DestinosCargaService {
         observaciones: d.observaciones,
       },
     });
-    return { id: creado.id, mensaje: `Historial: ${d.unidad.nombre}` };
+    return { id: creado.id, mensaje: `Historial: ${d.destino.nombre}` };
   }
 
   private async registrarActual(personaId: bigint, d: ReturnType<DestinosCargaService['validarFila']>) {
     const inicio = new Date(d.fechaInicio);
     const activo = await this.prisma.destinos.findFirst({ where: { persona_id: personaId, fecha_fin: null } });
 
-    if (activo && activo.unidad_id === d.unidad.id) {
+    if (activo && activo.sub_unidad_id === d.destino.id) {
       const cerradoDespues = await this.prisma.destinos.findFirst({
         where: { persona_id: personaId, id: { not: activo.id }, fecha_fin: { gte: inicio } },
       });
@@ -151,7 +157,7 @@ export class DestinosCargaService {
           observaciones: d.observaciones ?? activo.observaciones,
         },
       });
-      return { id: activo.id, mensaje: `Destino actual en ${d.unidad.nombre} actualizado` };
+      return { id: activo.id, mensaje: `Destino actual en ${d.destino.nombre} actualizado` };
     }
 
     if (activo?.fecha_inicio && inicio <= activo.fecha_inicio) {
@@ -163,7 +169,7 @@ export class DestinosCargaService {
 
     const creado = (await this.destinosService.crearDestino({
       persona_id: Number(personaId),
-      unidad_id: Number(d.unidad.id),
+      sub_unidad_id: Number(d.destino.id),
       fecha_inicio: d.fechaInicio,
       posicion_destino: d.posicion_destino ?? undefined,
       numero_orden: d.numero_orden ?? undefined,
@@ -172,39 +178,55 @@ export class DestinosCargaService {
     })) as { id: string };
     return {
       id: BigInt(creado.id),
-      mensaje: activo ? `Pase de destino a ${d.unidad.nombre}` : `Destino actual: ${d.unidad.nombre}`,
+      mensaje: activo ? `Pase de destino a ${d.destino.nombre}` : `Destino actual: ${d.destino.nombre}`,
     };
   }
 
-  private async cargarUnidades(): Promise<Catalogo<UnidadCatalogo>> {
-    const unidades = await this.prisma.unidades.findMany({
+  /** Sub-unidades vigentes de liquidación, con el comando en el nombre: "B.A.I. (C.A.O.)". */
+  private async cargarSubUnidades(): Promise<Catalogo<SubUnidadCatalogo>> {
+    const subUnidades = await this.prisma.sub_unidades.findMany({
       where: { vigente: true },
-      orderBy: { denominacion: 'asc' },
-      select: { id: true, codigo: true, denominacion: true },
+      orderBy: [{ unidad_id: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        codigo: true,
+        denominacion: true,
+        unidad_id: true,
+        unidades: { select: { denominacion: true } },
+      },
     });
-    return new Catalogo('Unidad', unidades.map((u) => ({ id: u.id, codigo: u.codigo, nombre: u.denominacion })));
+    return new Catalogo(
+      'Destino',
+      subUnidades.map((su) => ({
+        id: su.id,
+        codigo: su.codigo,
+        nombre: `${su.denominacion} (${su.unidades.denominacion})`,
+        unidad_id: su.unidad_id,
+      })),
+    );
   }
 
-  private definicion(unidades: Catalogo<UnidadCatalogo>): DefinicionPlantilla {
+  private definicion(subUnidades: Catalogo<SubUnidadCatalogo>): DefinicionPlantilla {
     return {
       hoja: 'Destinos',
       titulo: 'Carga masiva de destinos',
       columnas: COLUMNAS,
-      listas: [{ nombre: 'unidades', titulo: 'Unidad', valores: unidades.etiquetas }],
+      listas: [{ nombre: 'sub_unidades', titulo: 'Destino', valores: subUnidades.etiquetas }],
       instrucciones: [
-        'Una fila por destino. Para el historial de un funcionario, cargá una fila por cada unidad por la que pasó.',
-        'La fila SIN fecha de fin es el destino actual: si es la misma unidad que figura hoy, corrige su fecha de inicio; ' +
-          'si es otra unidad, registra el pase y cierra el destino anterior el día previo.',
+        'Una fila por destino. Para el historial de un funcionario, cargá una fila por cada destino por el que pasó.',
+        'El destino es la sub-unidad (B.A.I., E.M.A., ...); el comando sale de ella.',
+        'La fila SIN fecha de fin es el destino actual: si es el mismo destino que figura hoy, corrige su fecha de inicio; ' +
+          'si es otro, registra el pase y cierra el destino anterior el día previo.',
         'Las filas CON fecha de fin quedan como historial y no pueden superponerse con otros destinos del funcionario.',
       ],
       ejemplos: [
         {
-          cedula: '12345678', unidad: unidades.etiquetas[0] ?? '',
+          cedula: '12345678', destino: subUnidades.etiquetas[0] ?? '',
           fecha_inicio: new Date('2015-02-01T00:00:00Z'), fecha_fin: new Date('2019-12-31T00:00:00Z'),
           posicion_destino: 'Jefe de sección', numero_orden: 'O.D. 10.120',
         },
         {
-          cedula: '12345678', unidad: unidades.etiquetas[1] ?? unidades.etiquetas[0] ?? '',
+          cedula: '12345678', destino: subUnidades.etiquetas[1] ?? subUnidades.etiquetas[0] ?? '',
           fecha_inicio: new Date('2020-01-01T00:00:00Z'), numero_orden: 'O.D. 11.874',
         },
       ],

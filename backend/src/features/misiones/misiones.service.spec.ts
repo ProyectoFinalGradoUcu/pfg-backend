@@ -9,10 +9,17 @@ import { UpdateMisionDto } from './dto/update-mision.dto';
 import { CreateConvocatoriaDto } from './dto/create-convocatoria.dto';
 import { AddFuncionariosConvocatoriaDto, FuncionarioConvocatoriaItemDto } from './dto/add-funcionarios-convocatoria.dto';
 import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convocatoria.dto';
+import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
+import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 
 // ─── Fechas de referencia ─────────────────────────────────────────────────────
 const FECHA_PASADA = new Date('2020-01-01');
 const FECHA_FUTURA = new Date('2099-01-01');
+
+const CHOQUE = {
+  personas: { primer_nombre: 'Juan', primer_apellido: 'Pérez' },
+  convocatorias: { misiones: { nombre_mision: 'Congo' } },
+};
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -333,6 +340,43 @@ describe('MisionesService', () => {
 
       expect(prisma.misiones.findFirst).not.toHaveBeenCalled();
     });
+
+    it('guarda numero_orden y boletin', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision());
+      prisma.misiones.update.mockResolvedValue(makeMision());
+
+      await service.editarMision(1, { numero_orden: 'OD CAMBIADA', boletin: 'BP CAMBIADO' });
+
+      expect(prisma.misiones.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ numero_orden: 'OD CAMBIADA', boletin: 'BP CAMBIADO' }),
+        }),
+      );
+    });
+
+    it('vacía numero_orden y boletin al recibir null', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision());
+      prisma.misiones.update.mockResolvedValue(makeMision());
+
+      await service.editarMision(1, { numero_orden: null, boletin: null });
+
+      expect(prisma.misiones.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ numero_orden: null, boletin: null }),
+        }),
+      );
+    });
+
+    it('no toca numero_orden ni boletin si no vienen en el body', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision());
+      prisma.misiones.update.mockResolvedValue(makeMision());
+
+      await service.editarMision(1, { pais: 'Uruguay' });
+
+      const { data } = prisma.misiones.update.mock.calls[0][0];
+      expect(data).not.toHaveProperty('numero_orden');
+      expect(data).not.toHaveProperty('boletin');
+    });
   });
 
   // ─── eliminarMision ───────────────────────────────────────────────────────────
@@ -543,6 +587,67 @@ describe('MisionesService', () => {
 
       expect(result.finalizada).toBe(true);
     });
+
+    it('rechaza una fecha de llegada anterior a la de salida', async () => {
+      await expect(
+        service.crearConvocatoria(1, {
+          numero_orden: 'ORD-001',
+          fecha_salida: '2026-09-30',
+          fecha_llegada: '2026-03-01',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.convocatorias.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza funcionarios que ya están en otra convocatoria en ese período', async () => {
+      prisma.funcionarios_convocatorias.findMany.mockResolvedValue([CHOQUE]);
+
+      await expect(
+        service.crearConvocatoria(1, {
+          numero_orden: 'ORD-001',
+          fecha_salida: '2026-03-01',
+          fecha_llegada: '2026-09-30',
+          persona_ids: [10, 20],
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            persona_id: { in: [10n, 20n] },
+            convocatorias: {
+              fecha_salida: { lte: new Date('2026-09-30') },
+              OR: [{ fecha_llegada: null }, { fecha_llegada: { gte: new Date('2026-03-01') } }],
+            },
+          },
+        }),
+      );
+      expect(prisma.convocatorias.create).not.toHaveBeenCalled();
+    });
+
+    it('sin fecha de llegada, cualquier convocatoria con salida posterior se pisa', async () => {
+      prisma.funcionarios_convocatorias.findMany.mockResolvedValue([]);
+
+      await service.crearConvocatoria(1, {
+        numero_orden: 'ORD-001',
+        fecha_salida: '2026-03-01',
+        persona_ids: [10],
+      });
+
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            convocatorias: expect.objectContaining({ fecha_salida: { not: null } }),
+          }),
+        }),
+      );
+    });
+
+    it('no busca solapamientos si la convocatoria no tiene fecha de salida', async () => {
+      await service.crearConvocatoria(1, { numero_orden: 'ORD-001', persona_ids: [10] });
+
+      expect(prisma.funcionarios_convocatorias.findMany).not.toHaveBeenCalled();
+      expect(prisma.funcionarios_convocatorias.createMany).toHaveBeenCalled();
+    });
   });
 
   // ─── editarConvocatoria ───────────────────────────────────────────────────────
@@ -559,6 +664,40 @@ describe('MisionesService', () => {
       const result = await service.editarConvocatoria(1, 10, { numero_orden: 'ORD-NEW' }) as any;
 
       expect(result.numero_orden).toBe('ORD-NEW');
+      expect(prisma.funcionarios_convocatorias.findMany).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una llegada anterior a la salida que ya tenía guardada', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ fecha_salida: new Date('2026-03-01') }),
+      );
+
+      await expect(
+        service.editarConvocatoria(1, 10, { fecha_llegada: '2026-02-01' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.convocatorias.update).not.toHaveBeenCalled();
+    });
+
+    it('al cambiar las fechas, rechaza si un funcionario queda solapado con otra convocatoria', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ fecha_salida: new Date('2026-03-01'), fecha_llegada: new Date('2026-04-01') }),
+      );
+      prisma.funcionarios_convocatorias.findMany
+        .mockResolvedValueOnce([{ persona_id: 10n }])
+        .mockResolvedValueOnce([CHOQUE]);
+
+      await expect(
+        service.editarConvocatoria(1, 10, { fecha_llegada: '2026-09-30' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            persona_id: { in: [10n] },
+            convocatoria_id: { not: 10n },
+          }),
+        }),
+      );
+      expect(prisma.convocatorias.update).not.toHaveBeenCalled();
     });
 
     it('lanza NotFoundException si la convocatoria no existe', async () => {
@@ -578,6 +717,62 @@ describe('MisionesService', () => {
       await expect(
         service.editarConvocatoria(1, 10, { numero_orden: null as any }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('vacía numero_orden con null si queda el boletin', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ numero_orden: 'ORD-OLD', boletin: 'BOL-OLD' }),
+      );
+      prisma.convocatorias.update.mockResolvedValue(makeConvocatoria());
+
+      await service.editarConvocatoria(1, 10, { numero_orden: null });
+
+      expect(prisma.convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ numero_orden: null }) }),
+      );
+    });
+
+    it('vacía boletin con null si queda el numero_orden', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ numero_orden: 'ORD-OLD', boletin: 'BOL-OLD' }),
+      );
+      prisma.convocatorias.update.mockResolvedValue(makeConvocatoria());
+
+      await service.editarConvocatoria(1, 10, { boletin: null });
+
+      expect(prisma.convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ boletin: null }) }),
+      );
+    });
+
+    it('vacía fecha_salida, fecha_llegada y observaciones al recibir null', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ fecha_salida: new Date('2026-03-01'), fecha_llegada: new Date('2026-09-30') }),
+      );
+      prisma.convocatorias.update.mockResolvedValue(makeConvocatoria());
+
+      await service.editarConvocatoria(1, 10, {
+        fecha_salida: null,
+        fecha_llegada: null,
+        observaciones: null,
+      });
+
+      expect(prisma.convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ fecha_salida: null, fecha_llegada: null, observaciones: null }),
+        }),
+      );
+    });
+
+    it('convierte las fechas recibidas y no toca las que no vienen en el body', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(convExistente);
+      prisma.convocatorias.update.mockResolvedValue(makeConvocatoria());
+
+      await service.editarConvocatoria(1, 10, { fecha_llegada: '2026-09-30' });
+
+      const { data } = prisma.convocatorias.update.mock.calls[0][0];
+      expect(data.fecha_llegada).toEqual(new Date('2026-09-30'));
+      expect(data.fecha_salida).toBeUndefined();
     });
   });
 
@@ -706,6 +901,20 @@ describe('MisionesService', () => {
       await expect(service.agregarFuncionarios(1, 10, dto)).rejects.toThrow(ConflictException);
     });
 
+    it('rechaza funcionarios que ya están en otra convocatoria en ese período', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ fecha_salida: new Date('2026-03-01'), fecha_llegada: new Date('2026-09-30') }),
+      );
+      prisma.funcionarios_convocatorias.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([CHOQUE]);
+
+      await expect(service.agregarFuncionarios(1, 10, dto)).rejects.toThrow(
+        'Ya están en otra convocatoria en ese período: Juan Pérez (Congo)',
+      );
+      expect(prisma.funcionarios_convocatorias.createMany).not.toHaveBeenCalled();
+    });
+
     it('llama a createMany con BigInt de persona_id', async () => {
       prisma.convocatorias.findFirst.mockResolvedValue(makeConvocatoria());
       prisma.personas.findMany.mockResolvedValue([{ id: 42n }]);
@@ -760,6 +969,45 @@ describe('MisionesService', () => {
       await expect(
         service.editarFuncionarioConvocatoria(1, 10, 100, { numero_orden: null as any }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('vacía numero_orden con null si queda el boletin', async () => {
+      prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(
+        makeAsignacion({ numero_orden: 'ORD-OLD', boletin: 'BOL-OLD' }),
+      );
+      prisma.funcionarios_convocatorias.update.mockResolvedValue(makeAsignacion());
+
+      await service.editarFuncionarioConvocatoria(1, 10, 100, { numero_orden: null });
+
+      expect(prisma.funcionarios_convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ numero_orden: null }) }),
+      );
+    });
+
+    it('vacía boletin con null si queda el numero_orden', async () => {
+      prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(
+        makeAsignacion({ numero_orden: 'ORD-OLD', boletin: 'BOL-OLD' }),
+      );
+      prisma.funcionarios_convocatorias.update.mockResolvedValue(makeAsignacion());
+
+      await service.editarFuncionarioConvocatoria(1, 10, 100, { boletin: null });
+
+      expect(prisma.funcionarios_convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ boletin: null }) }),
+      );
+    });
+
+    it('vacía observaciones al recibir null', async () => {
+      prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(
+        makeAsignacion({ observaciones: 'nota vieja' }),
+      );
+      prisma.funcionarios_convocatorias.update.mockResolvedValue(makeAsignacion());
+
+      await service.editarFuncionarioConvocatoria(1, 10, 100, { observaciones: null });
+
+      expect(prisma.funcionarios_convocatorias.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ observaciones: null }) }),
+      );
     });
   });
 
@@ -855,11 +1103,11 @@ describe('MisionesService', () => {
       expect((result.items[0] as any).finalizada).toBe(false);
     });
 
-    it('usa page=1 y pageSize=200 por defecto', async () => {
+    it('usa page=1 y pageSize=10 por defecto', async () => {
       await service.listarPersonalEnMision();
 
       expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ skip: 0, take: 200 }),
+        expect.objectContaining({ skip: 0, take: 10 }),
       );
     });
 
@@ -869,6 +1117,100 @@ describe('MisionesService', () => {
       expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 200 }),
       );
+    });
+
+    it('desempata el orden por id para que la paginación sea estable', async () => {
+      await service.listarPersonalEnMision({});
+
+      const { orderBy } = prisma.funcionarios_convocatorias.findMany.mock.calls[0][0];
+      expect(orderBy[orderBy.length - 1]).toEqual({ id: 'asc' });
+    });
+
+    describe('filtros', () => {
+      const whereUsado = () => {
+        const where = prisma.funcionarios_convocatorias.findMany.mock.calls[0][0].where;
+        expect(prisma.funcionarios_convocatorias.count).toHaveBeenCalledWith({ where });
+        return where;
+      };
+
+      it('sin filtros no restringe', async () => {
+        await service.listarPersonalEnMision({ query: '   ', orden: '', misionIds: [] });
+
+        expect(whereUsado()).toEqual({});
+      });
+
+      it('busca cada palabra en cédula, nombre o apellido', async () => {
+        await service.listarPersonalEnMision({ query: ' Ana  García ' });
+
+        const porPalabra = (palabra: string) => ({
+          personas: {
+            OR: [
+              { cedula: { contains: palabra, mode: 'insensitive' } },
+              { primer_nombre: { contains: palabra, mode: 'insensitive' } },
+              { primer_apellido: { contains: palabra, mode: 'insensitive' } },
+            ],
+          },
+        });
+        expect(whereUsado()).toEqual({ AND: [porPalabra('Ana'), porPalabra('García')] });
+      });
+
+      it('filtra por las misiones elegidas', async () => {
+        await service.listarPersonalEnMision({ misionIds: [1, 2] });
+
+        expect(whereUsado()).toEqual({
+          AND: [{ convocatorias: { mision_id: { in: [BigInt(1), BigInt(2)] } } }],
+        });
+      });
+
+      it('filtra por número de orden o boletín', async () => {
+        await service.listarPersonalEnMision({ orden: 'ORD-1' });
+
+        expect(whereUsado()).toEqual({
+          AND: [
+            {
+              OR: [
+                { numero_orden: { contains: 'ORD-1', mode: 'insensitive' } },
+                { boletin: { contains: 'ORD-1', mode: 'insensitive' } },
+              ],
+            },
+          ],
+        });
+      });
+
+      it('finalizada=true trae solo convocatorias con llegada ya pasada', async () => {
+        await service.listarPersonalEnMision({ finalizada: true });
+
+        expect(whereUsado()).toEqual({
+          AND: [{ convocatorias: { fecha_llegada: { not: null, lte: expect.any(Date) } } }],
+        });
+      });
+
+      it('finalizada=false trae las convocatorias sin llegada o con llegada futura', async () => {
+        await service.listarPersonalEnMision({ finalizada: false });
+
+        expect(whereUsado()).toEqual({
+          AND: [
+            {
+              convocatorias: {
+                OR: [{ fecha_llegada: null }, { fecha_llegada: { gt: expect.any(Date) } }],
+              },
+            },
+          ],
+        });
+      });
+
+      it('combina categoría, búsqueda, orden y estado sin pisar sus OR', async () => {
+        await service.listarPersonalEnMision({
+          categoria: 'oficial',
+          query: 'Ana',
+          orden: 'ORD',
+          finalizada: false,
+        });
+
+        const { AND } = whereUsado();
+        expect(AND).toHaveLength(4);
+        expect(AND).toContainEqual({ personas: wherePersonaPorCategoria('oficial') });
+      });
     });
   });
 
@@ -911,6 +1253,11 @@ describe('MisionesService', () => {
       const errors = await validate(toDto({ nombre_mision: 'Congo', pais: 'a'.repeat(101) }));
       expect(errors.some((e) => e.property === 'pais')).toBe(true);
     });
+
+    it('rechaza nombre_mision de solo espacios', async () => {
+      const errors = await validate(toDto({ nombre_mision: '   ', pais: 'RDC' }));
+      expect(errors.some((e) => e.property === 'nombre_mision')).toBe(true);
+    });
   });
 
   // ─── DTO: UpdateMisionDto ─────────────────────────────────────────────────────
@@ -931,6 +1278,20 @@ describe('MisionesService', () => {
     it('acepta solo pais', async () => {
       const errors = await validate(toDto({ pais: 'Uruguay' }));
       expect(errors).toHaveLength(0);
+    });
+
+    it.each([['vacío', ''], ['de solo espacios', '   ']])(
+      'rechaza nombre_mision %s',
+      async (_caso, nombre_mision) => {
+        const errors = await validate(toDto({ nombre_mision }));
+        expect(errors.map((e) => e.property)).toEqual(['nombre_mision']);
+      },
+    );
+
+    it('recorta los espacios del nombre', async () => {
+      const dto = toDto({ nombre_mision: '  Congo  ' });
+      expect(await validate(dto)).toHaveLength(0);
+      expect(dto.nombre_mision).toBe('Congo');
     });
   });
 
@@ -1039,6 +1400,45 @@ describe('MisionesService', () => {
     it('rechaza numero_orden que excede 50 caracteres', async () => {
       const errors = await validate(toDto({ numero_orden: 'x'.repeat(51) }));
       expect(errors.some((e) => e.property === 'numero_orden')).toBe(true);
+    });
+  });
+
+  describe('ListPersonalMisionQueryDto', () => {
+    const toDto = (plain: object) => plainToInstance(ListPersonalMisionQueryDto, plain);
+
+    it('convierte misionIds separados por coma en números', async () => {
+      const dto = toDto({ misionIds: '3, 7' });
+      expect(dto.misionIds).toEqual([3, 7]);
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('acepta misionIds repetidos en la query', async () => {
+      const dto = toDto({ misionIds: ['3', '7'] });
+      expect(dto.misionIds).toEqual([3, 7]);
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('rechaza misionIds no numéricos', async () => {
+      const errors = await validate(toDto({ misionIds: '3,abc' }));
+      expect(errors.some((e) => e.property === 'misionIds')).toBe(true);
+    });
+
+    it('convierte finalizada de texto a booleano', () => {
+      expect(toDto({ finalizada: 'false' }).finalizada).toBe(false);
+      expect(toDto({ finalizada: 'true' }).finalizada).toBe(true);
+    });
+
+    it('acepta búsqueda y orden como texto', async () => {
+      expect(await validate(toDto({ query: 'Ana', orden: 'ORD-1' }))).toHaveLength(0);
+    });
+
+    it('acepta pageSize 200, que es lo que pide el front anterior', async () => {
+      expect(await validate(toDto({ pageSize: '200' }))).toHaveLength(0);
+    });
+
+    it('rechaza pageSize mayor a 200', async () => {
+      const errors = await validate(toDto({ pageSize: '201' }));
+      expect(errors.some((e) => e.property === 'pageSize')).toBe(true);
     });
   });
 });

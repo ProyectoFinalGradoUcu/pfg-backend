@@ -39,6 +39,10 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const payload: AuthPayload = this.authService.verifyToken(token);
+    // Token firmado antes del cambio a bases (no trae el comando): que vuelva a entrar.
+    if (payload.unidades?.some((u) => !u.comando)) {
+      throw new UnauthorizedException('La sesión expiró. Volvé a iniciar sesión.');
+    }
     await this.authService.assertUsuarioActivo(payload.sub, {
       iat: payload.iat,
       iatMs: payload.iatMs,

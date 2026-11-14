@@ -1,6 +1,8 @@
+/** Una base (sub-unidad) asignada al usuario, con su comando. Define su alcance `.unidad`. */
 export interface UnidadInfo {
   id: string;
   denominacion: string;
+  comando: { id: string; denominacion: string };
 }
 
 export interface AuthPayload {
@@ -8,7 +10,7 @@ export interface AuthPayload {
   username: string;
   roles: string[];
   permisos: string[];
-  /** Unidades asignadas al usuario. Array vacío si no tiene ninguna. */
+  /** Bases asignadas al usuario. Array vacío si no tiene ninguna. */
   unidades: UnidadInfo[];
   /** Emitido en segundos (lo agrega jsonwebtoken). Respaldo para tokens sin `iatMs`. */
   iat?: number;

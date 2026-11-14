@@ -249,6 +249,7 @@ export class AscensoRegistroService {
         anios_servicio_anterior: relacionActual.anios_servicio_anterior,
         categoria_viatico: relacionActual.categoria_viatico,
         usa_fonasa: relacionActual.usa_fonasa,
+        codigos_legajo: relacionActual.codigos_legajo,
       },
     });
 

@@ -10,6 +10,11 @@
 -- asignaciones NO se mueve: se renombra a `destinos`, que es lo que realmente
 -- contiene. Además gana orden y boletín propios, igual que
 -- funcionarios_convocatorias en misiones.
+--
+-- Solo convierte bases con el modelo viejo (existe asignaciones_funcionario).
+-- Sobre la base de liquidación `destinos` ya nace con la forma final en
+-- migracion_integracion_personal.sql, así que acá no se inserta nada en
+-- `unidades`: solo se garantizan columnas e índices.
 
 BEGIN;
 
@@ -28,7 +33,12 @@ BEGIN
       ADD COLUMN IF NOT EXISTS numero_orden VARCHAR(50),
       ADD COLUMN IF NOT EXISTS boletin      VARCHAR(50);
 
-    IF to_regclass('public.destinos') IS NOT NULL THEN
+    -- Solo si `destinos` es el catálogo viejo (tiene `ubicacion`). Si ya es la
+    -- tabla nueva, insertar desde ella en `unidades` fallaría.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'destinos' AND column_name = 'ubicacion'
+    ) THEN
 
       -- 2a. El catálogo viejo pasa a `unidades`. El código se deriva del id
       --     original para garantizar unicidad sin depender del texto; el seed

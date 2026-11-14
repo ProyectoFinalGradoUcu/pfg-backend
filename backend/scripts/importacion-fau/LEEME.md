@@ -15,7 +15,7 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 | Personas (cédula, nombre, nacimiento, contacto) | `personas` | Si la cédula no existe. Si ya existe, **solo se completan los campos vacíos**; nunca se pisa un dato. |
 | Períodos de baja (historial) | `relaciones_laborales`, inactivas | Siempre. Liquidación no liquida relaciones inactivas. |
 | Períodos en actividad | `relaciones_laborales`, activas | **Solo con `--crear-activos`**, y solo si la persona no tiene ya uno activo. |
-| Destino de cada período | `destinos` | Junto con su período. En un activo que ya existía, solo si no tiene destino abierto y su unidad en la base es la del Access. |
+| Destino de cada período: comando y sub-unidad de liquidación (ver "Destinos") | `destinos` y `relaciones_laborales` (`unidad_id` = comando, `sub_unidad_id` = sub-unidad) | Junto con su período. En un activo que ya existía, solo si no tiene destino abierto y su comando y sub-unidad en la base son los del Access. |
 | Tipo de funcionario de un activo que ya existía | `relaciones_laborales.tipo_funcionario` | Si está vacío y su grado en la base corresponde a lo que dice el Access (oficial o subalterno). Liquidación no usa esta columna. |
 | Horas de vuelo (Excel 2020-2026; `Horasvlo`, la última planilla de cada oficial, sobre todo 2002-2005; y la planilla de `xescala` cuando es anterior a 2020) | `periodos_vuelo`, `registros_vuelo`, `unidades_vuelo` | Siempre. Son tablas solo del módulo de personal. Los períodos que crea quedan **cerrados**, salvo el más reciente, que puede estar en curso; en la aplicación se pueden reabrir. |
 | Fecha en que llegó al grado (`FEC_GRA`, subalternos) | `relaciones_laborales.fecha_ultimo_ascenso` | En los períodos que crea. **Liquidación calcula la permanencia desde esta fecha.** En un período activo que ya existía no se completa: solo se avisa. |
@@ -32,19 +32,21 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 | Fecha de fallecimiento (baja con motivo de fallecimiento) | `personas.fecha_fallecimiento` | Si está vacía, es el período más reciente y la persona no tiene ninguno activo. |
 | Misiones y salidas al exterior (`xsalida`, `Misiones`, `OFICIALES EN MISION`) | `misiones`, `funcionarios_misiones` | Siempre, si la persona existe. |
 | Derecha y Numor de oficiales | `relaciones_laborales.derecha/numor` + `historial_derecha_numor` | En los períodos activos que crea; y en los activos que ya existían, **solo si no tienen ni Derecha ni Numor**. Cada valor deja su alta en el historial. |
+| Derecha y Numor de subalternos | `relaciones_laborales.derecha/numor` + `historial_derecha_numor` | El Access no los trae. Al terminar, si en una escala nadie tiene Derecha ni Numor, se ordenan sus activos por precedencia (art. 51 de la Ley 19.775): jerarquía y, dentro del grado, el mismo orden que "Sugerir orden > Antigüedad" (fecha de ascenso al grado y egreso de la ETA); si siguen empatados, ingreso a la Fuerza y edad. Es la misma carga inicial de la base. La mayoría asciende en tandas con la misma fecha: dentro de cada tanda el orden sale del ingreso y la edad, sin la precedencia en el grado anterior que no está en el Access, así que hay que revisarlo en Configuración de derecha. Si la escala ya tenía alguno, no se toca, y el resumen cuenta los activos que quedaron sin Derecha. |
 | Nivel educativo | `legajo_militar` | Si la persona no tiene uno cargado. |
 | Historial de ascensos: oficiales (año de cada grado) y subalternos (`FEC_GRA`) | `ascensos` | Si la persona no tiene ya un ascenso vigente a ese grado. |
 | Cursos aprobados, subalternos: de pasaje de grado (`CSOCBO2ª-CBO1ª`, `CSOSGTO-SGTO1º`), de Nivel 7/9 (`NIVEL_PER`), especialidades (`ABRE_ESP`, `ESPEC2`) y `CURSOS ETA` | `funcionarios_cursos` (y `cursos`, si falta el curso) | Si la persona no tiene ya ese curso. |
 | Años de servicio en otras fuerzas (`FECHA INGRESO ANTERIOR`, `FECHA BAJA`, `FUERZA 1`) | `relaciones_laborales.anios_servicio_anterior` | **Solo en períodos inactivos.** En los activos se informa. El servicio anterior completo queda en observaciones. |
-| Unidades, sub-unidades, escalafones y grados que falten | `unidades`, `sub_unidades`, `escalafones`, `grados` | **Solo con `--crear-catalogos`**. |
+| Escalafones y grados que falten | `escalafones`, `grados` | **Solo con `--crear-catalogos`**. Unidades y sub-unidades no se crean nunca. |
 
 ## Qué no hace nunca
 
 - **No modifica personas que ya existen**: solo completa campos vacíos.
-- **No cambia lo que liquidación usa de los períodos activos existentes.** Si una persona ya tiene un período activo (porque liquidación ya le paga), no se le crea otro. Si el grado o la unidad del Access no coinciden con los de la base, se informa y no se corrige. La fecha de último ascenso tampoco se completa: solo se avisa. Lo único que se completa en un activo existente son datos del módulo de personal, que liquidación no usa: Derecha y Numor (solo si los dos están vacíos), el tipo de funcionario y el destino (ver la tabla de arriba).
+- **No cambia lo que liquidación usa de los períodos activos existentes.** Si una persona ya tiene un período activo (porque liquidación ya le paga), no se le crea otro. Si el grado, el comando o la sub-unidad del Access no coinciden con los de la base, se informa y no se corrige. La fecha de último ascenso tampoco se completa: solo se avisa. Lo único que se completa en un activo existente son datos del módulo de personal, que liquidación no usa: Derecha y Numor (solo si los dos están vacíos), el tipo de funcionario y el destino (ver la tabla de arriba).
 - **No crea un período activo con un grado sin remuneración cargada**, porque haría fallar la liquidación de esa persona.
 - **No adivina.** Una fila de vuelo sin cédula que no se puede unir con certeza a una persona por su nombre no se carga: va al informe.
 - **No modifica ni borra registros de catálogos existentes.** Solo agrega los que faltan, y únicamente con `--crear-catalogos`.
+- **No crea unidades ni sub-unidades.** Son el catálogo de liquidación: un destino sin equivalente va al informe.
 
 ## Opciones
 
@@ -53,7 +55,7 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 | *(ninguna)* | **Simulación.** Hace todo dentro de una transacción y la deshace al final. Así se prueban de verdad las restricciones de la base, incluidas las de Derecha y Numor que la base controla recién al confirmar, y no queda nada escrito. |
 | `--aplicar` | Confirma la transacción: ahora sí escribe. Si algo falla, no escribe nada. |
 | `--crear-activos` | Crea los períodos activos de las personas que no tienen uno. **Esas personas pasan a liquidarse en la próxima liquidación**: acordarlo antes con el equipo de liquidación. |
-| `--crear-catalogos` | Agrega a la base las unidades, sub-unidades, escalafones, grados y motivos de baja que falten. Son tablas de liquidación: acordarlo antes. Con los archivos actuales, lo nuevo es: el grado `AT_3RA`; los escalafones `ADM` (no vigente), `CADETE` y `SIN_DATO`; las unidades CIRFA (no vigente), D.C.I., D.S.O., ESMADE, la Banda y la Dirección de Personal, con las categorías A, B y C como sub-unidades; y los motivos `BAJA_SOLICITADA`, `CUMPLIDO_SOLICITADA`, `NO_ADAPTACION` y `NO_APTO`. La lista exacta de cada corrida sale en el resumen, en "Catálogos que faltan en la base". |
+| `--crear-catalogos` | Agrega a la base los escalafones, grados y motivos de baja que falten. Son tablas de liquidación: acordarlo antes. Con los archivos actuales, lo nuevo es: el grado `AT_3RA`; los escalafones `ADM` (no vigente), `CADETE` y `SIN_DATO`; y los motivos `BAJA_SOLICITADA`, `CUMPLIDO_SOLICITADA`, `NO_ADAPTACION` y `NO_APTO`. La lista exacta de cada corrida sale en el resumen, en "Catálogos que faltan en la base". No crea unidades ni sub-unidades. |
 | `--comisiones` | Carga las comisiones en el módulo de comisiones, como **importadas**: sin la fecha ni la orden que el Access no trae, ligadas al período en que estaban anotadas. Acordarlo antes con la FAU: es aceptar comisiones incompletas, que después se completan desde la aplicación. Ver "Comisiones". |
 | `--informe <carpeta>` | Dónde dejar el informe. Por defecto, `informe-importacion-<fecha>` en la carpeta actual. |
 | `--database-url <url>` | Base de datos. Por defecto, la variable `DATABASE_URL`. |
@@ -73,14 +75,15 @@ Se pueden pasar los tres archivos o solo algunos, en cualquier orden: el tipo se
 1. **Backup** de la base de producción (`pg_dump`) antes de aplicar nada.
 2. **Simulación**, sin opciones. Leer `resumen.md` y `incidencias.csv` en la carpeta del informe.
 3. Mirar en el resumen la sección **"Catálogos que faltan en la base"**. Si hay que crearlos, acordarlo con liquidación y simular de nuevo con `--crear-catalogos`.
-4. Mirar el conteo **"activos no creados"**. Si se van a crear, acordarlo con liquidación y simular con `--crear-activos`.
-5. Corregir en el Access o el Excel lo que se pueda de `incidencias.csv` y volver a simular.
-6. **Aplicar**: repetir el mismo comando de la última simulación agregando `--aplicar`.
-7. Las filas que quedaron en `incidencias.csv` se cargan a mano desde el sistema.
+4. Mirar la sección **"Destinos sin equivalente en liquidación"**. Esas filas no se cargan: resolverlas con la FAU y liquidación.
+5. Mirar el conteo **"activos no creados"**. Si se van a crear, acordarlo con liquidación y simular con `--crear-activos`.
+6. Corregir en el Access o el Excel lo que se pueda de `incidencias.csv` y volver a simular.
+7. **Aplicar**: repetir el mismo comando de la última simulación agregando `--aplicar`.
+8. Las filas que quedaron en `incidencias.csv` se cargan a mano desde el sistema.
 
 ## El informe
 
-- **`resumen.md`**: qué se cargó (o cargaría), conteos, catálogos que faltan, e incidencias agrupadas por motivo.
+- **`resumen.md`**: qué se cargó (o cargaría), conteos, destinos sin equivalente en liquidación, catálogos que faltan, e incidencias agrupadas por motivo.
 - **`incidencias.csv`**: una fila por incidencia, con archivo, hoja o tabla, número de fila, cédula, nombre y motivo. Se abre con Excel.
   - **ERROR**: la fila no se cargó.
   - **aviso**: la fila se cargó con alguna salvedad, o no se cargó a propósito (por ejemplo, un activo sin `--crear-activos`).
@@ -94,12 +97,18 @@ Los alias de grados, escalafones y destinos están en `catalogos.ts`. En resumen
 - **Cédula:** se valida el dígito verificador. Si falla y hay cédula sin verificador (`CED_PERS`), se reconstruye desde esa.
 - **`ESTA`:** 0 es activo; -1 es baja o retiro.
 - **Filas de subalternos:** cada fila es un período de servicio, no una persona. Una persona puede tener varios (reingresos, cambio de escalafón, paso de cadete a soldado), y como mucho uno activo. Los oficiales que también figuran en subalternos (su paso como cadetes por la EMA o como ex-subalternos) quedan como una sola persona, unificada por cédula, con toda su historia.
-- **"Retiro en Trámite" y "Trámite NO Disponible" no son destinos:**
-  - Retiro en trámite: la persona sigue en su unidad, que se toma de `Numero Destino`. Situación SIT01.
-  - Trámite NO Disponible (TND): depende del Comando General. Unidad C.G.F.A. y situación SIT04.
+- **Destinos:** se buscan en la tabla `DESTINOS` de `catalogos.ts`, que da el comando y la sub-unidad por su código en el catálogo de liquidación (por ejemplo, `B.A.I` → B.A.I. de C.A.O.).
+  - C.A.O., C.A.P., C.A.L. y C.G.F.A. (el C.G. de liquidación) son el comando mismo: van sin sub-unidad.
+  - B.F.A. es la sub-unidad BANDA del C.G.
+  - Lo que no está en la tabla no se carga y va al resumen, en "Destinos sin equivalente en liquidación", con cuántos activos y filas tiene.
+  - En oficiales sin texto en `Destino`, se usa `Numero Destino` en `DESNUM`. Con texto no, porque `DESNUM` repite números (el 48 es Transporte y también Comunicaciones).
+- **"Retiro en Trámite", "Trámite NO Disponible", "No Disponible" y "Licencia sin goce de sueldo" no son destinos:**
+  - Retiro en trámite: la persona sigue en su destino, que se toma de `Numero Destino`. Situación SIT01.
+  - Trámite NO Disponible (TND) y No Disponible: dependen del Comando General. Destino C.G.F.A. y situación SIT04. Solo oficiales: liquidación no tiene No Disponible para subalternos, así que en subalternos va al informe como destino sin equivalente.
+  - Licencia sin goce de sueldo (también escrita "Lic. s/goce"): destino C.G.F.A. y situación SIT03 (oficiales) o SIT09 (subalternos), en `Destino` y en `ABREV_DES`. **Liquidación no le paga a esa persona** (`afecta_cobro = false`). La columna `LICENCIA SIN GOCE DE SUELDO` de subalternos es historia en texto libre y sigue yendo a observaciones: no cambia la situación.
 - **Situación:**
-  - Oficial: SIT01; en TND, SIT04.
-  - Subalterno: SIT07.
+  - Oficial: SIT01; en TND o No Disponible, SIT04; con licencia sin goce, SIT03.
+  - Subalterno: SIT07; con licencia sin goce, SIT09.
   - Cadete o aspirante: SIT12.
   - Reincorporado (REIN): SIT17.
   - Reservista (RVA): SIT08.
@@ -122,12 +131,11 @@ Los alias de grados, escalafones y destinos están en `catalogos.ts`. En resumen
 - **Código y texto:** cuando un dato viene como código y como texto, manda el texto. Los códigos numéricos del Access son inconsistentes.
 - **Columnas que no se usan:** `COD_SIT`, `TIPO` y `CODIGO`. El importador no las lee.
 - **Prima técnica (`ABRE_PT`):** A, B o C. `O` y cualquier otro valor se cargan como `VACIO`. `ORDENCGFA` es la orden de la prima técnica, no la del destino, y no se importa.
-- **`DESNUM`** es la lista de unidades vigentes. Se usa para nombrar las unidades que se crean.
-- **S.I.R.F.A.** es una unidad vieja que ya no se usa: el curso de instrucción al recluta (CIRFA). Se carga como unidad no vigente.
+- **`DESNUM`** es la lista de unidades vigentes. Se usa para el destino de los oficiales por `Numero Destino`.
 - **(Adm.)** es un escalafón que ya no está vigente: solo aparece en bajas. Se carga como no vigente.
-- **B.F.A.** es la Banda de la Fuerza Aérea: es escalafón (`BM`) y también destino.
-- **DIR.PERS.CÁ. "A", "B" y "C"** son categorías de la Dirección de Personal: van como sub-unidades de esa unidad.
-- **D.C.I.** (Dirección de Comunicación Institucional), **D.S.O.** (División de Seguridad Ocupacional) y **ESMADE** (Estado Mayor de la Defensa, fuera de la FAU) son destinos válidos.
+- **B.F.A.** es la Banda de la Fuerza Aérea: es escalafón (`BM`) y también destino (BANDA del C.G.).
+- **DIR.PERS.CÁ. "A" y "B"** son las compañías A y B: van a `CÍA "A".` y `CÍA "B".` de C.A.P. La **"C"** no está en liquidación: va al informe.
+- **D.C.I.** (Dirección de Comunicación Institucional), **D.S.O.** (División de Seguridad Ocupacional) y **ESMADE** (Estado Mayor de la Defensa, fuera de la FAU) son destinos válidos, pero no están en liquidación: van al informe.
 - **A/T 1º y A/T 2º** son At. 1.ª y At. 2.ª: aerotécnicos, aunque figuren en la E.T.A.
 - **Cadetes de la EMA:** ASP. es el primer año y CAD.3º el último.
 

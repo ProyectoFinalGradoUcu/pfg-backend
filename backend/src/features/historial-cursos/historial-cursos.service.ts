@@ -1,8 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
 import {
   AlcanceResuelto,
-  unidadIdDeAlcance,
 } from '../../lib/alcance/alcance.types';
 import {
   assertPersonaEnAlcance,
@@ -22,7 +21,7 @@ export class HistorialCursosService {
     // El historial es un dato del funcionario, asi que se segmenta por la unidad de la PERSONA
     // y no por la del curso, aunque el endpoint este protegido por permisos de cursos.
     const where =
-      alcance && unidadIdDeAlcance(alcance) !== null
+      alcance?.tipo === 'unidad'
         ? { personas: wherePersonasPorAlcance(alcance) }
         : {};
 
@@ -62,6 +61,10 @@ export class HistorialCursosService {
     });
     if (!persona) {
       throw new NotFoundException(`No existe persona con id ${dto.personaId}`);
+    }
+
+    if (dto.fechaInicio && dto.fechaFin && new Date(dto.fechaFin) < new Date(dto.fechaInicio)) {
+      throw new BadRequestException('La fecha de fin no puede ser anterior a la fecha de inicio');
     }
 
     const registro = await this.prisma.$transaction(async (tx) => {

@@ -3,3 +3,6 @@
 
 # Scripts shell siempre LF, nunca CRLF
 *.sh text eol=lf
+
+# Copia sin tocar de la base del equipo de liquidación, comprimida (ver su LEEME.md).
+*.gz binary

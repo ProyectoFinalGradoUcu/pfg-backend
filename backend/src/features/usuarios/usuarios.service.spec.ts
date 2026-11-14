@@ -25,10 +25,11 @@ const makeUsuario = (overrides: Partial<any> = {}) => ({
 });
 
 const makeUsuarioConRelaciones = (overrides: Partial<any> = {}) => ({
-  ...makeUsuario(overrides),
+  ...makeUsuario(),
   usuarios_roles: [],
-  usuarios_unidades: [],
+  usuarios_sub_unidades: [],
   personas: null,
+  ...overrides,
 });
 
 const ADMIN = {
@@ -52,6 +53,7 @@ const GESTOR = {
 const makePrismaMock = () => ({
   usuarios: {
     findFirst: jest.fn(),
+    findUnique: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
@@ -69,13 +71,13 @@ const makePrismaMock = () => ({
     upsert: jest.fn(),
     deleteMany: jest.fn(),
   },
-  unidades: {
+  sub_unidades: {
     findMany: jest.fn(),
   },
   permisos: {
     findMany: jest.fn().mockResolvedValue([]),
   },
-  usuarios_unidades: {
+  usuarios_sub_unidades: {
     findMany: jest.fn().mockResolvedValue([]),
     deleteMany: jest.fn(),
     createMany: jest.fn(),
@@ -85,8 +87,8 @@ const makePrismaMock = () => ({
 
 const makeSesionesMock = () => ({
   invalidarUsuario: jest.fn().mockResolvedValue(undefined),
-  invalidarPorUnidad: jest.fn().mockResolvedValue(undefined),
-  contarUsuariosDeUnidad: jest.fn().mockResolvedValue(0),
+  invalidarPorSubUnidad: jest.fn().mockResolvedValue(undefined),
+  contarUsuariosDeSubUnidad: jest.fn().mockResolvedValue(0),
 });
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -207,11 +209,13 @@ describe('UsuariosService', () => {
     const rol = (nombre: string, permisos: string[]) => ({
       roles: { nombre, roles_permisos: permisos.map((p) => ({ permisos: { nombre: p } })) },
     });
-    const destinoCon = (roles: ReturnType<typeof rol>[], unidades: ReturnType<typeof rol>[] = []) => {
+    const destinoCon = (roles: ReturnType<typeof rol>[], deBases: ReturnType<typeof rol>[] = []) => {
       prisma.usuarios.findFirst.mockResolvedValue(makeUsuario({ id: 5n }));
       prisma.usuarios.findUnique = jest.fn().mockResolvedValue({
         usuarios_roles: roles,
-        usuarios_unidades: unidades.length ? [{ unidades: { unidades_roles: unidades } }] : [],
+        usuarios_sub_unidades: deBases.length
+          ? [{ sub_unidades: { sub_unidades_roles: deBases } }]
+          : [],
       });
     };
 
@@ -232,7 +236,7 @@ describe('UsuariosService', () => {
       );
     });
 
-    it('también cuentan los permisos heredados de las unidades', async () => {
+    it('también cuentan los permisos heredados de las bases', async () => {
       destinoCon([], [rol('Jefe de unidad', ['personal.gestionar'])]);
 
       await expect(service.update('5', { estado: 'bloqueado' }, GESTOR)).rejects.toThrow(ForbiddenException);
@@ -262,6 +266,56 @@ describe('UsuariosService', () => {
       await expect(service.resetPassword('5', { password: 'NuevaPass123' } as any, ADMIN)).resolves.toEqual({
         ok: true,
       });
+    });
+  });
+
+  // ─── findOne ────────────────────────────────────────────────────────────────
+
+  describe('findOne', () => {
+    it('devuelve las bases del usuario con su comando y los permisos que heredan', async () => {
+      prisma.usuarios.findFirst.mockResolvedValue(
+        makeUsuarioConRelaciones({
+          usuarios_sub_unidades: [
+            {
+              sub_unidades: {
+                id: 4n,
+                codigo: 'ETA',
+                denominacion: 'E.T.A.',
+                unidades: { id: 2n, codigo: 'CAP', denominacion: 'Comando Aéreo de Personal' },
+                sub_unidades_roles: [
+                  {
+                    roles: {
+                      id: 3n,
+                      nombre: 'Control de cursos',
+                      roles_permisos: [{ permisos: { id: 9n, nombre: 'cursos.gestionar.unidad' } }],
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+
+      const result = await service.findOne('1');
+
+      expect(result.unidades).toEqual([
+        {
+          id: '4',
+          codigo: 'ETA',
+          denominacion: 'E.T.A.',
+          comando: { id: '2', codigo: 'CAP', denominacion: 'Comando Aéreo de Personal' },
+        },
+      ]);
+      expect(result.permisosEfectivos).toEqual([
+        {
+          nombre: 'cursos.gestionar.unidad',
+          alcance: 'unidad',
+          origen: 'unidad',
+          rol: 'Control de cursos',
+          unidad: 'E.T.A.',
+        },
+      ]);
     });
   });
 
@@ -311,19 +365,33 @@ describe('UsuariosService', () => {
   // ─── asignarUnidades ────────────────────────────────────────────────────────
 
   describe('asignarUnidades', () => {
-    const cg = { unidades: { id: 1n, codigo: 'CG', denominacion: 'Cuartel General' } };
-    const efa = { unidades: { id: 4n, codigo: 'EFA', denominacion: 'Escuela de Formación' } };
+    const bai = {
+      sub_unidades: {
+        id: 1n,
+        codigo: 'BAI',
+        denominacion: 'B.A.I.',
+        unidades: { denominacion: 'Comando Aéreo de Operaciones' },
+      },
+    };
+    const eta = {
+      sub_unidades: {
+        id: 4n,
+        codigo: 'ETA',
+        denominacion: 'E.T.A.',
+        unidades: { denominacion: 'Comando Aéreo de Personal' },
+      },
+    };
 
     beforeEach(() => {
       prisma.usuarios.findFirst.mockResolvedValue({ id: 10n, username: 'jefe@fau.mil.uy' });
-      prisma.unidades.findMany.mockResolvedValue([{ id: 4n, vigente: true }]);
+      prisma.sub_unidades.findMany.mockResolvedValue([{ id: 4n, vigente: true }]);
       jest.spyOn(service, 'findOne').mockResolvedValue({} as any);
     });
 
-    it('audita el cambio con las unidades anteriores y las nuevas, legibles', async () => {
-      prisma.usuarios_unidades.findMany
-        .mockResolvedValueOnce([cg])
-        .mockResolvedValueOnce([efa]);
+    it('audita el cambio con las bases anteriores y las nuevas, legibles y con su comando', async () => {
+      prisma.usuarios_sub_unidades.findMany
+        .mockResolvedValueOnce([bai])
+        .mockResolvedValueOnce([eta]);
 
       await service.asignarUnidades('10', ['4'], ADMIN);
 
@@ -335,15 +403,19 @@ describe('UsuariosService', () => {
         entidadId: 10n,
         detalle: {
           usuario: 'jefe@fau.mil.uy',
-          unidadesAnteriores: [{ id: '1', codigo: 'CG', denominacion: 'Cuartel General' }],
-          unidadesNuevas: [{ id: '4', codigo: 'EFA', denominacion: 'Escuela de Formación' }],
+          unidadesAnteriores: [
+            { id: '1', codigo: 'BAI', denominacion: 'B.A.I.', comando: 'Comando Aéreo de Operaciones' },
+          ],
+          unidadesNuevas: [
+            { id: '4', codigo: 'ETA', denominacion: 'E.T.A.', comando: 'Comando Aéreo de Personal' },
+          ],
         },
       });
     });
 
-    it('registra unidad.quitar cuando se le sacan todas las unidades', async () => {
-      prisma.usuarios_unidades.findMany
-        .mockResolvedValueOnce([cg])
+    it('registra unidad.quitar cuando se le sacan todas las bases', async () => {
+      prisma.usuarios_sub_unidades.findMany
+        .mockResolvedValueOnce([bai])
         .mockResolvedValueOnce([]);
 
       await service.asignarUnidades('10', [], ADMIN);
@@ -353,10 +425,10 @@ describe('UsuariosService', () => {
       );
     });
 
-    it('registra unidad.quitar si solo se sacó una de varias unidades', async () => {
-      prisma.usuarios_unidades.findMany
-        .mockResolvedValueOnce([cg, efa])
-        .mockResolvedValueOnce([efa]);
+    it('registra unidad.quitar si solo se sacó una de varias bases', async () => {
+      prisma.usuarios_sub_unidades.findMany
+        .mockResolvedValueOnce([bai, eta])
+        .mockResolvedValueOnce([eta]);
 
       await service.asignarUnidades('10', ['4'], ADMIN);
 
@@ -365,26 +437,51 @@ describe('UsuariosService', () => {
       );
     });
 
-    it('no audita si la unidad no existe', async () => {
-      prisma.unidades.findMany.mockResolvedValue([]);
+    it('no audita si la base no existe', async () => {
+      prisma.sub_unidades.findMany.mockResolvedValue([]);
 
       await expect(service.asignarUnidades('10', ['99'], ADMIN)).rejects.toThrow(
         NotFoundException,
       );
       expect(auditoria.registrar).not.toHaveBeenCalled();
     });
-    it('rechaza con 403 que un no administrador sume una unidad cuyos roles tienen permisos que él no tiene', async () => {
-      prisma.unidades.findMany.mockResolvedValue([
+    it('rechaza con 403 que un no administrador sume una base cuyos roles tienen permisos que él no tiene', async () => {
+      prisma.sub_unidades.findMany.mockResolvedValue([
         { id: 1n, vigente: true },
         { id: 4n, vigente: true },
       ]);
-      prisma.usuarios_unidades.findMany.mockResolvedValue([cg]);
+      prisma.usuarios_sub_unidades.findMany.mockResolvedValue([bai]);
       prisma.permisos.findMany.mockResolvedValue([{ nombre: 'roles.gestionar' }]);
 
       await expect(service.asignarUnidades('10', ['1', '4'], GESTOR)).rejects.toThrow(
         ForbiddenException,
       );
-      expect(prisma.usuarios_unidades.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.usuarios_sub_unidades.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('solo controla los permisos heredados de las bases que se agregan', async () => {
+      prisma.sub_unidades.findMany.mockResolvedValue([
+        { id: 1n, vigente: true },
+        { id: 4n, vigente: true },
+      ]);
+      prisma.usuarios_sub_unidades.findMany.mockResolvedValue([bai]);
+
+      await service.asignarUnidades('10', ['1', '4'], GESTOR);
+
+      expect(prisma.permisos.findMany).toHaveBeenCalledWith({
+        where: {
+          roles_permisos: {
+            some: { roles: { sub_unidades_roles: { some: { sub_unidad_id: { in: [4n] } } } } },
+          },
+        },
+        select: { nombre: true },
+      });
+      expect(prisma.usuarios_sub_unidades.createMany).toHaveBeenCalledWith({
+        data: [
+          { usuario_id: 10n, sub_unidad_id: 1n },
+          { usuario_id: 10n, sub_unidad_id: 4n },
+        ],
+      });
     });
   });
 

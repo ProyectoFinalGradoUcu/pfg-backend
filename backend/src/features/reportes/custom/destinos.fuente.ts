@@ -11,7 +11,7 @@ export const destinosFuente: FuenteCustom = {
     { clave: 'nombre', etiqueta: 'Nombre', tipo: 'texto' },
     { clave: 'grado', etiqueta: 'Grado', tipo: 'texto' },
     { clave: 'destino', etiqueta: 'Destino', tipo: 'texto' },
-    { clave: 'tipo_destino', etiqueta: 'Tipo', tipo: 'texto' },
+    { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
     { clave: 'cargo', etiqueta: 'Cargo', tipo: 'texto' },
     { clave: 'fecha_destino', etiqueta: 'Fecha destino', tipo: 'fecha' },
     { clave: 'fecha_fin', etiqueta: 'Fecha fin', tipo: 'fecha' },
@@ -31,6 +31,7 @@ export const destinosFuente: FuenteCustom = {
       },
       include: {
         unidades: true,
+        sub_unidades: true,
         personas: {
           include: {
             relaciones_laborales: { where: { estado: 'activo' }, take: 1, include: { grados: true } },
@@ -44,8 +45,8 @@ export const destinosFuente: FuenteCustom = {
       apellido: unir(a.personas?.primer_apellido, a.personas?.segundo_apellido),
       nombre: unir(a.personas?.primer_nombre, a.personas?.segundo_nombre),
       grado: a.personas?.relaciones_laborales?.[0]?.grados?.denominacion ?? '',
-      destino: a.unidades?.denominacion ?? '',
-      tipo_destino: a.unidades?.tipo ?? '',
+      destino: a.sub_unidades?.denominacion ?? '',
+      comando: a.unidades?.denominacion ?? '',
       cargo: a.posicion_destino ?? '',
       fecha_destino: fmtFecha(a.fecha_inicio),
       fecha_fin: fmtFecha(a.fecha_fin),

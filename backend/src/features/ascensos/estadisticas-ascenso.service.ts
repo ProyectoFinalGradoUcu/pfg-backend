@@ -20,7 +20,7 @@ export class EstadisticasAscensoService {
     };
     if (alcance?.tipo === 'unidad') {
       where.relacion_laboral_nueva = {
-        unidad_id: { in: alcance.unidadIds.map((u) => BigInt(u)) },
+        sub_unidad_id: { in: alcance.subUnidadIds.map((u) => BigInt(u)) },
       };
     }
 

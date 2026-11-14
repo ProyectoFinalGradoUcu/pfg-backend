@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CursosService } from './cursos.service';
@@ -8,7 +8,9 @@ import { AlcanceResuelto } from '../../lib/alcance/alcance.types';
 import { CursoDto } from './dto/curso.dto';
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { CalificarDesignacionesDto } from './dto/calificar-designaciones.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
+import { UpdateCursoDto } from './dto/update-curso.dto';
 
 const GLOBAL: AlcanceResuelto = { tipo: 'global' };
 
@@ -70,6 +72,7 @@ const makeInscripcion = (overrides: Partial<any> = {}) => ({
 // ─── Prisma mock ──────────────────────────────────────────────────────────────
 
 const makePrismaMock = () => ({
+  sub_unidades: { findUnique: jest.fn() },
   cursos: {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
@@ -166,12 +169,76 @@ describe('CursosService', () => {
       );
     });
 
+    describe('base del curso', () => {
+      const UNA_BASE: AlcanceResuelto = { tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['2'] };
+      const DOS_BASES: AlcanceResuelto = { tipo: 'unidad', subUnidadIds: ['7', '8'], comandoIds: ['2'] };
+      const dataCreada = () => prisma.cursos.create.mock.calls[0][0].data;
+
+      beforeEach(() => {
+        prisma.cursos.findFirst.mockResolvedValue(null);
+        prisma.cursos.create.mockResolvedValue(makeCurso());
+        prisma.sub_unidades.findUnique.mockImplementation(({ where }: any) =>
+          Promise.resolve({ id: where.id, unidad_id: 2n, vigente: true }),
+        );
+      });
+
+      it('con alcance global y sin base crea un curso general', async () => {
+        await service.create({ nombre_curso: 'X', institucion: 'EMA' }, { tipo: 'global' });
+
+        expect(dataCreada()).toMatchObject({ sub_unidad_id: null, unidad_id: null });
+      });
+
+      it('con alcance global puede elegir cualquier base; el comando sale de ella', async () => {
+        await service.create({ nombre_curso: 'X', institucion: 'EMA', sub_unidad_id: 9 }, { tipo: 'global' });
+
+        expect(dataCreada()).toMatchObject({ sub_unidad_id: 9n, unidad_id: 2n });
+      });
+
+      it('con una sola base y sin elegir, usa esa', async () => {
+        await service.create({ nombre_curso: 'X', institucion: 'EMA' }, UNA_BASE);
+
+        expect(dataCreada()).toMatchObject({ sub_unidad_id: 7n, unidad_id: 2n });
+      });
+
+      it('con varias bases exige elegir una', async () => {
+        await expect(service.create({ nombre_curso: 'X', institucion: 'EMA' }, DOS_BASES)).rejects.toThrow(
+          'Elegí la base del curso',
+        );
+      });
+
+      it('no deja crear un curso en una base ajena', async () => {
+        await expect(
+          service.create({ nombre_curso: 'X', institucion: 'EMA', sub_unidad_id: 9 }, DOS_BASES),
+        ).rejects.toThrow('Solo podés crear cursos de tus propias bases');
+        expect(prisma.cursos.create).not.toHaveBeenCalled();
+      });
+
+      it('rechaza una base que no está vigente', async () => {
+        prisma.sub_unidades.findUnique.mockResolvedValue({ id: 9n, unidad_id: 2n, vigente: false });
+
+        await expect(
+          service.create({ nombre_curso: 'X', institucion: 'EMA', sub_unidad_id: 9 }, { tipo: 'global' }),
+        ).rejects.toThrow('no está vigente');
+      });
+    });
+
     it('lanza ConflictException si el nombre ya existe', async () => {
       prisma.cursos.findFirst.mockResolvedValue(makeCurso());
 
       await expect(
         service.create({ nombre_curso: 'Curso de Aviación', institucion: 'EMA' }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('busca el nombre duplicado sin distinguir mayúsculas', async () => {
+      prisma.cursos.findFirst.mockResolvedValue(makeCurso());
+
+      await expect(
+        service.create({ nombre_curso: 'CURSO DE AVIACIÓN', institucion: 'EMA' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.cursos.findFirst).toHaveBeenCalledWith({
+        where: { nombre_curso: { equals: 'CURSO DE AVIACIÓN', mode: 'insensitive' } },
+      });
     });
   });
 
@@ -372,6 +439,16 @@ describe('CursosService', () => {
 
       await expect(service.editarCurso(1, { nombre_curso: 'Curso B' })).rejects.toThrow(ConflictException);
     });
+
+    it('busca el nombre duplicado sin distinguir mayúsculas', async () => {
+      prisma.cursos.findUnique.mockResolvedValue(makeCurso({ nombre_curso: 'Curso A' }));
+      prisma.cursos.findFirst.mockResolvedValue(makeCurso({ id: 2n, nombre_curso: 'Curso B' }));
+
+      await expect(service.editarCurso(1, { nombre_curso: 'curso b' })).rejects.toThrow(ConflictException);
+      expect(prisma.cursos.findFirst).toHaveBeenCalledWith({
+        where: { nombre_curso: { equals: 'curso b', mode: 'insensitive' }, id: { not: 1n } },
+      });
+    });
   });
 
   // ─── removeCurso ──────────────────────────────────────────────────────────
@@ -539,6 +616,29 @@ describe('CursosService', () => {
       await expect(
         service.crearDesignacion(999, { ...baseDto, numero_orden: 'ORD-001' }),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rechaza una fecha de fin anterior a la de inicio', async () => {
+      await expect(
+        service.crearDesignacion(1, {
+          ...baseDto,
+          numero_orden: 'ORD-001',
+          fecha_inicio: '2026-06-30',
+          fecha_fin: '2026-01-01',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.funcionarios_cursos.upsert).not.toHaveBeenCalled();
+    });
+
+    it('acepta inicio y fin el mismo día', async () => {
+      const result = await service.crearDesignacion(1, {
+        ...baseDto,
+        numero_orden: 'ORD-001',
+        fecha_inicio: '2026-03-01',
+        fecha_fin: '2026-03-01',
+      });
+
+      expect(result.personas_designadas).toBe(2);
     });
 
     it('crea una inscripción (upsert) por cada persona seleccionada', async () => {
@@ -774,6 +874,77 @@ describe('CursosService', () => {
     });
   });
 
+  // ─── marcarCompletacion ───────────────────────────────────────────────────
+
+  describe('marcarCompletacion', () => {
+    const completacion = {
+      id: 5n,
+      funcionario_curso_id: 1n,
+      modulo_id: 3n,
+      completado: true,
+      fecha_finalizacion: new Date('2026-05-08'),
+      aprobado: true,
+      calificacion: '8',
+      observacion_calificacion: 'Buen desempeño',
+      numero_orden: 'ORD-1',
+      boletin: 'BOL-1',
+    };
+
+    beforeEach(() => {
+      prisma.modulos_curso.findFirst.mockResolvedValue({ id: 3n, curso_id: 1n });
+      prisma.funcionarios_cursos.upsert.mockResolvedValue({ id: 1n });
+      prisma.funcionarios_modulos_curso.upsert.mockResolvedValue(completacion);
+    });
+
+    it('recalificar sin nota ni observación conserva las anteriores y la orden', async () => {
+      const result = await service.marcarCompletacion(1, 3, { persona_id: 10, aprobado: false });
+
+      const { update } = prisma.funcionarios_modulos_curso.upsert.mock.calls[0][0];
+      expect(update).toEqual({ aprobado: false });
+      expect(result.calificacion).toBe(8);
+      expect(result.observacion).toBe('Buen desempeño');
+    });
+
+    it('borra la nota y la observación cuando vienen en null', async () => {
+      await service.marcarCompletacion(1, 3, { persona_id: 10, calificacion: null, observacion: null });
+
+      const { update } = prisma.funcionarios_modulos_curso.upsert.mock.calls[0][0];
+      expect(update).toEqual({ calificacion: null, observacion_calificacion: null });
+    });
+
+    it('completado en null no se guarda como null', async () => {
+      await service.marcarCompletacion(1, 3, { persona_id: 10, completado: null as any });
+
+      const { create, update } = prisma.funcionarios_modulos_curso.upsert.mock.calls[0][0];
+      expect(update).toEqual({});
+      expect(create.completado).toBe(false);
+    });
+
+    it('al crear la completación usa los valores por defecto', async () => {
+      await service.marcarCompletacion(1, 3, { persona_id: 10, calificacion: 7 });
+
+      const { create } = prisma.funcionarios_modulos_curso.upsert.mock.calls[0][0];
+      expect(create).toEqual({
+        funcionario_curso_id: 1n,
+        modulo_id: 3n,
+        completado: false,
+        fecha_finalizacion: null,
+        aprobado: null,
+        calificacion: '7',
+        observacion_calificacion: null,
+        numero_orden: null,
+        boletin: null,
+      });
+    });
+
+    it('lanza NotFoundException si el módulo no es del curso', async () => {
+      prisma.modulos_curso.findFirst.mockResolvedValue(null);
+
+      await expect(service.marcarCompletacion(1, 99, { persona_id: 10 })).rejects.toThrow(NotFoundException);
+      expect(prisma.funcionarios_modulos_curso.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── actualizarDesignacion ────────────────────────────────────────────────
 
   describe('actualizarDesignacion', () => {
@@ -807,22 +978,31 @@ describe('CursosService', () => {
       expect(result.id).toBe('1');
     });
 
-    it('registra el resultado sin nota — la calificación es opcional', async () => {
-      prisma.funcionarios_cursos.findFirst.mockResolvedValue(designacionExistente);
-      prisma.funcionarios_cursos.update.mockResolvedValue({
-        ...designacionExistente,
-        aprobado: true,
-      });
+    it('recalificar sin nota ni observación conserva las anteriores', async () => {
+      const yaCalificada = { ...designacionExistente, aprobado: true, calificacion: '8', observacion_calificacion: 'Buen desempeño' };
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(yaCalificada);
+      prisma.funcionarios_cursos.update.mockResolvedValue({ ...yaCalificada, aprobado: false });
 
-      const result = await service.actualizarDesignacion(1, 1, { aprobado: true });
+      const result = await service.actualizarDesignacion(1, 1, { aprobado: false });
+
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { aprobado: false } }),
+      );
+      expect(result.calificacion).toBe(8);
+      expect(result.observacion).toBe('Buen desempeño');
+    });
+
+    it('borra la nota y la observación cuando vienen en null', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(designacionExistente);
+      prisma.funcionarios_cursos.update.mockResolvedValue({ ...designacionExistente, aprobado: true });
+
+      await service.actualizarDesignacion(1, 1, { aprobado: true, calificacion: null, observacion: null });
 
       expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { aprobado: true, calificacion: null, observacion_calificacion: null },
         }),
       );
-      expect(result.aprobado).toBe(true);
-      expect(result.calificacion).toBeNull();
     });
 
     it('registra un desaprobado con la observación que lo justifica', async () => {
@@ -851,9 +1031,87 @@ describe('CursosService', () => {
     });
 
     it.todo('lanza error si se intenta calificar un curso aún no finalizado (fecha_fin futura)');
-    it.todo('calificación masiva: guarda varios resultados en una sola operación');
-    it.todo('calificación masiva: si una nota es inválida, no guarda ninguna (rollback)');
-    it.todo('calificación masiva: el contador de pendientes baja correctamente tras guardar');
+  });
+
+  // ─── calificarDesignaciones ───────────────────────────────────────────────
+
+  describe('calificarDesignaciones', () => {
+    const makeDesignacion = (id: bigint, overrides: Partial<any> = {}) => ({
+      id,
+      persona_id: id * 10n,
+      curso_id: 1n,
+      aprobado: null,
+      calificacion: null,
+      observacion_calificacion: null,
+      ...overrides,
+    });
+
+    it('guarda varios resultados en una sola transacción', async () => {
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([{ id: 1n }, { id: 2n }]);
+      prisma.funcionarios_cursos.update
+        .mockResolvedValueOnce(makeDesignacion(1n, { aprobado: true, calificacion: '9' }))
+        .mockResolvedValueOnce(makeDesignacion(2n, { aprobado: false }));
+
+      const result = await service.calificarDesignaciones(1, {
+        resultados: [
+          { designacionId: 1, aprobado: true, calificacion: 9 },
+          { designacionId: 2, aprobado: false },
+        ],
+      });
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith({
+        where: { id: 1n },
+        data: { aprobado: true, calificacion: '9' },
+      });
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith({
+        where: { id: 2n },
+        data: { aprobado: false },
+      });
+      expect(result).toEqual([
+        { id: '1', curso_id: '1', persona_id: '10', aprobado: true, calificacion: 9, observacion: null },
+        { id: '2', curso_id: '1', persona_id: '20', aprobado: false, calificacion: null, observacion: null },
+      ]);
+    });
+
+    it('solo busca designaciones del curso indicado', async () => {
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([{ id: 1n }]);
+      prisma.funcionarios_cursos.update.mockResolvedValue(makeDesignacion(1n, { aprobado: true }));
+
+      await service.calificarDesignaciones(7, { resultados: [{ designacionId: 1, aprobado: true }] });
+
+      expect(prisma.funcionarios_cursos.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: [1n] }, curso_id: 7n } }),
+      );
+    });
+
+    it('no guarda ninguna si alguna designación no pertenece al curso', async () => {
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([{ id: 1n }]);
+
+      await expect(
+        service.calificarDesignaciones(1, {
+          resultados: [
+            { designacionId: 1, aprobado: true },
+            { designacionId: 99, aprobado: true },
+          ],
+        }),
+      ).rejects.toThrow(new NotFoundException('No existen designaciones con id 99 para el curso 1'));
+      expect(prisma.funcionarios_cursos.update).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rechaza designaciones repetidas sin tocar la base', async () => {
+      await expect(
+        service.calificarDesignaciones(1, {
+          resultados: [
+            { designacionId: 1, aprobado: true },
+            { designacionId: 1, aprobado: false },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.funcionarios_cursos.findMany).not.toHaveBeenCalled();
+      expect(prisma.funcionarios_cursos.update).not.toHaveBeenCalled();
+    });
   });
 
   // ─── DTOs ─────────────────────────────────────────────────────────────────
@@ -887,6 +1145,33 @@ describe('CursosService', () => {
         const errors = await validate(dto);
         expect(errors).toHaveLength(0);
       });
+
+      it('rechaza un nombre_curso de solo espacios', async () => {
+        const dto = plainToInstance(CursoDto, { nombre_curso: '   ', institucion: 'EMA' });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'nombre_curso')).toBe(true);
+      });
+    });
+
+    describe('UpdateCursoDto', () => {
+      it.each([['vacío', ''], ['de solo espacios', '   ']])(
+        'rechaza nombre_curso %s',
+        async (_caso, nombre_curso) => {
+          const errors = await validate(plainToInstance(UpdateCursoDto, { nombre_curso }));
+          expect(errors.map((e) => e.property)).toEqual(['nombre_curso']);
+        },
+      );
+
+      it('acepta no mandar el nombre', async () => {
+        const errors = await validate(plainToInstance(UpdateCursoDto, { es_obligatorio: true }));
+        expect(errors).toHaveLength(0);
+      });
+
+      it('recorta los espacios del nombre', async () => {
+        const dto = plainToInstance(UpdateCursoDto, { nombre_curso: '  Curso X  ' });
+        expect(await validate(dto)).toHaveLength(0);
+        expect(dto.nombre_curso).toBe('Curso X');
+      });
     });
 
     describe('CreateModuloCursoDto', () => {
@@ -907,6 +1192,44 @@ describe('CursosService', () => {
           nombre_modulo: 'Módulo A',
           descripcion: 'Descripción del módulo',
           orden_modulo: 1,
+        });
+        const errors = await validate(dto);
+        expect(errors).toHaveLength(0);
+      });
+    });
+
+    describe('CalificarDesignacionesDto', () => {
+      it('rechaza la lista vacía', async () => {
+        const dto = plainToInstance(CalificarDesignacionesDto, { resultados: [] });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'resultados')).toBe(true);
+      });
+
+      it('rechaza todo el lote si una nota está fuera de rango', async () => {
+        const dto = plainToInstance(CalificarDesignacionesDto, {
+          resultados: [
+            { designacionId: 1, aprobado: true, calificacion: 8 },
+            { designacionId: 2, aprobado: true, calificacion: 11 },
+          ],
+        });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'resultados')).toBe(true);
+      });
+
+      it('rechaza una fila sin aprobado/desaprobado', async () => {
+        const dto = plainToInstance(CalificarDesignacionesDto, {
+          resultados: [{ designacionId: 1, calificacion: 8 }],
+        });
+        const errors = await validate(dto);
+        expect(errors.some((e) => e.property === 'resultados')).toBe(true);
+      });
+
+      it('es válido con resultados completos', async () => {
+        const dto = plainToInstance(CalificarDesignacionesDto, {
+          resultados: [
+            { designacionId: 1, aprobado: true, calificacion: 8 },
+            { designacionId: 2, aprobado: false },
+          ],
         });
         const errors = await validate(dto);
         expect(errors).toHaveLength(0);

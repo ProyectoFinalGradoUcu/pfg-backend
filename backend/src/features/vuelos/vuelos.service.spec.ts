@@ -313,7 +313,7 @@ describe('VuelosService', () => {
       await service.listarRegistros(
         10,
         { query: 'perez', categoria: 'oficial', grado_id: 20, escalafon_id: 3, unidad_vuelo_id: 9 },
-        { tipo: 'unidad', unidadIds: ['4'] },
+        { tipo: 'unidad', subUnidadIds: ['4'], comandoIds: [] },
       );
 
       const { where } = prisma.registros_vuelo.findMany.mock.calls[0][0];
@@ -325,7 +325,7 @@ describe('VuelosService', () => {
         unidad_vuelo_id: 9n,
       });
       expect(where.personas.relaciones_laborales).toEqual({
-        some: { fecha_fin: null, unidad_id: { in: [4n] } },
+        some: { fecha_fin: null, sub_unidad_id: { in: [4n] } },
       });
       expect(where.personas.OR).toHaveLength(5);
     });
@@ -415,7 +415,7 @@ describe('VuelosService', () => {
       prisma.personas.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.editarRegistro(500, { hs_av_total: 1600 }, 1n, { tipo: 'unidad', unidadIds: ['4'] }),
+        service.editarRegistro(500, { hs_av_total: 1600 }, 1n, { tipo: 'unidad', subUnidadIds: ['4'], comandoIds: [] }),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.registros_vuelo.update).not.toHaveBeenCalled();
     });
@@ -513,14 +513,14 @@ describe('VuelosService', () => {
         .mockResolvedValueOnce([makeRegistro(), makeRegistro({ id: 501n, persona_id: 101n })])
         .mockResolvedValueOnce([makeRegistro()]);
 
-      const { buffer, nombreArchivo } = await service.exportarAnio(2026, { tipo: 'unidad', unidadIds: ['4'] });
+      const { buffer, nombreArchivo } = await service.exportarAnio(2026, { tipo: 'unidad', subUnidadIds: ['4'], comandoIds: [] });
 
       expect(nombreArchivo).toBe('horas_vuelo_2026.xlsx');
       expect(prisma.periodos_vuelo.findMany.mock.calls[0][0]).toEqual({ where: { anio: 2026 }, orderBy: { numero: 'asc' } });
       const where = prisma.registros_vuelo.findMany.mock.calls[0][0].where;
       expect(where).toEqual({
         periodo_id: 1n,
-        personas: { relaciones_laborales: { some: { fecha_fin: null, unidad_id: { in: [4n] } } } },
+        personas: { relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [4n] } } } },
       });
 
       const wb = new Workbook();

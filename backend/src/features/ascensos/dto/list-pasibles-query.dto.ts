@@ -67,11 +67,11 @@ export class ListPasiblesQueryDto {
   @IsInt()
   grado_id?: number;
 
-  @ApiPropertyOptional({ example: 5 })
+  @ApiPropertyOptional({ example: 3, description: 'Base (sub-unidad) de la relación laboral activa' })
   @IsOptional()
   @Transform(aNumero)
   @IsInt()
-  unidad_id?: number;
+  sub_unidad_id?: number;
 
   @ApiPropertyOptional({ example: '12345678', description: 'Cédula, nombre o apellido (parcial)' })
   @IsOptional()

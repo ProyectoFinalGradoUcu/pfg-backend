@@ -1,86 +1,61 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
 import { RequestMethod } from '@nestjs/common';
 import { CatalogosController } from './catalogos.controller';
-import { CatalogosService } from './catalogos.service';
-import { PERMISSIONS_KEY } from '../auth/decorators/permissions.decorator';
 import { AUDITAR_KEY } from '../auditoria/decorators/auditar.decorator';
+import { PERMISSIONS_KEY } from '../auth/decorators/permissions.decorator';
 
-const metaDe = (handler: string) => {
-  const fn = (CatalogosController.prototype as any)[handler];
-  return {
-    path: Reflect.getMetadata(PATH_METADATA, fn) as string,
-    method: Reflect.getMetadata(METHOD_METADATA, fn) as RequestMethod,
-    permisos: Reflect.getMetadata(PERMISSIONS_KEY, fn) as string[] | undefined,
-  };
-};
+const handlers = () =>
+  Object.getOwnPropertyNames(CatalogosController.prototype)
+    .filter((nombre) => nombre !== 'constructor')
+    .map((nombre) => ({ nombre, fn: (CatalogosController.prototype as any)[nombre] }))
+    .filter(({ fn }) => typeof fn === 'function' && Reflect.hasMetadata(PATH_METADATA, fn))
+    .map(({ nombre, fn }) => ({
+      nombre,
+      fn,
+      path: Reflect.getMetadata(PATH_METADATA, fn) as string,
+      method: Reflect.getMetadata(METHOD_METADATA, fn) as RequestMethod,
+      permisos: Reflect.getMetadata(PERMISSIONS_KEY, fn) as string[] | undefined,
+    }));
 
-describe('CatalogosController · unidades', () => {
-  // Solo se cubren los tres endpoints de escritura agregados con este módulo.
-  // Los GET del catálogo son previos y quedan fuera de alcance.
-
+describe('CatalogosController · comandos y bases', () => {
   it.each([
-    ['crearUnidad', RequestMethod.POST, 'unidades'],
-    ['editarUnidad', RequestMethod.PATCH, 'unidades/:unidadId'],
-    ['darDeBajaUnidad', RequestMethod.DELETE, 'unidades/:unidadId'],
-  ])('%s responde en el método y la ruta esperados', (handler, method, path) => {
-    const meta = metaDe(handler);
+    ['crearComando', RequestMethod.POST, 'unidades'],
+    ['editarComando', RequestMethod.PATCH, 'unidades/:unidadId'],
+    ['crearBase', RequestMethod.POST, 'sub-unidades'],
+    ['editarBase', RequestMethod.PATCH, 'sub-unidades/:subUnidadId'],
+  ])('%s responde en %s %s y exige catalogos.gestionar', (nombre, method, path) => {
+    const h = handlers().find((x) => x.nombre === nombre)!;
 
-    expect(meta.method).toBe(method);
-    expect(meta.path).toBe(path);
+    expect(h.method).toBe(method);
+    expect(h.path).toBe(path);
+    expect(h.permisos).toEqual(['catalogos.gestionar']);
   });
 
-  it.each(['crearUnidad', 'editarUnidad', 'darDeBajaUnidad'])(
-    '%s exige catalogos.gestionar',
-    (handler) => {
-      expect(metaDe(handler).permisos).toEqual(['catalogos.gestionar']);
-    },
-  );
+  it('no expone DELETE: la baja es lógica porque liquidación referencia las filas', () => {
+    expect(handlers().some((h) => h.method === RequestMethod.DELETE)).toBe(false);
+  });
+
+  it('toda escritura exige catalogos.gestionar', () => {
+    const escrituras = handlers().filter((h) => h.method !== RequestMethod.GET);
+
+    expect(escrituras.length).toBe(4);
+    expect(escrituras.every((h) => h.permisos?.includes('catalogos.gestionar'))).toBe(true);
+  });
+
+  it('audita comandos y bases con su propia entidad', () => {
+    const entidad = (nombre: string) =>
+      Reflect.getMetadata(AUDITAR_KEY, handlers().find((x) => x.nombre === nombre)!.fn)?.entidad;
+
+    expect(entidad('crearComando')).toBe('Comando');
+    expect(entidad('editarComando')).toBe('Comando');
+    expect(entidad('crearBase')).toBe('Base');
+    expect(entidad('editarBase')).toBe('Base');
+  });
 
   it('registra el contexto de auditoría a nivel de clase', () => {
     expect(Reflect.getMetadata(AUDITAR_KEY, CatalogosController)).toEqual({
       contexto: 'Catálogos',
       entidad: 'Unidad',
     });
-  });
-});
-
-describe('CatalogosController · delegación de unidades', () => {
-  let controller: CatalogosController;
-  let service: jest.Mocked<Partial<CatalogosService>>;
-
-  beforeEach(async () => {
-    service = {
-      crearUnidad: jest.fn(),
-      editarUnidad: jest.fn(),
-      darDeBajaUnidad: jest.fn(),
-    };
-
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [CatalogosController],
-      providers: [{ provide: CatalogosService, useValue: service }],
-    }).compile();
-
-    controller = module.get<CatalogosController>(CatalogosController);
-  });
-
-  it('pasa el dto al crear', () => {
-    const dto = { codigo: 'BAIII', denominacion: 'Base Aérea Nº 3' };
-
-    controller.crearUnidad(dto);
-
-    expect(service.crearUnidad).toHaveBeenCalledWith(dto);
-  });
-
-  it('pasa id y dto al editar', () => {
-    controller.editarUnidad(5, { vigente: false });
-
-    expect(service.editarUnidad).toHaveBeenCalledWith(5, { vigente: false });
-  });
-
-  it('pasa el id al dar de baja', () => {
-    controller.darDeBajaUnidad(5);
-
-    expect(service.darDeBajaUnidad).toHaveBeenCalledWith(5);
   });
 });

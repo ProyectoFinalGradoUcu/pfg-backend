@@ -2,15 +2,23 @@ import { destinosFuente } from './custom/destinos.fuente';
 import { destinosReporte } from './definiciones/destinos.reporte';
 import { legajoOficialReporte } from './definiciones/legajo-oficial.reporte';
 
-// Los tres leen `destinos` (antes `asignaciones_funcionario`) y toman la unidad
-// de la relación `unidades`, no de un catálogo propio. El número de orden vive
-// en la asignación, no en el lugar.
+// Los tres leen `destinos`. El destino es la sub-unidad (`sub_unidades`) y el
+// comando es la unidad (`unidades`), los dos del catálogo de liquidación. El
+// número de orden vive en la asignación, no en el lugar.
 
 const makeUnidad = (overrides: Partial<any> = {}) => ({
   id: 5n,
-  codigo: 'EMGFA',
-  denominacion: 'E.M.G.F.A.',
-  tipo: 'Organismo',
+  codigo: 'CG',
+  denominacion: 'C.G.',
+  vigente: true,
+  ...overrides,
+});
+
+const makeSubUnidad = (overrides: Partial<any> = {}) => ({
+  id: 17n,
+  unidad_id: 5n,
+  codigo: 'DCG',
+  denominacion: 'D.C.G.',
   vigente: true,
   ...overrides,
 });
@@ -19,6 +27,7 @@ const makeDestino = (overrides: Partial<any> = {}) => ({
   id: 200n,
   persona_id: 100n,
   unidad_id: 5n,
+  sub_unidad_id: 17n,
   fecha_inicio: new Date('2024-04-30'),
   fecha_fin: null,
   posicion_destino: 'Sub-Jefe de Personal A-1',
@@ -26,6 +35,7 @@ const makeDestino = (overrides: Partial<any> = {}) => ({
   boletin: null,
   observaciones: null,
   unidades: makeUnidad(),
+  sub_unidades: makeSubUnidad(),
   personas: {
     cedula: '50000001',
     primer_nombre: 'José',
@@ -51,17 +61,17 @@ describe('Fuente custom · destinos', () => {
     prisma.destinos.findMany.mockResolvedValue([]);
   });
 
-  it('lee de la tabla destinos incluyendo la unidad', async () => {
+  it('lee de la tabla destinos incluyendo comando y sub-unidad', async () => {
     await destinosFuente.consultar(prisma, {});
 
     expect(prisma.destinos.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        include: expect.objectContaining({ unidades: true }),
+        include: expect.objectContaining({ unidades: true, sub_unidades: true }),
       }),
     );
   });
 
-  it('toma el destino y el tipo de la unidad, y la orden de la asignación', async () => {
+  it('toma el destino de la sub-unidad, el comando de la unidad y la orden de la asignación', async () => {
     prisma.destinos.findMany.mockResolvedValue([makeDestino()]);
 
     const [fila] = await destinosFuente.consultar(prisma, {});
@@ -71,8 +81,8 @@ describe('Fuente custom · destinos', () => {
       apellido: 'Pérez Gómez',
       nombre: 'José María',
       grado: 'Coronel',
-      destino: 'E.M.G.F.A.',
-      tipo_destino: 'Organismo',
+      destino: 'D.C.G.',
+      comando: 'C.G.',
       cargo: 'Sub-Jefe de Personal A-1',
       fecha_destino: '30/04/2024',
       fecha_fin: '',
@@ -106,22 +116,22 @@ describe('Fuente custom · destinos', () => {
     );
   });
 
-  it('tolera filas sin unidad ni persona', async () => {
+  it('tolera filas sin sub-unidad, comando ni persona', async () => {
     prisma.destinos.findMany.mockResolvedValue([
-      makeDestino({ unidades: null, personas: null }),
+      makeDestino({ unidades: null, sub_unidades: null, personas: null }),
     ]);
 
     const [fila] = await destinosFuente.consultar(prisma, {});
 
     expect(fila.destino).toBe('');
-    expect(fila.tipo_destino).toBe('');
+    expect(fila.comando).toBe('');
     expect(fila.cedula).toBe('');
   });
 
-  it('declara la columna de tipo y la de fecha de fin', () => {
+  it('declara la columna de comando y la de fecha de fin', () => {
     const claves = destinosFuente.columnas.map((c) => c.clave);
 
-    expect(claves).toContain('tipo_destino');
+    expect(claves).toContain('comando');
     expect(claves).toContain('fecha_fin');
   });
 });
@@ -134,7 +144,7 @@ describe('Reporte · destinos', () => {
     prisma.destinos.findMany.mockResolvedValue([]);
   });
 
-  it('arma la fila con la unidad, el escalafón y la orden de la asignación', async () => {
+  it('arma la fila con la sub-unidad, el comando, el escalafón y la orden de la asignación', async () => {
     prisma.destinos.findMany.mockResolvedValue([makeDestino()]);
 
     const resultado = await destinosReporte.ejecutar({ prisma, filtros: {} });
@@ -146,8 +156,8 @@ describe('Reporte · destinos', () => {
         escalafon: 'CG',
         apellido: 'Pérez Gómez',
         nombre: 'José María',
-        destino: 'E.M.G.F.A.',
-        tipo_destino: 'Organismo',
+        destino: 'D.C.G.',
+        comando: 'C.G.',
         cargo: 'Sub-Jefe de Personal A-1',
         fecha_destino: '30/04/2024',
         fecha_fin: '',
@@ -175,7 +185,7 @@ describe('Reporte · destinos', () => {
 
     expect(resultado.filas).toEqual([]);
     expect(resultado.columnas?.map((c) => c.clave)).toEqual(
-      expect.arrayContaining(['destino', 'tipo_destino', 'fecha_fin', 'numero_orden']),
+      expect.arrayContaining(['destino', 'comando', 'fecha_fin', 'numero_orden']),
     );
   });
 });
@@ -215,7 +225,7 @@ describe('Reporte · legajo del oficial', () => {
     jest.resetAllMocks();
   });
 
-  it('incluye los destinos con su unidad', async () => {
+  it('incluye los destinos con su comando y su sub-unidad', async () => {
     prisma.personas.findUnique.mockResolvedValue(makePersona());
 
     await legajoOficialReporte.ejecutar({ prisma, filtros: { persona_id: '100' } });
@@ -223,13 +233,13 @@ describe('Reporte · legajo del oficial', () => {
     expect(prisma.personas.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         include: expect.objectContaining({
-          destinos: expect.objectContaining({ include: { unidades: true } }),
+          destinos: expect.objectContaining({ include: { unidades: true, sub_unidades: true } }),
         }),
       }),
     );
   });
 
-  it('toma el destino actual de la unidad de la asignación', async () => {
+  it('toma el destino actual de la sub-unidad de la asignación', async () => {
     prisma.personas.findUnique.mockResolvedValue(makePersona());
 
     const resultado = await legajoOficialReporte.ejecutar({
@@ -240,7 +250,23 @@ describe('Reporte · legajo del oficial', () => {
     const filas = resultado.secciones?.flatMap((s) => s.filas) ?? [];
     const destinoActual = filas.find((f: any) => f.campo === 'Destino actual');
 
-    expect(destinoActual).toEqual({ campo: 'Destino actual', valor: 'E.M.G.F.A.' });
+    expect(destinoActual).toEqual({ campo: 'Destino actual', valor: 'D.C.G.' });
+  });
+
+  it('si la asignación no tiene sub-unidad usa su comando', async () => {
+    prisma.personas.findUnique.mockResolvedValue(
+      makePersona({ destinos: [makeDestino({ sub_unidades: null })] }),
+    );
+
+    const resultado = await legajoOficialReporte.ejecutar({
+      prisma,
+      filtros: { persona_id: '100' },
+    });
+
+    const filas = resultado.secciones?.flatMap((s) => s.filas) ?? [];
+    const destinoActual = filas.find((f: any) => f.campo === 'Destino actual');
+
+    expect(destinoActual).toEqual({ campo: 'Destino actual', valor: 'C.G.' });
   });
 
   it('cae a la unidad de la relación laboral si no hay ninguna asignación', async () => {
