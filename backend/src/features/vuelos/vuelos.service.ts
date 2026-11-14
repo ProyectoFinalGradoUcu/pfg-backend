@@ -466,6 +466,15 @@ export class VuelosService {
     const aeronaves = dto.aeronaves === undefined ? undefined : dto.aeronaves?.trim() || null;
 
     const actualizado = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM registros_vuelo WHERE id = ${registro.id} FOR UPDATE`;
+      const actual = await tx.registros_vuelo.findUnique({ where: { id: registro.id }, include: { periodos_vuelo: true } });
+      if (!actual) throw new NotFoundException(`No existe el registro de vuelo ${registroId}`);
+      this.assertAbierto(actual.periodos_vuelo);
+      for (const tipo of ['av', 'ob'] as const) {
+        const anual = dto[`hs_${tipo}_anio_militar`] ?? horas(actual[`hs_${tipo}_anio_militar`]);
+        const total = dto[`hs_${tipo}_total`] ?? horas(actual[`hs_${tipo}_total`]);
+        if (anual > total) throw new BadRequestException(`Las horas ${tipo.toUpperCase()} del año militar no pueden superar las horas totales`);
+      }
       if (cambiaUnidad) {
         await tx.historial_unidad_vuelo.create({
           data: {

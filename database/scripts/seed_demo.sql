@@ -419,6 +419,8 @@ JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'personas.ver.unidad',
   'personas.crear.unidad',
   'personas.editar.unidad',
+  'comisiones.ver.unidad',
+  'comisiones.gestionar.unidad',
   'cursos.ver.unidad',
   'reportes.ejecutar.unidad',
   'vuelos.ver.unidad',
@@ -438,7 +440,8 @@ FROM roles r
 JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'personas.ver.unidad',
   'cursos.ver.unidad',
-  'vuelos.ver.unidad'
+  'vuelos.ver.unidad',
+  'comisiones.ver.unidad'
 )
 WHERE r.nombre = 'Consulta' AND r.aplicacion = 'personal'
 ON CONFLICT DO NOTHING;

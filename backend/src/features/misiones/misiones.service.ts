@@ -284,6 +284,11 @@ export class MisionesService {
     }
 
     const conv = await this.prisma.$transaction(async (tx) => {
+      if (dto.persona_ids?.length) {
+        const ids = [...new Set(dto.persona_ids)].map(BigInt);
+        const personas = await tx.personas.findMany({ where: { id: { in: ids } }, select: { id: true } });
+        if (personas.length !== ids.length) throw new NotFoundException('Una o más personas no existen en el sistema');
+      }
       const nueva = await tx.convocatorias.create({
         data: {
           mision_id: BigInt(misionId),
@@ -467,7 +472,7 @@ export class MisionesService {
       select: { id: true },
     });
     if (existentes.length !== personaIds.length) {
-      throw new BadRequestException('Una o más personas no existen en el sistema');
+      throw new NotFoundException('Una o más personas no existen en el sistema');
     }
 
     // Verificar duplicados

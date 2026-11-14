@@ -1,6 +1,7 @@
 import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
 import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from '../definiciones/_helpers';
 import { FuenteCustom } from './fuentes.types';
+import { wherePersonaReporte } from '../alcance-reportes';
 
 export const ascensosFuente: FuenteCustom = {
   clave: 'ascensos',
@@ -28,7 +29,7 @@ export const ascensosFuente: FuenteCustom = {
     const ascensos = await prisma.ascensos.findMany({
       where: {
         ...(filtros.persona_id ? { persona_id: BigInt(filtros.persona_id) } : {}),
-        ...(categoria ? { personas: wherePersonaPorCategoria(categoria) } : {}),
+        personas: { ...wherePersonaReporte(filtros), ...(categoria && wherePersonaPorCategoria(categoria)) },
       },
       include: { grados: true, grados_grado_anterior: true, personas: true },
       orderBy: { fecha_ascenso: 'desc' },

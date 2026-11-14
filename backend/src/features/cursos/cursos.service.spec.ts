@@ -105,6 +105,7 @@ const makePrismaMock = () => ({
     upsert: jest.fn(),
   },
   $transaction: jest.fn(),
+  $queryRaw: jest.fn(),
 });
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -128,6 +129,7 @@ describe('CursosService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    prisma.personas.findMany.mockImplementation(({ where }) => Promise.resolve(where.id.in.map((id: bigint) => ({ id }))));
     // Handles both: callback form (async tx => ...) and array form ([p1, p2])
     prisma.$transaction.mockImplementation((arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
@@ -558,7 +560,7 @@ describe('CursosService', () => {
 
     beforeEach(() => {
       prisma.cursos.findUnique.mockResolvedValue(makeCurso());
-      prisma.funcionarios_cursos.upsert.mockResolvedValue({
+      prisma.funcionarios_cursos.create.mockResolvedValue({
         id: 1n,
         persona_id: 10n,
         curso_id: 1n,
@@ -595,14 +597,14 @@ describe('CursosService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('crea una inscripción (upsert) por cada persona seleccionada', async () => {
+    it('crea una inscripción por cada persona seleccionada', async () => {
       await service.crearDesignacion(1, {
         ...baseDto,
         persona_ids: [10, 20, 30],
         numero_orden: 'ORD-001',
       });
 
-      expect(prisma.funcionarios_cursos.upsert).toHaveBeenCalledTimes(3);
+      expect(prisma.funcionarios_cursos.create).toHaveBeenCalledTimes(3);
     });
 
     it('lanza NotFoundException si algún módulo no pertenece al curso', async () => {
