@@ -340,6 +340,22 @@ describe('HistorialCursosService', () => {
       );
     });
 
+    it('rechaza una fecha de fin anterior a la de inicio', async () => {
+      prisma.personas.findUnique.mockResolvedValue(makePersona());
+
+      await expect(
+        service.create({
+          personaId: 10,
+          nombre: 'Curso X',
+          institucion: 'EMA',
+          tipo: 'obligatorio',
+          fechaInicio: '2026-09-30',
+          fechaFin: '2026-03-01',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.cursos.create).not.toHaveBeenCalled();
+    });
+
     it('crea la designación con fechas null cuando no se proveen', async () => {
       prisma.personas.findUnique.mockResolvedValue(makePersona());
       prisma.cursos.create.mockResolvedValue(makeCurso());

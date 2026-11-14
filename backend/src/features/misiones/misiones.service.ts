@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service';
 import { CreateMisionDto } from './dto/create-mision.dto';
 import { UpdateMisionDto } from './dto/update-mision.dto';
@@ -16,10 +17,19 @@ import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convo
 import { ListFuncionariosConvocatoriaQueryDto } from './dto/list-funcionarios-convocatoria-query.dto';
 import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
+import { buscarSolapamientos } from './solapamientos';
 
 // Computed: una convocatoria está finalizada cuando tiene fecha de llegada y ya pasó
 const esFinalizada = (fechaLlegada: Date | null) =>
   fechaLlegada !== null && fechaLlegada <= new Date();
+
+const aFecha = (valor?: string | null) => (valor ? new Date(valor) : null);
+
+const assertFechasOrdenadas = (salida: Date | null, llegada: Date | null) => {
+  if (salida && llegada && llegada < salida) {
+    throw new BadRequestException('La fecha de llegada no puede ser anterior a la fecha de salida');
+  }
+};
 
 @Injectable()
 export class MisionesService {
@@ -158,9 +168,11 @@ export class MisionesService {
       data: {
         nombre_mision: dto.nombre_mision ?? undefined,
         pais: dto.pais ?? undefined,
+        ...(dto.numero_orden !== undefined && { numero_orden: dto.numero_orden }),
         ...(dto.fecha_orden !== undefined && {
           fecha_orden: dto.fecha_orden ? new Date(dto.fecha_orden) : null,
         }),
+        ...(dto.boletin !== undefined && { boletin: dto.boletin }),
         ...(dto.fecha_boletin !== undefined && {
           fecha_boletin: dto.fecha_boletin ? new Date(dto.fecha_boletin) : null,
         }),
@@ -283,6 +295,15 @@ export class MisionesService {
       throw new BadRequestException('Se requiere al menos número de orden o boletín');
     }
 
+    const salida = aFecha(dto.fecha_salida);
+    const llegada = aFecha(dto.fecha_llegada);
+    assertFechasOrdenadas(salida, llegada);
+    await this.assertSinSolapamientos(
+      (dto.persona_ids ?? []).map((pid) => BigInt(pid)),
+      salida,
+      llegada,
+    );
+
     const conv = await this.prisma.$transaction(async (tx) => {
       if (dto.persona_ids?.length) {
         const ids = [...new Set(dto.persona_ids)].map(BigInt);
@@ -294,8 +315,8 @@ export class MisionesService {
           mision_id: BigInt(misionId),
           numero_orden: dto.numero_orden ?? null,
           boletin: dto.boletin ?? null,
-          fecha_salida: dto.fecha_salida ? new Date(dto.fecha_salida) : null,
-          fecha_llegada: dto.fecha_llegada ? new Date(dto.fecha_llegada) : null,
+          fecha_salida: salida,
+          fecha_llegada: llegada,
           observaciones: dto.observaciones ?? null,
         },
       });
@@ -343,14 +364,30 @@ export class MisionesService {
       throw new BadRequestException('La convocatoria debe conservar al menos número de orden o boletín');
     }
 
+    const salida = dto.fecha_salida !== undefined ? aFecha(dto.fecha_salida) : conv.fecha_salida;
+    const llegada = dto.fecha_llegada !== undefined ? aFecha(dto.fecha_llegada) : conv.fecha_llegada;
+    assertFechasOrdenadas(salida, llegada);
+    if ((dto.fecha_salida !== undefined || dto.fecha_llegada !== undefined) && salida) {
+      const funcionarios = await this.prisma.funcionarios_convocatorias.findMany({
+        where: { convocatoria_id: conv.id },
+        select: { persona_id: true },
+      });
+      await this.assertSinSolapamientos(
+        funcionarios.map((f) => f.persona_id),
+        salida,
+        llegada,
+        conv.id,
+      );
+    }
+
     const actualizado = await this.prisma.convocatorias.update({
       where: { id: BigInt(convocatoriaId) },
       data: {
-        numero_orden: dto.numero_orden ?? undefined,
-        boletin: dto.boletin ?? undefined,
-        fecha_salida: dto.fecha_salida ? new Date(dto.fecha_salida) : undefined,
-        fecha_llegada: dto.fecha_llegada ? new Date(dto.fecha_llegada) : undefined,
-        observaciones: dto.observaciones ?? undefined,
+        numero_orden: dto.numero_orden,
+        boletin: dto.boletin,
+        ...(dto.fecha_salida !== undefined && { fecha_salida: salida }),
+        ...(dto.fecha_llegada !== undefined && { fecha_llegada: llegada }),
+        observaciones: dto.observaciones,
       },
     });
 
@@ -490,6 +527,8 @@ export class MisionesService {
       );
     }
 
+    await this.assertSinSolapamientos(personaIds, conv.fecha_salida, conv.fecha_llegada);
+
     await this.prisma.funcionarios_convocatorias.createMany({
       data: dto.funcionarios.map((f) => ({
         convocatoria_id: BigInt(convocatoriaId),
@@ -531,9 +570,9 @@ export class MisionesService {
     const actualizado = await this.prisma.funcionarios_convocatorias.update({
       where: { id: asignacion.id },
       data: {
-        numero_orden: dto.numero_orden ?? undefined,
-        boletin: dto.boletin ?? undefined,
-        observaciones: dto.observaciones ?? undefined,
+        numero_orden: dto.numero_orden,
+        boletin: dto.boletin,
+        observaciones: dto.observaciones,
       },
     });
 
@@ -586,17 +625,53 @@ export class MisionesService {
 
   async listarPersonalEnMision(query: ListPersonalMisionQueryDto = {}) {
     const page = query.page ?? 1;
-    const pageSize = Math.min(query.pageSize ?? 200, 200);
+    const pageSize = Math.min(query.pageSize ?? 10, 200);
+    const now = new Date();
 
-    const where = query.categoria
-      ? { personas: wherePersonaPorCategoria(query.categoria) }
-      : {};
+    // AND explícito: categoría, búsqueda y orden traen sus propios OR y no se pueden mezclar.
+    const condiciones: Prisma.funcionarios_convocatoriasWhereInput[] = [];
+    if (query.categoria) {
+      condiciones.push({ personas: wherePersonaPorCategoria(query.categoria) });
+    }
+    for (const palabra of (query.query ?? '').trim().split(/\s+/).filter(Boolean)) {
+      condiciones.push({
+        personas: {
+          OR: [
+            { cedula: { contains: palabra, mode: 'insensitive' } },
+            { primer_nombre: { contains: palabra, mode: 'insensitive' } },
+            { primer_apellido: { contains: palabra, mode: 'insensitive' } },
+          ],
+        },
+      });
+    }
+    if (query.misionIds?.length) {
+      condiciones.push({ convocatorias: { mision_id: { in: query.misionIds.map((id) => BigInt(id)) } } });
+    }
+    const orden = query.orden?.trim();
+    if (orden) {
+      condiciones.push({
+        OR: [
+          { numero_orden: { contains: orden, mode: 'insensitive' } },
+          { boletin: { contains: orden, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (query.finalizada === true) {
+      condiciones.push({ convocatorias: { fecha_llegada: { not: null, lte: now } } });
+    } else if (query.finalizada === false) {
+      condiciones.push({ convocatorias: { OR: [{ fecha_llegada: null }, { fecha_llegada: { gt: now } }] } });
+    }
+    const where = condiciones.length ? { AND: condiciones } : {};
 
     const [total, asignaciones] = await this.prisma.$transaction([
       this.prisma.funcionarios_convocatorias.count({ where }),
       this.prisma.funcionarios_convocatorias.findMany({
         where,
-        orderBy: [{ convocatorias: { misiones: { nombre_mision: 'asc' } } }, { personas: { primer_apellido: 'asc' } }],
+        orderBy: [
+          { convocatorias: { misiones: { nombre_mision: 'asc' } } },
+          { personas: { primer_apellido: 'asc' } },
+          { id: 'asc' },
+        ],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -648,5 +723,29 @@ export class MisionesService {
       page,
       pageSize,
     };
+  }
+
+  private async assertSinSolapamientos(
+    personaIds: bigint[],
+    salida: Date | null,
+    llegada: Date | null,
+    convocatoriaPropiaId?: bigint,
+  ) {
+    const choques = await buscarSolapamientos(
+      this.prisma,
+      personaIds,
+      salida,
+      llegada,
+      convocatoriaPropiaId,
+    );
+    if (choques.length > 0) {
+      const detalle = choques
+        .map(
+          (c) =>
+            `${c.personas.primer_nombre} ${c.personas.primer_apellido} (${c.convocatorias.misiones.nombre_mision})`,
+        )
+        .join(', ');
+      throw new ConflictException(`Ya están en otra convocatoria en ese período: ${detalle}`);
+    }
   }
 }

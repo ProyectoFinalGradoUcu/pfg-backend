@@ -6,16 +6,16 @@ export class UpdateDesignacionDto {
   @IsBoolean()
   aprobado: boolean;
 
-  @ApiPropertyOptional({ description: 'Calificación entera entre 1 y 10', minimum: 1, maximum: 10 })
+  @ApiPropertyOptional({ description: 'Calificación entera entre 1 y 10. Si no viene se conserva la anterior; null la borra.', minimum: 1, maximum: 10, nullable: true })
   @IsOptional()
   @IsInt()
   @Min(1)
   @Max(10)
-  calificacion?: number;
+  calificacion?: number | null;
 
-  @ApiPropertyOptional({ example: 'No alcanzó el mínimo de asistencia', maxLength: 500 })
+  @ApiPropertyOptional({ example: 'No alcanzó el mínimo de asistencia', maxLength: 500, nullable: true, description: 'Si no viene se conserva la anterior; null la borra.' })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  observacion?: string;
+  observacion?: string | null;
 }
