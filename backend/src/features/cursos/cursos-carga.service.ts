@@ -78,15 +78,25 @@ export class CursosCargaService {
         ...(v['boletin'] ? { boletin: v['boletin'] } : {}),
       };
 
-      const existente = await this.prisma.funcionarios_cursos.findUnique({
-        where: { persona_id_curso_id: { persona_id: persona.id, curso_id: curso.id } },
-        select: { id: true },
-      });
-      const registro = await this.prisma.funcionarios_cursos.upsert({
-        where: { persona_id_curso_id: { persona_id: persona.id, curso_id: curso.id } },
-        create: { persona_id: persona.id, curso_id: curso.id, ...datos },
-        // Si estaba dado de baja, el historial lo vuelve a dejar vigente.
-        update: { ...datos, dado_de_baja: false, motivo_baja: null, fecha_baja: null, dado_de_baja_por: null },
+      const { registro, existente } = await this.prisma.$transaction(async tx => {
+        // Serializa cargas de la misma persona y relee la baja bajo bloqueo.
+        await tx.$queryRaw`SELECT id FROM personas WHERE id = ${persona.id} FOR UPDATE`;
+        const existente = await tx.funcionarios_cursos.findUnique({
+          where: { persona_id_curso_id: { persona_id: persona.id, curso_id: curso.id } },
+        });
+        if (existente) {
+          await tx.$queryRaw`SELECT id FROM funcionarios_cursos WHERE id = ${existente.id} FOR UPDATE`;
+          const actual = await tx.funcionarios_cursos.findUnique({ where: { id: existente.id } });
+          if (!actual || actual.dado_de_baja) throw new Error('La inscripción está dada de baja; reactivala explícitamente antes de cargar resultados.');
+          if ((datos.fecha_inicio && actual.fecha_inicio && +datos.fecha_inicio !== +actual.fecha_inicio)
+            || (datos.fecha_fin && actual.fecha_fin && +datos.fecha_fin !== +actual.fecha_fin)) {
+            throw new Error('El período no coincide con la inscripción existente; no se puede sobrescribir con otra instancia del curso.');
+          }
+        }
+        const registro = existente
+          ? await tx.funcionarios_cursos.update({ where: { id: existente.id }, data: datos })
+          : await tx.funcionarios_cursos.create({ data: { persona_id: persona.id, curso_id: curso.id, ...datos } });
+        return { registro, existente };
       });
       return {
         id: registro.id,

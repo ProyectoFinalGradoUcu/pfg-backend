@@ -42,8 +42,8 @@ export class ReportesController {
   @Get('custom/fuentes')
   @ApiOperation({ summary: 'Fuentes de datos para el reporte personalizado' })
   @RequireAlcance('reportes.ejecutar')
-  fuentes() {
-    return this.reportesService.listarFuentes();
+  fuentes(@Alcance() alcance: AlcanceResuelto) {
+    return this.reportesService.listarFuentes(alcance);
   }
 
   @Post('custom/preview')
@@ -76,8 +76,8 @@ export class ReportesController {
   @Get(':clave')
   @ApiOperation({ summary: 'Definición de un reporte (parámetros con opciones)' })
   @RequireAlcance('reportes.ejecutar')
-  obtener(@Param('clave') clave: string) {
-    return this.reportesService.obtenerDefinicion(clave);
+  obtener(@Param('clave') clave: string, @Alcance() alcance: AlcanceResuelto) {
+    return this.reportesService.obtenerDefinicion(clave, alcance);
   }
 
   @Get(':clave/preview')

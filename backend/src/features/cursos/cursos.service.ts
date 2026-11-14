@@ -16,6 +16,8 @@ import {
   whereCursosVisiblesPorAlcance,
 } from '../../lib/alcance/alcance.where';
 import { CursoDto } from './dto/curso.dto';
+import { assertPersonasCursos } from './personas-cursos';
+import { Prisma } from '@prisma/client';
 import { ListCursosQueryDto } from './dto/list-cursos-query.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
 import { MarcarCompletacionDto } from './dto/completacion-modulo.dto';
@@ -404,6 +406,7 @@ export class CursosService {
     }
 
     const completacion = await this.prisma.$transaction(async (tx) => {
+      await assertPersonasCursos(tx, [BigInt(dto.persona_id)], alcance);
       // 1) Asegurar la inscripción al curso (padre). Si no existe, se crea.
       const inscripcion = await tx.funcionarios_cursos.upsert({
         where: {
@@ -418,6 +421,11 @@ export class CursosService {
         },
         update: {},
       });
+
+      await tx.$queryRaw`SELECT id FROM funcionarios_cursos WHERE id = ${inscripcion.id} FOR UPDATE`;
+      const actual = await tx.funcionarios_cursos.findFirst({ where: { id: inscripcion.id } });
+      if (!actual) throw new NotFoundException('No existe la inscripción');
+      if (actual.dado_de_baja) throw new ConflictException('La inscripción está dada de baja; reactivala antes de calificar o completar módulos');
 
       // 2) Marcar/actualizar el detalle del módulo (hijo) con su orden/boletín.
       return tx.funcionarios_modulos_curso.upsert({
@@ -600,7 +608,8 @@ export class CursosService {
       throw new NotFoundException(`No existe curso con id ${cursoId}`);
     }
 
-    const moduloIds = dto.modulo_ids ?? [];
+    const moduloIds = [...new Set(dto.modulo_ids ?? [])];
+    const personaIds = [...new Set(dto.persona_ids)];
     if (moduloIds.length) {
       const count = await this.prisma.modulos_curso.count({
         where: {
@@ -619,16 +628,14 @@ export class CursosService {
     const fechaFin = new Date(dto.fecha_fin);
     const aNivelModulo = moduloIds.length > 0;
 
-    await this.prisma.$transaction(async (tx) => {
-      for (const personaId of dto.persona_ids) {
-        const inscripcion = await tx.funcionarios_cursos.upsert({
-          where: {
-            persona_id_curso_id: {
-              persona_id: BigInt(personaId),
-              curso_id: BigInt(cursoId),
-            },
-          },
-          create: {
+    try { await this.prisma.$transaction(async (tx) => {
+      const ids = personaIds.map(BigInt);
+      await assertPersonasCursos(tx, ids, alcance);
+      const existente = await tx.funcionarios_cursos.findFirst({ where: { curso_id: BigInt(cursoId), persona_id: { in: ids } } });
+      if (existente) throw new ConflictException('Una o más personas ya tienen una inscripción en este curso. No se puede sobrescribir su historial; la reactivación de una baja es una acción separada.');
+      for (const personaId of personaIds) {
+        const inscripcion = await tx.funcionarios_cursos.create({
+          data: {
             persona_id: BigInt(personaId),
             curso_id: BigInt(cursoId),
             // A nivel módulo, la orden/boletín van en las filas de módulo.
@@ -636,17 +643,6 @@ export class CursosService {
             boletin: aNivelModulo ? null : (dto.boletin ?? null),
             fecha_inicio: fechaInicio,
             fecha_fin: fechaFin,
-          },
-          update: {
-            ...(aNivelModulo
-              ? {}
-              : { numero_orden: dto.numero_orden ?? null, boletin: dto.boletin ?? null }),
-            fecha_inicio: fechaInicio,
-            fecha_fin: fechaFin,
-            dado_de_baja: false,
-            motivo_baja: null,
-            fecha_baja: null,
-            dado_de_baja_por: null,
           },
         });
 
@@ -673,11 +669,16 @@ export class CursosService {
           });
         }
       }
-    });
+    }); } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Ya existe una inscripción para esa persona y curso');
+      }
+      throw error;
+    }
 
     return {
       curso_id: cursoId.toString(),
-      personas_designadas: dto.persona_ids.length,
+      personas_designadas: personaIds.length,
       modulos_designados: moduloIds.length,
       numero_orden: dto.numero_orden ?? null,
       boletin: dto.boletin ?? null,
@@ -689,7 +690,9 @@ export class CursosService {
       await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
     }
 
-    const designacion = await this.prisma.funcionarios_cursos.findFirst({
+    return this.prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM funcionarios_cursos WHERE id = ${BigInt(designacionId)} AND curso_id = ${BigInt(cursoId)} FOR UPDATE`;
+    const designacion = await tx.funcionarios_cursos.findFirst({
       where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
     });
     if (!designacion) {
@@ -698,7 +701,9 @@ export class CursosService {
       );
     }
 
-    const actualizado = await this.prisma.funcionarios_cursos.update({
+    await assertPersonasCursos(tx, [designacion.persona_id], alcance);
+    if (designacion.dado_de_baja) throw new ConflictException('La inscripción está dada de baja; reactivala antes de calificar');
+    const actualizado = await tx.funcionarios_cursos.update({
       where: { id: BigInt(designacionId) },
       data: {
         aprobado: dto.aprobado,
@@ -715,6 +720,7 @@ export class CursosService {
       calificacion: actualizado.calificacion != null ? Number(actualizado.calificacion) : null,
       observacion: actualizado.observacion_calificacion,
     };
+    });
   }
 
   // ─── Dar de baja (baja lógica con motivo) ──────────────────────────────────

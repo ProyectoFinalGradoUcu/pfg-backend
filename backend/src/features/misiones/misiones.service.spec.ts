@@ -134,6 +134,7 @@ describe('MisionesService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    prisma.personas.findMany.mockImplementation(({ where }) => Promise.resolve(where.id.in.map((id: bigint) => ({ id }))));
     prisma.$transaction.mockImplementation((arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
       return Promise.all(arg);
@@ -694,10 +695,10 @@ describe('MisionesService', () => {
       await expect(service.agregarFuncionarios(1, 999, dto)).rejects.toThrow(NotFoundException);
     });
 
-    it('lanza BadRequestException si alguna persona no existe', async () => {
+    it('lanza NotFoundException si alguna persona no existe', async () => {
       prisma.personas.findMany.mockResolvedValue([{ id: 10n }]); // solo una de dos
 
-      await expect(service.agregarFuncionarios(1, 10, dto)).rejects.toThrow(BadRequestException);
+      await expect(service.agregarFuncionarios(1, 10, dto)).rejects.toThrow(NotFoundException);
     });
 
     it('lanza ConflictException si algún funcionario ya está asignado', async () => {

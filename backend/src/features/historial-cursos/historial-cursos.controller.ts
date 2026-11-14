@@ -37,9 +37,12 @@ export class HistorialCursosController {
   }
 
   @Post()
-  @RequireAlcance('personas.ver')
+  @RequireAlcance('cursos.gestionar')
   @ApiOperation({ summary: 'Registrar historial de curso', description: 'Crea un nuevo curso y lo asigna a un funcionario.' })
   @ApiResponse({ status: 201, description: 'Registro creado exitosamente.' })
+  @ApiResponse({ status: 400, description: 'Datos o rango de fechas inválidos.' })
+  @ApiResponse({ status: 403, description: 'Sin permiso para gestionar cursos.' })
+  @ApiResponse({ status: 409, description: 'Ya existe un curso con ese nombre.' })
   async create(
     @Body() dto: CreateHistorialCursoDto,
     @Alcance() alcance: AlcanceResuelto,
