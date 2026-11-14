@@ -51,6 +51,12 @@ export function whereRelacionPorBase(filtros: Record<string, string | undefined>
   return { sub_unidad_id: elegida };
 }
 
+/** Historial visible solo si la persona pertenece actualmente a una base autorizada. */
+export function wherePersonaReporte(filtros: Record<string, string | undefined>) {
+  const bases = basesDeAlcance(filtros);
+  return bases ? { relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: bases } } } } : {};
+}
+
 /** Reportes de catálogo (`GET /reportes/:clave`) que se acotan a las bases del usuario. */
 export const REPORTES_CON_ALCANCE_UNIDAD = new Set<string>([
   'compensacion-idoneidad',
@@ -58,10 +64,16 @@ export const REPORTES_CON_ALCANCE_UNIDAD = new Set<string>([
   'pasibles-ascenso',
   'porcentaje-mujeres',
   'prima-tecnica',
+  'ficha-personal',
+  'destinos',
+  'legajo-oficial',
+  'misiones-oficiales',
+  'resumen-fuerza-efectiva',
+  'movimientos-personal',
 ]);
 
 /** Fuentes de reportes personalizados que se acotan a las bases del usuario. */
-export const FUENTES_CON_ALCANCE_UNIDAD = new Set<string>(['personal']);
+export const FUENTES_CON_ALCANCE_UNIDAD = new Set<string>(['personal', 'misiones', 'destinos', 'ascensos']);
 
 export const MENSAJE_REPORTE_SIN_ALCANCE =
   'Este reporte no puede acotarse a una unidad, así que solo está disponible con permiso de alcance general.';

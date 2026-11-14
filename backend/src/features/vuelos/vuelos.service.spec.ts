@@ -86,6 +86,7 @@ const makePrismaMock = () => {
     },
     personas: { findUnique: jest.fn(), findFirst: jest.fn() },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   };
   // Array → Promise.all; callback → se ejecuta con el mismo mock como `tx`.
   mock.$transaction.mockImplementation((arg: any) =>
@@ -420,12 +421,24 @@ describe('VuelosService', () => {
       expect(prisma.registros_vuelo.update).not.toHaveBeenCalled();
     });
 
-    it('las 4 columnas son libres: el año militar puede superar el total', async () => {
+    it('rechaza horas del año militar mayores al total y no escribe historial', async () => {
       prisma.registros_vuelo.findUnique.mockResolvedValue(makeRegistro());
 
-      await service.editarRegistro(500, { hs_ob_anio_militar: 250 }, 1n, GLOBAL);
+      await expect(service.editarRegistro(500, { hs_ob_anio_militar: 250 }, 1n, GLOBAL)).rejects.toThrow(BadRequestException);
+      expect(prisma.registros_vuelo.update).not.toHaveBeenCalled();
+      expect(prisma.historial_unidad_vuelo.create).not.toHaveBeenCalled();
+    });
 
-      expect(prisma.registros_vuelo.update.mock.calls[0][0].data.hs_ob_anio_militar).toBe(250);
+    it('valida también bajar el total en una edición parcial', async () => {
+      prisma.registros_vuelo.findUnique.mockResolvedValue(makeRegistro());
+      await expect(service.editarRegistro(500, { hs_av_total: 1 }, 1n, GLOBAL)).rejects.toThrow(BadRequestException);
+      expect(prisma.registros_vuelo.update).not.toHaveBeenCalled();
+    });
+
+    it('acepta igualdad y cambios combinados del año y el total', async () => {
+      prisma.registros_vuelo.findUnique.mockResolvedValue(makeRegistro());
+      await service.editarRegistro(500, { hs_ob_anio_militar: 250, hs_ob_total: 250 }, 1n, GLOBAL);
+      expect(prisma.registros_vuelo.update).toHaveBeenCalled();
     });
 
     it('un cambio de unidad queda en el historial con el período', async () => {

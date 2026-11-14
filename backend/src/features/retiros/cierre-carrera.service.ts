@@ -91,15 +91,23 @@ export class CierreCarreraService {
         `Pertenencias a comisiones inválidas para este funcionario: ${comisionesInvalidas.join(', ')}`,
       );
     }
-    const comisionesACerrar = impacto.comisiones.filter((a: any) =>
-      (forzar ? comisionesValidas : comisionesPedidas).includes(a.id.toString()),
-    );
+    // Un retiro no puede dejar pertenencias vigentes, aunque el usuario desmarque el cierre.
 
     const cerrarDestino = (forzar || params.cierres.destino) && impacto.destino != null;
     const cerrarUsuario = (forzar || params.cierres.usuario) && impacto.usuario != null;
     const inscripcionesACerrar = forzar ? idsValidos : pedidas;
 
     const resultado = await this.prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw`SELECT id FROM personas WHERE id = ${BigInt(params.personaId)} FOR UPDATE`;
+      // Volver a consultar bajo bloqueo: un alta puede haber terminado después de la previa.
+      const futuras = await tx.asignaciones_comision.findFirst({ where: { persona_id: BigInt(params.personaId), fecha_inicio: { gt: params.fechaRetiro } } });
+      if (futuras) throw new UnprocessableEntityException('Corregí las pertenencias a comisiones posteriores al retiro antes de continuarlo');
+      const actuales = await tx.asignaciones_comision.findMany({
+        where: { persona_id: BigInt(params.personaId), OR: [{ fecha_fin: null }, { fecha_fin: { gt: params.fechaRetiro } }] },
+      });
+      // Las importadas de períodos laborales ya terminados son historial, no se reabren.
+      const periodos = await tx.relaciones_laborales.findMany({ where: { persona_id: BigInt(params.personaId) }, select: { id: true, fecha_fin: true } });
+      const aCerrar = actuales.filter((a: any) => !a.relacion_laboral_id || periodos.some((p: any) => p.id === a.relacion_laboral_id && (!p.fecha_fin || p.fecha_fin > params.fechaRetiro)));
       await tx.relaciones_laborales.update({
         where: { id: impacto.relacion.id },
         data: {
@@ -152,7 +160,7 @@ export class CierreCarreraService {
         });
       }
 
-      for (const a of comisionesACerrar) {
+      for (const a of aCerrar) {
         await tx.asignaciones_comision.update({
           where: { id: a.id },
           data: { fecha_fin: params.fechaRetiro },
@@ -170,7 +178,7 @@ export class CierreCarreraService {
       const cerrado = {
         destino: cerrarDestino ? impacto.destino.id.toString() : null,
         inscripciones: inscripcionesACerrar,
-        comisiones: comisionesACerrar.map((a: any) => a.id.toString()),
+        comisiones: aCerrar.map((a: any) => a.id.toString()),
         usuario: cerrarUsuario ? impacto.usuario.id.toString() : null,
       };
 
@@ -190,7 +198,7 @@ export class CierreCarreraService {
             destino_id: cerrado.destino,
             inscripciones_ids: cerrado.inscripciones,
             // Con la fecha_fin que tenían, para que anular el retiro las deje como estaban.
-            comisiones: comisionesACerrar.map((a: any) => ({
+            comisiones: aCerrar.map((a: any) => ({
               id: a.id.toString(),
               fecha_fin_anterior: a.fecha_fin ? a.fecha_fin.toISOString().split('T')[0] : null,
             })),

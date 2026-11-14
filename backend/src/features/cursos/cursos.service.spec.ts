@@ -107,6 +107,7 @@ const makePrismaMock = () => ({
     upsert: jest.fn(),
   },
   $transaction: jest.fn(),
+  $queryRaw: jest.fn(),
 });
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -130,6 +131,7 @@ describe('CursosService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    prisma.personas.findMany.mockImplementation(({ where }) => Promise.resolve(where.id.in.map((id: bigint) => ({ id }))));
     // Handles both: callback form (async tx => ...) and array form ([p1, p2])
     prisma.$transaction.mockImplementation((arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
@@ -581,7 +583,7 @@ describe('CursosService', () => {
 
     beforeEach(() => {
       prisma.cursos.findUnique.mockResolvedValue(makeCurso());
-      prisma.funcionarios_cursos.upsert.mockResolvedValue({
+      prisma.funcionarios_cursos.create.mockResolvedValue({
         id: 1n,
         persona_id: 10n,
         curso_id: 1n,
@@ -627,7 +629,7 @@ describe('CursosService', () => {
           fecha_fin: '2026-01-01',
         }),
       ).rejects.toThrow(BadRequestException);
-      expect(prisma.funcionarios_cursos.upsert).not.toHaveBeenCalled();
+      expect(prisma.funcionarios_cursos.create).not.toHaveBeenCalled();
     });
 
     it('acepta inicio y fin el mismo día', async () => {
@@ -641,14 +643,14 @@ describe('CursosService', () => {
       expect(result.personas_designadas).toBe(2);
     });
 
-    it('crea una inscripción (upsert) por cada persona seleccionada', async () => {
+    it('crea una inscripción por cada persona seleccionada', async () => {
       await service.crearDesignacion(1, {
         ...baseDto,
         persona_ids: [10, 20, 30],
         numero_orden: 'ORD-001',
       });
 
-      expect(prisma.funcionarios_cursos.upsert).toHaveBeenCalledTimes(3);
+      expect(prisma.funcionarios_cursos.create).toHaveBeenCalledTimes(3);
     });
 
     it('lanza NotFoundException si algún módulo no pertenece al curso', async () => {
@@ -893,6 +895,7 @@ describe('CursosService', () => {
     beforeEach(() => {
       prisma.modulos_curso.findFirst.mockResolvedValue({ id: 3n, curso_id: 1n });
       prisma.funcionarios_cursos.upsert.mockResolvedValue({ id: 1n });
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue({ id: 1n, dado_de_baja: false });
       prisma.funcionarios_modulos_curso.upsert.mockResolvedValue(completacion);
     });
 
