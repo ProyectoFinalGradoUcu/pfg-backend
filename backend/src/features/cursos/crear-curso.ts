@@ -11,7 +11,7 @@ export async function crearCurso(
 ) {
   const nombre = dto.nombre_curso;
   const existe = await tx.cursos.findFirst({
-    where: { nombre_curso: nombre },
+    where: { nombre_curso: { equals: nombre, mode: 'insensitive' } },
   });
   if (existe) {
     throw new ConflictException(`Ya existe un curso con nombre ${dto.nombre_curso}`);

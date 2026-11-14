@@ -91,16 +91,31 @@ export class MisionesCargaService {
       }
 
       // Antes de crear nada, para no dejar misiones ni convocatorias sin participantes.
-      const choques = await buscarSolapamientos(
-        this.prisma,
-        [persona.id],
-        salida ? new Date(salida) : (convocatoria?.fecha_salida ?? null),
-        llegada ? new Date(llegada) : (convocatoria?.fecha_llegada ?? null),
-        convocatoria?.id,
-      );
+      const desde = salida ? new Date(salida) : (convocatoria?.fecha_salida ?? null);
+      const hasta = llegada ? new Date(llegada) : (convocatoria?.fecha_llegada ?? null);
+      const choques = await buscarSolapamientos(this.prisma, [persona.id], desde, hasta, convocatoria?.id);
       if (choques.length > 0) {
         const otra = choques[0].convocatorias.misiones.nombre_mision;
         throw new Error(`${persona.nombre} ya está en otra convocatoria en ese período (${otra}).`);
+      }
+
+      const completaFechas =
+        !!convocatoria && (!!(salida && !convocatoria.fecha_salida) || !!(llegada && !convocatoria.fecha_llegada));
+      if (convocatoria && completaFechas) {
+        const otros = await this.prisma.funcionarios_convocatorias.findMany({
+          where: { convocatoria_id: convocatoria.id, persona_id: { not: persona.id } },
+          select: { persona_id: true },
+        });
+        const choquesOtros = await buscarSolapamientos(
+          this.prisma, otros.map((o) => o.persona_id), desde, hasta, convocatoria.id,
+        );
+        if (choquesOtros.length > 0) {
+          const { personas: p, convocatorias: c } = choquesOtros[0];
+          throw new Error(
+            `Completar las fechas de la convocatoria dejaría a ${p.primer_nombre} ${p.primer_apellido} ` +
+              `en otra convocatoria del mismo período (${c.misiones.nombre_mision}).`,
+          );
+        }
       }
 
       if (!mision) {
@@ -122,7 +137,7 @@ export class MisionesCargaService {
           },
         });
         novedades.push('convocatoria creada');
-      } else if ((salida && !convocatoria.fecha_salida) || (llegada && !convocatoria.fecha_llegada)) {
+      } else if (completaFechas) {
         // La convocatoria existía sin fechas: la planilla las completa.
         convocatoria = await this.prisma.convocatorias.update({
           where: { id: convocatoria.id },

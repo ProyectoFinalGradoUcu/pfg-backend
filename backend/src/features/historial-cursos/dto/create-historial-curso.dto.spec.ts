@@ -9,6 +9,7 @@ describe('CreateHistorialCursoDto', () => {
     ['personaId', 0],
     ['personaId', -1],
     ['nombre', ''],
+    ['nombre', '   '],
     ['institucion', ''],
     ['fechaInicio', 'no-es-fecha'],
     ['fechaFin', 'no-es-fecha'],
@@ -21,5 +22,10 @@ describe('CreateHistorialCursoDto', () => {
     const dto = plainToInstance(CreateHistorialCursoDto, { ...valido, personaId: '10' });
     expect(await validate(dto)).toEqual([]);
     expect(dto.personaId).toBe(10);
+  });
+
+  it('recorta los espacios del nombre del curso', () => {
+    const dto = plainToInstance(CreateHistorialCursoDto, { ...valido, nombre: '  Aviación ' });
+    expect(dto.nombre).toBe('Aviación');
   });
 });
