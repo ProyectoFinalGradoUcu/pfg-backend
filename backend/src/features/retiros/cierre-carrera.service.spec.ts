@@ -75,6 +75,8 @@ describe('CierreCarreraService', () => {
       typeof arg === 'function' ? arg(prisma) : Promise.all(arg),
     );
     retiros.calcularImpacto.mockResolvedValue(impactoBase());
+    prisma.asignaciones_comision.findMany.mockImplementation(() => Promise.resolve(impactoBase().comisiones));
+    prisma.relaciones_laborales.findMany.mockResolvedValue([]);
     prisma.motivos_baja.findUnique.mockResolvedValue(makeMotivoBaja());
     prisma.tipos_movimiento.findFirst.mockResolvedValue({ id: 8n, nombre: 'Retiro', es_alta: false });
     prisma.movimientos_laborales.create.mockResolvedValue({ id: 410n });
@@ -183,7 +185,7 @@ describe('CierreCarreraService', () => {
         cierres_aplicados: {
           destino_id: '88',
           inscripciones_ids: ['301'],
-          comisiones: [],
+          comisiones: [{ id: '12', fecha_fin_anterior: null }, { id: '13', fecha_fin_anterior: '2027-03-31' }],
           usuario_id: '7',
         },
       }),
@@ -202,7 +204,7 @@ describe('CierreCarreraService', () => {
     expect(prisma.retiros.create.mock.calls[0][0].data.cierres_aplicados).toEqual({
       destino_id: null,
       inscripciones_ids: [],
-      comisiones: [],
+      comisiones: [{ id: '12', fecha_fin_anterior: null }, { id: '13', fecha_fin_anterior: '2027-03-31' }],
       usuario_id: '7',
     });
   });
@@ -311,11 +313,31 @@ describe('CierreCarreraService', () => {
 
     expect(result).toEqual({
       retiroId: 88n,
-      cerrado: { destino: '88', inscripciones: ['301'], comisiones: [], usuario: '7' },
+      cerrado: { destino: '88', inscripciones: ['301'], comisiones: ['12', '13'], usuario: '7' },
     });
   });
 
   describe('pertenencias a comisiones', () => {
+    it('rechaza una pertenencia futura detectada bajo el bloqueo de la persona', async () => {
+      prisma.asignaciones_comision.findFirst.mockResolvedValue({ id: 14n });
+      await expect(service.cerrar(paramsBase())).rejects.toThrow(UnprocessableEntityException);
+      expect(prisma.$queryRaw).toHaveBeenCalled();
+      expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
+    });
+
+    it('cierra importadas sin fecha de inicio del período actual y conserva las históricas', async () => {
+      prisma.asignaciones_comision.findMany.mockResolvedValue([
+        { id: 14n, fecha_inicio: null, fecha_fin: null, relacion_laboral_id: 45n },
+        { id: 15n, fecha_inicio: null, fecha_fin: null, relacion_laboral_id: 44n },
+      ]);
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        { id: 45n, fecha_fin: null }, { id: 44n, fecha_fin: new Date('2020-12-31') },
+      ]);
+      const result = await service.cerrar(paramsBase());
+      expect(result.cerrado.comisiones).toEqual(['14']);
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalledTimes(1);
+    });
+
     it('cierra las elegidas en la fecha del retiro y guarda su fecha_fin anterior', async () => {
       const r = await service.cerrar({
         ...paramsBase(),
@@ -337,10 +359,10 @@ describe('CierreCarreraService', () => {
       expect(r.cerrado.comisiones).toEqual(['12', '13']);
     });
 
-    it('no cierra las que no se eligieron', async () => {
+    it('cierra todas las pertenencias aunque no se seleccionen: un retirado no puede seguir integrándolas', async () => {
       await service.cerrar({ ...paramsBase(), cierres: { ...paramsBase().cierres, comisiones: [12] } });
 
-      expect(prisma.asignaciones_comision.update).toHaveBeenCalledTimes(1);
+      expect(prisma.asignaciones_comision.update).toHaveBeenCalledTimes(2);
     });
 
     it('con forzarCascada las cierra todas', async () => {

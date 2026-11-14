@@ -1,5 +1,6 @@
 import { ContextoEjecucion, DefinicionReporte, ResultadoReporte } from '../reportes.types';
 import { campo, COLUMNAS_CAMPO_VALOR, fmtFecha, unir } from './_helpers';
+import { wherePersonaReporte } from '../alcance-reportes';
 
 export const fichaPersonalReporte: DefinicionReporte = {
   clave: 'ficha-personal',
@@ -24,20 +25,23 @@ export const fichaPersonalReporte: DefinicionReporte = {
       return { columnas: COLUMNAS_CAMPO_VALOR, filas: [] };
     }
 
-    const p = await prisma.personas.findUnique({
-      where: { id: BigInt(filtros.persona_id) },
-      include: {
-        dependientes: {
-          where: { activo: true },
-          orderBy: { fecha_nacimiento: 'asc' },
-        },
-      },
+    const id = BigInt(filtros.persona_id);
+    const p = await prisma.personas.findFirst({
+      where: { id, ...wherePersonaReporte(filtros) },
     });
     if (!p) return { columnas: COLUMNAS_CAMPO_VALOR, filas: [] };
 
-    const hijos = p.dependientes.filter((d) =>
-      d.tipo.toLowerCase().includes('hijo'),
-    );
+    const vinculos = await prisma.relaciones_familiares.findMany({
+      where: { OR: [
+        { persona_id: id, tipo_relacion: 'Hijo/a' },
+        { familiar_id: id, tipo_relacion: { in: ['Madre', 'Padre', 'Padre/Madre'] } },
+      ] },
+      include: { personas_relaciones_familiares_persona_idTopersonas: true, personas_relaciones_familiares_familiar_idTopersonas: true },
+    });
+    const hijos = [...new Map(vinculos.map(v => {
+      const h = v.persona_id === id ? v.personas_relaciones_familiares_familiar_idTopersonas : v.personas_relaciones_familiares_persona_idTopersonas;
+      return [h.id.toString(), unir(h.primer_nombre, h.segundo_nombre, h.primer_apellido, h.segundo_apellido)];
+    })).values()].sort();
 
     const filas = [
       campo('Apellido y nombre', unir(p.primer_apellido, p.segundo_apellido) + ', ' + unir(p.primer_nombre, p.segundo_nombre)),
@@ -51,7 +55,7 @@ export const fichaPersonalReporte: DefinicionReporte = {
       campo('Departamento / Localidad', unir(p.departamento, p.localidad)),
       campo('Sección Judicial', p.seccional),
       campo('Nivel de idoneidad', p.nivel_idoneidad != null ? `Nivel ${p.nivel_idoneidad}` : null),
-      campo('Hijos', hijos.map((h) => h.nombre).join(', ') || null),
+      campo('Hijos', hijos.join(', ') || null),
     ];
 
     return { columnas: COLUMNAS_CAMPO_VALOR, filas };

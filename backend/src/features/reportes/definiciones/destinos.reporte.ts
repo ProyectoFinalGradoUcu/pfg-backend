@@ -6,6 +6,7 @@ import {
 } from '../reportes.types';
 import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
 import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from './_helpers';
+import { wherePersonaReporte } from '../alcance-reportes';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'Cédula', tipo: 'texto' },
@@ -40,7 +41,7 @@ export const destinosReporte: DefinicionReporte = {
   async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
     const categoria = categoriaDeFiltros(filtros);
     const asignaciones = await prisma.destinos.findMany({
-      where: categoria ? { personas: wherePersonaPorCategoria(categoria) } : {},
+      where: { personas: { ...wherePersonaReporte(filtros), ...(categoria && wherePersonaPorCategoria(categoria)) } },
       include: {
         unidades: true,
         sub_unidades: true,

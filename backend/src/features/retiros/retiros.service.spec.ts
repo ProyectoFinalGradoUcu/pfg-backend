@@ -736,31 +736,30 @@ describe('RetirosService', () => {
           cierres_aplicados: { comisiones: [{ id: '18', fecha_fin_anterior: null }] },
         }),
       );
-      prisma.asignaciones_comision.findMany.mockResolvedValue([{ id: 18n, comision_id: 7n }]);
-      prisma.asignaciones_comision.findFirst.mockResolvedValue({
-        id: 20n,
-        comisiones: { denominacion: 'Comisión A' },
-      });
+      prisma.asignaciones_comision.findMany
+        .mockResolvedValueOnce([{ id: 18n, comision_id: 7n, fecha_inicio: new Date('2025-01-01'), fecha_fin: new Date('2026-08-28') }])
+        .mockResolvedValueOnce([{ id: 20n, fecha_inicio: new Date('2026-09-01'), fecha_fin: new Date('2026-12-31') }]);
 
       await expect(service.anular(88, { motivo_anulacion: 'x' }, 9n)).rejects.toThrow(ConflictException);
-      expect(prisma.asignaciones_comision.findFirst.mock.calls[0][0].where).toMatchObject({
-        comision_id: { in: [7n] },
-        id: { notIn: [18n] },
+      expect(prisma.asignaciones_comision.findMany.mock.calls[1][0].where).toMatchObject({
+        comision_id: 7n,
+        id: { not: 18n },
       });
       expect(prisma.asignaciones_comision.update).not.toHaveBeenCalled();
     });
 
-    it('una pertenencia que vuelve a su fin original no se valida contra las abiertas', async () => {
+    it('valida solapamientos también al restaurar una fecha de fin anterior', async () => {
       prisma.retiros.findUnique.mockResolvedValue(
         retiroConCierres({
           cierres_aplicados: { comisiones: [{ id: '19', fecha_fin_anterior: '2027-03-31' }] },
         }),
       );
 
-      await service.anular(88, { motivo_anulacion: 'x' }, 9n);
-
-      expect(prisma.asignaciones_comision.findFirst).not.toHaveBeenCalled();
-      expect(prisma.asignaciones_comision.update).toHaveBeenCalled();
+      prisma.asignaciones_comision.findMany
+        .mockResolvedValueOnce([{ id: 19n, comision_id: 7n, fecha_inicio: new Date('2025-01-01'), fecha_fin: new Date('2026-08-28') }])
+        .mockResolvedValueOnce([{ id: 20n, fecha_inicio: new Date('2027-03-31'), fecha_fin: null }]);
+      await expect(service.anular(88, { motivo_anulacion: 'x' }, 9n)).rejects.toThrow(ConflictException);
+      expect(prisma.asignaciones_comision.update).not.toHaveBeenCalled();
     });
 
     it('reabre la relacion laboral sin tocar situacion_id', async () => {
@@ -950,7 +949,10 @@ describe('RetirosService', () => {
           },
         }),
       );
-      prisma.asignaciones_comision.findMany.mockResolvedValue([{ id: 12n, comision_id: 7n }]);
+      prisma.asignaciones_comision.findMany.mockResolvedValueOnce([
+        { id: 12n, comision_id: 7n, fecha_inicio: new Date('2025-01-01'), fecha_fin: new Date('2026-08-28') },
+        { id: 13n, comision_id: 8n, fecha_inicio: new Date('2025-01-01'), fecha_fin: new Date('2026-08-28') },
+      ]).mockResolvedValue([]);
       prisma.asignaciones_comision.findFirst.mockResolvedValue(null);
 
       const r = await service.anular(88, { motivo_anulacion: 'Error' }, 9n);

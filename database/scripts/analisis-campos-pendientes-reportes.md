@@ -319,5 +319,5 @@ tiene una seccion de subsidios. Para completarlo:
 2. Agregar fechas y resoluciones confirmadas a destinos y convocatorias, junto con DTOs, UI y carga de datos.
 3. Resolver con FAU las preguntas de nivel de idoneidad y fuerza efectiva; luego crear sus tablas historicas.
 4. Implementar Credencial Civica y derecha de graduacion.
-5. Dejar `Destinos` y `Legajo del Oficial` fuera de la UI mientras sigan formalmente retirados; modelar cargos/comisiones solo si vuelven al alcance.
+5. Decisión actualizada por Lucas durante la corrección de SCRUM-171: volver a habilitar `Destinos` y `Legajo del Oficial` en el catálogo, con alcance por base y la estructura actual de destinos.
 6. No implementar aun `Marca`, `Des Num`, codigos de legajo, `MIN` ni Resolucion CJE basandose en hipotesis.

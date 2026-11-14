@@ -16,6 +16,7 @@ import { ReincorporarDto } from './dto/reincorporar.dto';
 import { ActualizarReincorporacionDto } from './dto/actualizar-reincorporacion.dto';
 import { CierreCarreraService } from './cierre-carrera.service';
 import { DerechaService } from '../derecha/derecha.service';
+import { periodosSolapados } from '../comisiones/pertenencias';
 
 export type Impacto = {
   persona: any;
@@ -309,7 +310,7 @@ export class RetirosService {
       this.prisma.asignaciones_comision.findMany({
         where: {
           persona_id: BigInt(personaId),
-          fecha_inicio: { lte: fecha },
+          AND: [{ OR: [{ fecha_inicio: null }, { fecha_inicio: { lte: fecha } }] }],
           OR: [{ fecha_fin: null }, { fecha_fin: { gt: fecha } }],
         },
         orderBy: { fecha_inicio: 'asc' },
@@ -334,6 +335,11 @@ export class RetirosService {
       }),
     ]);
 
+    const futura = await this.prisma.asignaciones_comision.findFirst({
+      where: { persona_id: BigInt(personaId), fecha_inicio: { gt: fecha } },
+      select: { id: true },
+    });
+    if (futura) bloqueos.push('El funcionario tiene pertenencias a comisiones posteriores al retiro. Eliminá o corregí esas asignaciones antes de retirarlo.');
     return { persona, relacion, destino, inscripciones, comisiones, usuario, vivienda, bloqueos };
   }
 
@@ -777,6 +783,7 @@ export class RetirosService {
     return this.prisma.$transaction(async (tx: any) => {
       // Si después del retiro se le abrió otro destino o pertenencia, reabrir los anteriores
       // violaría los índices únicos: se corta antes con un 409.
+      await tx.$queryRaw`SELECT id FROM personas WHERE id = ${retiro.persona_id} FOR UPDATE`;
       await this.assertSePuedeReabrir(tx, retiro.persona_id, cierres);
 
       await tx.relaciones_laborales.update({
@@ -888,27 +895,35 @@ export class RetirosService {
       }
     }
 
-    // Solo chocan las que vuelven a quedar abiertas (fecha_fin_anterior null).
-    const aReabrir = (cierres.comisiones ?? []).filter((c) => c.fecha_fin_anterior == null);
+    const aReabrir = cierres.comisiones ?? [];
     if (aReabrir.length) {
       const propias = await tx.asignaciones_comision.findMany({
         where: { id: { in: aReabrir.map((c) => BigInt(c.id)) } },
-        select: { id: true, comision_id: true },
+        include: { relaciones_laborales: { select: { fecha_inicio: true, fecha_fin: true } } },
       });
-      const otra = await tx.asignaciones_comision.findFirst({
+      for (const propia of propias) {
+        const fin = aReabrir.find(c => c.id === propia.id.toString())!.fecha_fin_anterior;
+        const otras = await tx.asignaciones_comision.findMany({
         where: {
           persona_id: personaId,
-          fecha_fin: null,
-          comision_id: { in: propias.map((p: { comision_id: bigint }) => p.comision_id) },
-          id: { notIn: propias.map((p: { id: bigint }) => p.id) },
+          comision_id: propia.comision_id,
+          id: { not: propia.id },
         },
-        select: { id: true, comisiones: { select: { denominacion: true } } },
+        include: { relaciones_laborales: { select: { fecha_inicio: true, fecha_fin: true } } },
+      });
+      const otra = otras.find((a: any) => {
+        const restaurada = aReabrir.find(c => c.id === a.id.toString());
+        return periodosSolapados(
+          { ...propia, fecha_fin: fin ? new Date(fin) : null, relaciones_laborales: null },
+          restaurada ? { ...a, fecha_fin: restaurada.fecha_fin_anterior ? new Date(restaurada.fecha_fin_anterior) : null, relaciones_laborales: null } : a,
+        );
       });
       if (otra) {
         throw new ConflictException(
           `No se puede anular el retiro: después del retiro se le abrió otra pertenencia en la comisión ` +
-            `"${otra.comisiones?.denominacion ?? otra.id}". Cerrala o quitala y volvé a anular.`,
+            `"${propia.comision_id}" con fechas solapadas. Corregila o quitala y volvé a anular.`,
         );
+      }
       }
     }
   }
