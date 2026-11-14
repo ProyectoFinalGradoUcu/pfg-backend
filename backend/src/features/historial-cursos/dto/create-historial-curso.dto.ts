@@ -1,6 +1,8 @@
 import { IsString, IsInt, IsOptional, IsIn, IsNotEmpty, Min, MaxLength, IsDateString } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+const trim = ({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value;
 
 export class CreateHistorialCursoDto {
   @ApiProperty()
@@ -17,6 +19,7 @@ export class CreateHistorialCursoDto {
   sub_unidad_id?: number;
 
   @ApiProperty()
+  @Transform(trim)
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)

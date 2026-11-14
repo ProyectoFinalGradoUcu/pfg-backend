@@ -122,6 +122,54 @@ describe('MisionesCargaService', () => {
       );
     });
 
+    describe('al completar las fechas de una convocatoria ya registrada', () => {
+      const conOtroParticipante = (choque: unknown[]) => {
+        prisma.convocatorias.findFirst.mockResolvedValue({ id: 50n, fecha_salida: null, fecha_llegada: null });
+        prisma.funcionarios_convocatorias.findMany.mockImplementation(async ({ where }) => {
+          if (!where.persona_id?.in) return [{ persona_id: 20n }];
+          return where.persona_id.in.includes(20n) ? choque : [];
+        });
+      };
+
+      it('rechaza la fila si deja a otro participante solapado, sin tocar la convocatoria', async () => {
+        conOtroParticipante([{ ...CHOQUE, personas: { primer_nombre: 'Ana', primer_apellido: 'Gómez' } }]);
+
+        const r = await service.procesarCarga(
+          await libro([['Congo', '', 'ORD-1', '', '2026-03-01', '2026-09-30', '11111111', '']]),
+        );
+
+        expect(r.resultados[0]).toMatchObject({
+          estado: 'error',
+          mensaje: 'Completar las fechas de la convocatoria dejaría a Ana Gómez en otra convocatoria del mismo período (Haití).',
+        });
+        expect(prisma.convocatorias.update).not.toHaveBeenCalled();
+        expect(prisma.funcionarios_convocatorias.create).not.toHaveBeenCalled();
+      });
+
+      it('controla a los otros participantes con el período nuevo y carga la fila si no hay choques', async () => {
+        conOtroParticipante([]);
+        prisma.convocatorias.update.mockResolvedValue({ id: 50n });
+
+        const r = await service.procesarCarga(
+          await libro([['Congo', '', 'ORD-1', '', '2026-03-01', '2026-09-30', '11111111', '']]),
+        );
+
+        expect(r).toMatchObject({ exitosos: 1, errores: 0 });
+        expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              persona_id: { in: [20n] },
+              convocatoria_id: { not: 50n },
+              convocatorias: {
+                fecha_salida: { lte: new Date('2026-09-30') },
+                OR: [{ fecha_llegada: null }, { fecha_llegada: { gte: new Date('2026-03-01') } }],
+              },
+            },
+          }),
+        );
+      });
+    });
+
     it('no busca solapamientos si la convocatoria queda sin fecha de salida', async () => {
       const r = await service.procesarCarga(
         await libro([['Congo', '', 'ORD-1', '', '', '', '11111111', '']]),

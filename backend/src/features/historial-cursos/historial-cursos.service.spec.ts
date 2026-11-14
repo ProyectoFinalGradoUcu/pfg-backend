@@ -192,6 +192,16 @@ describe('HistorialCursosService', () => {
       expect(prisma.funcionarios_cursos.create).not.toHaveBeenCalled();
     });
 
+    it('busca el nombre existente sin distinguir mayúsculas', async () => {
+      prisma.personas.findUnique.mockResolvedValue(makePersona());
+      prisma.cursos.findFirst.mockResolvedValue(makeCurso());
+
+      await expect(service.create(dto)).rejects.toThrow(ConflictException);
+      expect(prisma.cursos.findFirst).toHaveBeenCalledWith({
+        where: { nombre_curso: { equals: dto.nombre, mode: 'insensitive' } },
+      });
+    });
+
     it('rechaza fechas invertidas antes de iniciar escrituras', async () => {
       await expect(service.create({
         ...dto, fechaInicio: '2026-06-01', fechaFin: '2026-05-31',
