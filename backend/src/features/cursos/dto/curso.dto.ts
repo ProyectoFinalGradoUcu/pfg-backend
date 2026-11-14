@@ -7,13 +7,17 @@ import {
   IsBoolean,
   IsInt,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FuncionarioCursoDto } from '../../funcionaro/dto/funcionario-curso.dto';
 import { ModuloCursoDto } from './modulo-curso.dto';
 
+const trim = ({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value;
+
 export class CursoDto {
 
   @ApiProperty({ example: 'Curso de Aviacion ', maxLength: 200 })
+  @Transform(trim)
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)

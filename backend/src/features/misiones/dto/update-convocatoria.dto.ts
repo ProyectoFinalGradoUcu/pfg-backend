@@ -14,18 +14,18 @@ export class UpdateConvocatoriaDto {
   @MaxLength(50)
   boletin?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-03-01' })
+  @ApiPropertyOptional({ example: '2026-03-01', nullable: true })
   @IsOptional()
   @IsDateString()
-  fecha_salida?: string;
+  fecha_salida?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-09-30' })
+  @ApiPropertyOptional({ example: '2026-09-30', nullable: true })
   @IsOptional()
   @IsDateString()
-  fecha_llegada?: string;
+  fecha_llegada?: string | null;
 
-  @ApiPropertyOptional({ example: 'Observaciones actualizadas' })
+  @ApiPropertyOptional({ example: 'Observaciones actualizadas', nullable: true })
   @IsOptional()
   @IsString()
-  observaciones?: string;
+  observaciones?: string | null;
 }
