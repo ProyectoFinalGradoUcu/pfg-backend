@@ -205,6 +205,37 @@ describe('AuthService', () => {
 
       await expect(login()).rejects.toThrow(UnauthorizedException);
     });
+
+    describe('intentos fallidos', () => {
+      beforeEach(() => {
+        prisma.usuarios.findFirst.mockResolvedValue(makeUsuario({ intentos_fallidos: 2 }));
+        (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
+      });
+
+      it('suma el intento con increment', async () => {
+        prisma.usuarios.update.mockResolvedValueOnce({ intentos_fallidos: 3 });
+
+        await expect(login()).rejects.toThrow(UnauthorizedException);
+
+        expect(prisma.usuarios.update).toHaveBeenCalledWith({
+          where: { id: 1n },
+          data: { intentos_fallidos: { increment: 1 } },
+          select: { intentos_fallidos: true },
+        });
+        expect(prisma.usuarios.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('al llegar al máximo bloquea la cuenta', async () => {
+        prisma.usuarios.update.mockResolvedValueOnce({ intentos_fallidos: 5 });
+
+        await expect(login()).rejects.toThrow(UnauthorizedException);
+
+        expect(prisma.usuarios.updateMany).toHaveBeenCalledWith({
+          where: { id: 1n, intentos_fallidos: { gte: 5 } },
+          data: { intentos_fallidos: 0, bloqueado_hasta: expect.any(Date) },
+        });
+      });
+    });
   });
 
   // ─── assertUsuarioActivo: invalidación de sesiones ──────────────────────────

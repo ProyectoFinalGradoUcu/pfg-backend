@@ -82,7 +82,7 @@ export class AuthService {
     );
 
     if (!passwordOk) {
-      await this.registrarIntentoFallido(usuario.id, usuario.intentos_fallidos);
+      await this.registrarIntentoFallido(usuario.id);
       void this.auditoria.registrar({
         usuarioId: usuario.id,
         accion: 'LOGIN_FALLIDO',
@@ -355,27 +355,25 @@ export class AuthService {
     return { ok: true };
   }
 
-  private async registrarIntentoFallido(
-    usuarioId: bigint,
-    intentosActuales: number,
-  ): Promise<void> {
+  // Increment atómico: si se lee y se suma en memoria, los intentos en paralelo cuentan como uno.
+  private async registrarIntentoFallido(usuarioId: bigint): Promise<void> {
     const max = Number(process.env.MAX_LOGIN_ATTEMPTS ?? DEFAULT_MAX_ATTEMPTS);
     const lockMinutes = Number(
       process.env.LOCK_DURATION_MIN ?? DEFAULT_LOCK_MINUTES,
     );
 
-    const nuevosIntentos = intentosActuales + 1;
+    const { intentos_fallidos } = await this.prisma.usuarios.update({
+      where: { id: usuarioId },
+      data: { intentos_fallidos: { increment: 1 } },
+      select: { intentos_fallidos: true },
+    });
 
-    if (nuevosIntentos >= max) {
+    if (intentos_fallidos >= max) {
       const hasta = new Date(Date.now() + lockMinutes * 60_000);
-      await this.prisma.usuarios.update({
-        where: { id: usuarioId },
+      // Solo bloquea si otro intento en paralelo no lo bloqueó ya.
+      await this.prisma.usuarios.updateMany({
+        where: { id: usuarioId, intentos_fallidos: { gte: max } },
         data: { intentos_fallidos: 0, bloqueado_hasta: hasta },
-      });
-    } else {
-      await this.prisma.usuarios.update({
-        where: { id: usuarioId },
-        data: { intentos_fallidos: nuevosIntentos },
       });
     }
   }
