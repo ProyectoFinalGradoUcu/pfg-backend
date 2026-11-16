@@ -20,6 +20,7 @@ export interface Resultado {
   periodosVuelo: number;
   periodosVueloCerrados: number;
   vuelos: number;
+  derechasLiberadas: number;
   derechasCompletadas: number;
   historialDerecha: number;
   derechasPorPrecedencia: number;
@@ -47,7 +48,7 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     return v;
   };
   const res: Resultado = { catalogosCreados: {}, personas: 0, completadas: 0, relaciones: 0, destinos: 0, periodosVuelo: 0, periodosVueloCerrados: 0,
-    vuelos: 0, derechasCompletadas: 0, historialDerecha: 0, derechasPorPrecedencia: 0, activosSinDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
+    vuelos: 0, derechasLiberadas: 0, derechasCompletadas: 0, historialDerecha: 0, derechasPorPrecedencia: 0, activosSinDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
     participaciones: 0 };
 
   // Catálogos, en orden de dependencia ──────────────────────────────────────
@@ -206,6 +207,15 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
   }
 
   // Derecha y Numor ──────────────────────────────────────────────────────────
+  for (const l of plan.liberar) {
+    const r = await db.query(
+      `UPDATE relaciones_laborales SET derecha = NULL, numor = NULL, escala_derecha = NULL
+        WHERE id = $1 AND derecha IS NOT DISTINCT FROM $2 AND numor IS NOT DISTINCT FROM $3`,
+      [l.relacionId, l.derecha, l.numor],
+    );
+    if (!r.rowCount) throw new Error('la Derecha de oficiales cambió mientras se importaba: volver a correr el importador');
+    res.derechasLiberadas++;
+  }
   for (const d of plan.derechas) {
     // El WHERE re-chequea que sigan vacías, por si alguien las cargó entre la simulación y la aplicación.
     const r = await db.query(
@@ -220,8 +230,8 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
   for (const h of plan.historial) {
     await db.query(
       `INSERT INTO historial_derecha_numor (persona_id, tipo, valor_anterior, valor_nuevo, operacion, motivo, lote_id)
-       VALUES ($1, $2, NULL, $3, 'ALTA', $4, $5)`,
-      [id(h.persona), h.tipo, h.valor, `Importación de bases FAU (${h.origen})`, lote],
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id(h.persona), h.tipo, h.anterior ?? null, h.valor, h.operacion ?? 'ALTA', `Importación de bases FAU (${h.origen})`, lote],
     );
     res.historialDerecha++;
   }

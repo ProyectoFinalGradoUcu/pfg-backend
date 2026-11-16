@@ -86,10 +86,13 @@ export interface Plan {
   relaciones: RelacionNueva[];
   destinos: DestinoNuevo[];
   vuelos: VueloNuevo[];
-  /** Derecha/Numor de relaciones activas que ya existían y los tenían vacíos. */
+  /** Derecha/Numor de oficiales que vienen solo de la carga inicial: se vacían para cargar los del Access. */
+  liberar: Array<{ relacionId: string; persona: string; derecha: number | null; numor: number | null }>;
+  /** Derecha/Numor de relaciones activas que ya existían y los tenían vacíos (o liberados). */
   derechas: Array<{ relacionId: string; derecha: number | null; numor: number | null }>;
-  /** Altas en historial_derecha_numor (de relaciones nuevas y completadas). */
-  historial: Array<{ persona: Ref; tipo: 'DERECHA' | 'NUMOR'; valor: number; origen: string }>;
+  /** Movimientos en historial_derecha_numor (de relaciones nuevas, completadas y liberadas). */
+  historial: Array<{ persona: Ref; tipo: 'DERECHA' | 'NUMOR'; valor: number | null; anterior?: number;
+    operacion?: 'REORDEN' | 'BAJA'; origen: string }>;
   legajos: Array<{ persona: Ref; nivel: string; actualizar: boolean }>;
   /** Cursos aprobados (funcionarios_cursos); el curso va por nombre y se crea si falta. */
   cursos: Array<{ persona: Ref; curso: string; institucion: string; numeroOrden: string | null; fecha: string | null;
@@ -136,12 +139,14 @@ const CAMPOS_PERSONA = ['fecha_nacimiento', 'genero', 'telefono', 'direccion', '
   'localidad', 'email', 'lugar_nacimiento', 'seccional', 'fecha_fallecimiento', 'credencial_civica', 'nivel_idoneidad'] as const;
 
 const OFICIALES = new Set(['ALF', 'TTE_2DO', 'TTE_1RO', 'CAP', 'MAY', 'TTE_CNEL', 'CNEL', 'BRIG_GRAL', 'GRAL']);
+// El que deja public.cargar_derecha_inicial() en el historial.
+const MOTIVO_CARGA_INICIAL = 'Carga inicial por precedencia (Ley 19.775, art. 51)';
 
 export async function armarPlan(
   db: PoolClient, cat: Catalogos, bases: BaseAccess[], hojas: HojaVuelo[], op: Opciones,
 ): Promise<Plan> {
   const plan: Plan = {
-    personasNuevas: new Map(), completar: [], relaciones: [], destinos: [], vuelos: [], derechas: [], historial: [],
+    personasNuevas: new Map(), completar: [], relaciones: [], destinos: [], vuelos: [], liberar: [], derechas: [], historial: [],
     legajos: [], cursos: [], ascensos: [], motivosNuevos: new Set(), motivosRelacion: [], conductasRelacion: [], retiros: [],
     familiares: [], tiposRelacion: [], comisiones: [], comisionesNuevas: new Map(),
     misiones: new Map(), destinosSinEquivalente: new Map(), incidencias: [], conteo: {},
@@ -192,11 +197,32 @@ export async function armarPlan(
   )).rows.flatMap((r: { a: string; b: string }) => [r.a, r.b]));
   // Derecha y Numor son únicos (por escala, y por grado + escalafón): se cargan solo si están libres.
   const ordenes = (await db.query(
-    `SELECT escala_derecha, derecha, grado_id::text AS grado, escalafon_id::text AS escalafon, numor FROM relaciones_laborales
+    `SELECT id::text, escala_derecha, derecha, grado_id::text AS grado, escalafon_id::text AS escalafon, numor FROM relaciones_laborales
       WHERE derecha IS NOT NULL OR numor IS NOT NULL`,
-  )).rows as Array<{ escala_derecha: string; derecha: number | null; grado: string; escalafon: string; numor: number | null }>;
-  const derechasUsadas = new Set(ordenes.filter((o) => o.derecha !== null).map((o) => `${o.escala_derecha}|${o.derecha}`));
-  const numorsUsados = new Set(ordenes.filter((o) => o.numor !== null).map((o) => `${o.grado}|${o.escalafon}|${o.numor}`));
+  )).rows as Array<{ id: string; escala_derecha: string; derecha: number | null; grado: string; escalafon: string; numor: number | null }>;
+  // El paquete ordena a todos los activos antes de que se importe. Si nadie tocó todavía la Derecha de
+  // oficiales, se reemplaza entera por la del Access: es única por escala y no se puede mezclar.
+  const oficialesDb = (await db.query(
+    `SELECT r.id::text AS "relacionId", r.persona_id::text AS persona, r.derecha, r.numor,
+            COALESCE(h.solo_carga AND h.derecha IS NOT DISTINCT FROM r.derecha AND h.numor IS NOT DISTINCT FROM r.numor, false) AS "deCarga"
+       FROM relaciones_laborales r
+       LEFT JOIN derecha_jerarquia_grados j ON j.grado_id = r.grado_id
+       LEFT JOIN LATERAL (
+         SELECT bool_and(operacion = 'ALTA' AND motivo = $1)
+                  AND count(*) FILTER (WHERE tipo = 'DERECHA') <= 1 AND count(*) FILTER (WHERE tipo = 'NUMOR') <= 1 AS solo_carga,
+                max(valor_nuevo) FILTER (WHERE tipo = 'DERECHA') AS derecha,
+                max(valor_nuevo) FILTER (WHERE tipo = 'NUMOR') AS numor
+           FROM historial_derecha_numor WHERE persona_id = r.persona_id) h ON true
+      WHERE (r.derecha IS NOT NULL OR r.numor IS NOT NULL) AND (r.escala_derecha = 'OFICIALES' OR j.escala = 'OFICIALES')`,
+    [MOTIVO_CARGA_INICIAL],
+  )).rows as Array<Plan['liberar'][number] & { deCarga: boolean }>;
+  if (oficialesDb.length && oficialesDb.every((o) => o.deCarga)) {
+    plan.liberar = oficialesDb.map(({ relacionId, persona, derecha, numor }) => ({ relacionId, persona, derecha, numor }));
+  }
+  const liberadas = new Set(plan.liberar.map((l) => l.relacionId));
+  const enUso = ordenes.filter((o) => !liberadas.has(o.id));
+  const derechasUsadas = new Set(enUso.filter((o) => o.derecha !== null).map((o) => `${o.escala_derecha}|${o.derecha}`));
+  const numorsUsados = new Set(enUso.filter((o) => o.numor !== null).map((o) => `${o.grado}|${o.escalafon}|${o.numor}`));
   const activaDb = new Map(relacionesDb.filter((r) => r.estado === 'activo').map((r) => [r.persona, r]));
   const destinosDb = (await db.query(
     `SELECT persona_id::text AS persona, unidad_id::text AS unidad, sub_unidad_id::text AS sub, fecha_inicio::text AS inicio,
@@ -868,14 +894,20 @@ export async function armarPlan(
             motivo: `su período activo no tiene fecha de último ascenso; el Access dice ${r.campos.fecha_ultimo_ascenso} (no se carga: acordar con liquidación)` });
         }
         // Derecha y Numor son columnas del módulo de personal (liquidación no las usa): si la
-        // relación existente no tiene ninguna de las dos, se completan con las del Access.
-        if (existente.id && existente.derecha === null && existente.numor === null
-          && (r.campos.derecha != null || r.campos.numor != null)) {
+        // relación existente no tiene ninguna de las dos (o son de la carga inicial), se completan con las del Access.
+        const accessD = (r.campos.derecha ?? null) as number | null;
+        const accessN = (r.campos.numor ?? null) as number | null;
+        const libre = existente.id && (liberadas.has(existente.id) || (existente.derecha === null && existente.numor === null));
+        if (libre && (accessD !== null || accessN !== null)) {
           const orden = asignarOrden(r, existente.grado, existente.escalafon);
           if (orden.derecha !== null || orden.numor !== null) {
-            plan.derechas.push({ relacionId: existente.id, ...orden });
+            plan.derechas.push({ relacionId: existente.id!, ...orden });
             contar('Derecha/Numor completados en activos existentes');
           }
+        } else if (!libre && (accessD !== null || accessN !== null)
+          && (existente.derecha !== accessD || existente.numor !== accessN)) {
+          incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
+            motivo: `Derecha/Numor "${existente.derecha ?? '-'}/${existente.numor ?? '-'}" en la base y "${accessD ?? '-'}/${accessN ?? '-'}" en el Access: no se cambia, la Derecha de oficiales de la base no es solo la de la carga inicial` });
         }
         // Tipo de funcionario y destino son del módulo de personal: se completan solo si el Access y la base coinciden.
         if (existente.id) {
@@ -1131,6 +1163,30 @@ export async function armarPlan(
     }
   }
   contar('misiones nuevas a crear', [...plan.misiones.values()].filter((m) => !m.existenteId && m.participantes.size).length);
+
+  // Lo liberado queda en el historial: como reorden si el Access trae otro valor, como baja si no trae ninguno.
+  const personaPorId = new Map([...personasDb.values()].map((p) => [p.id, p]));
+  for (const l of plan.liberar) {
+    const vacias: string[] = [];
+    for (const [tipo, anterior] of [['DERECHA', l.derecha], ['NUMOR', l.numor]] as const) {
+      if (anterior === null) continue;
+      const i = plan.historial.findIndex((h) => h.persona === l.persona && h.tipo === tipo && !h.operacion);
+      if (i < 0) {
+        plan.historial.push({ persona: l.persona, tipo, valor: null, anterior, operacion: 'BAJA', origen: 'el Access no la trae' });
+        vacias.push(tipo === 'DERECHA' ? 'Derecha' : 'Numor');
+      } else if (plan.historial[i].valor === anterior) {
+        plan.historial.splice(i, 1);
+      } else {
+        Object.assign(plan.historial[i], { anterior, operacion: 'REORDEN' });
+      }
+    }
+    const p = personaPorId.get(l.persona);
+    if (vacias.length) {
+      incidencia({ nivel: 'aviso', origen: 'base de datos', cedula: p?.cedula, nombre: p && `${p.primer_apellido}, ${p.primer_nombre}`,
+        motivo: `tenía ${vacias.join(' y ')} de la carga inicial y el Access no trae la suya: queda sin ${vacias.join(' ni ')} (ubicarlo desde Configuración de derecha)` });
+    }
+  }
+  if (plan.liberar.length) contar('Derecha/Numor de oficiales de la carga inicial reemplazados por los del Access', plan.liberar.length);
   return plan;
 }
 
