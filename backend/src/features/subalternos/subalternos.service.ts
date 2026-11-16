@@ -140,45 +140,30 @@ export class SubalternosService {
     // (`assertPersonaEnAlcance`): quien no tiene destino cargado igual aparece en su base.
     // Con alcance de unidad se fuerzan las bases del usuario; sin alcance, `query.destino` es opcional.
     const bases = basesForzadas ?? (query.destino?.length ? query.destino.map((id) => BigInt(id)) : null);
+    // Cada palabra tiene que aparecer en algún campo, así "nombre apellido" encuentra a la persona.
+    const palabras = query.search?.trim().split(/\s+/).filter(Boolean) ?? [];
     const and = [
       ...(query.categoria ? [wherePersonaPorCategoria(query.categoria)] : []),
       ...(bases !== null
         ? [{ relaciones_laborales: { some: { ...RELACION_ACTIVA, sub_unidad_id: { in: bases } } } }]
         : []),
+      ...palabras.map((palabra) => {
+        const contiene = { contains: palabra, mode: 'insensitive' as const };
+        return {
+          OR: [
+            { cedula: contiene },
+            { primer_nombre: contiene },
+            { segundo_nombre: contiene },
+            { primer_apellido: contiene },
+            { segundo_apellido: contiene },
+          ],
+        };
+      }),
     ];
 
     const where = {
       relaciones_laborales: { some: relacionWhere },
       ...(and.length && { AND: and }),
-      ...(query.search && {
-        OR: [
-          { cedula: { contains: query.search, mode: 'insensitive' as const } },
-          {
-            primer_nombre: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-          {
-            primer_apellido: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-          {
-            segundo_nombre: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-          {
-            segundo_apellido: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-        ],
-      }),
     };
 
     const select = {

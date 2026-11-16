@@ -380,6 +380,59 @@ describe('SubalternosService', () => {
     });
   });
 
+  describe('findAllPersonas · búsqueda', () => {
+    const CAMPOS = ['cedula', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido'];
+    const coincideEnAlgunCampo = (palabra: string) => ({
+      OR: expect.arrayContaining(CAMPOS.map((campo) => ({ [campo]: { contains: palabra, mode: 'insensitive' } }))),
+    });
+    const where = () => prisma.personas.count.mock.calls.at(-1)[0].where;
+
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(0);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([]);
+    });
+
+    it('con varias palabras exige que cada una aparezca en algún campo', async () => {
+      await service.findAllPersonas({ search: 'Juan Pérez' });
+
+      expect(where().AND).toEqual([coincideEnAlgunCampo('Juan'), coincideEnAlgunCampo('Pérez')]);
+      expect(where()).not.toHaveProperty('OR');
+    });
+
+    it('ignora los espacios de más entre palabras', async () => {
+      await service.findAllPersonas({ search: '  Test   E2E Individual  ' });
+
+      expect(where().AND).toEqual([
+        coincideEnAlgunCampo('Test'),
+        coincideEnAlgunCampo('E2E'),
+        coincideEnAlgunCampo('Individual'),
+      ]);
+    });
+
+    it('una cédula se busca entera', async () => {
+      await service.findAllPersonas({ search: '41234567' });
+
+      expect(where().AND).toEqual([coincideEnAlgunCampo('41234567')]);
+    });
+
+    it('solo espacios no filtra', async () => {
+      await service.findAllPersonas({ search: '   ' });
+
+      expect(where()).not.toHaveProperty('AND');
+      expect(where()).not.toHaveProperty('OR');
+    });
+
+    it('se suma al filtro de base sin reemplazarlo', async () => {
+      await service.findAllPersonas({ search: 'Juan Pérez', destino: [5] });
+
+      expect(where().AND).toEqual([
+        { relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [5n] } } } },
+        coincideEnAlgunCampo('Juan'),
+        coincideEnAlgunCampo('Pérez'),
+      ]);
+    });
+  });
+
   describe('create', () => {
     it('Crea persona y su relación laboral como subalterno', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
