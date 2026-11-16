@@ -43,6 +43,17 @@ describe('PersonaAccesibleGuard', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
+  it('si la ruta no tiene :personaId, usa :id', async () => {
+    prisma.personas.findUnique.mockResolvedValue(null);
+
+    await expect(
+      guard.canActivate(contextoCon({ params: { id: '999' }, alcance: { tipo: 'global' } })),
+    ).rejects.toThrow(NotFoundException);
+    expect(prisma.personas.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 999n } }),
+    );
+  });
+
   it('un id no numérico lo deja para ParseIntPipe, sin consultar la base', async () => {
     await expect(
       guard.canActivate(contextoCon({ params: { personaId: 'abc' }, alcance: { tipo: 'global' } })),

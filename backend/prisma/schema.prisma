@@ -99,6 +99,7 @@ model archivos {
   personas_documentos                       personas_documentos?
   retiros_orden                             retiros[]  @relation("retiros_archivo_orden")
   retiros_boletin                           retiros[]  @relation("retiros_archivo_boletin")
+  personas_foto                             personas[]  @relation("personas_foto_archivo")
 
   @@unique([bucket, object_key], map: "ux_archivos_object_key")
   @@index([sha256], map: "ix_archivos_sha256")
@@ -983,6 +984,8 @@ model personas {
   credencial_civica                                                 String?                             @db.VarChar(20)
   nivel_idoneidad                                                   Int?                                @db.SmallInt
   foto                                                              Bytes?
+  /// migration_personas_foto.sql. La foto vive en `archivos` (MinIO); `foto` (BYTEA) no se usa.
+  foto_archivo_id                                                   BigInt?
   fecha_fallecimiento                                               DateTime?                           @db.Date
   es_civil                                                          Boolean?                            @default(false)
   aguinaldo_baja                                                    aguinaldo_baja[]
@@ -1022,6 +1025,7 @@ model personas {
   historial_derecha_numor                                           historial_derecha_numor[]
   registros_vuelo                                                   registros_vuelo[]
   historial_unidad_vuelo                                            historial_unidad_vuelo[]
+  foto_archivo                                                      archivos?                           @relation("personas_foto_archivo", fields: [foto_archivo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 /// Documentación libre de un funcionario (cédula, escaneos). Tabla NUESTRA: la crea

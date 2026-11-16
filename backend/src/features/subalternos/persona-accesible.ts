@@ -30,7 +30,7 @@ export class PersonaAccesibleGuard implements CanActivate {
     const req = contexto
       .switchToHttp()
       .getRequest<Request & { alcance?: AlcanceResuelto }>();
-    const id = Number(req.params.personaId);
+    const id = Number(req.params.personaId ?? req.params.id);
     // Un id que no es entero positivo lo rechaza ParseIntPipe con 400.
     if (!Number.isSafeInteger(id) || id <= 0) return true;
     await assertPersonaAccesible(this.prisma, BigInt(id), req.alcance);

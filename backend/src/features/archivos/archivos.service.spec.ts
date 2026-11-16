@@ -7,8 +7,10 @@ import {
 } from '@nestjs/common';
 import { ArchivosService, MINIO_CLIENT, calcularSha256 } from './archivos.service';
 import { PrismaService } from '../../lib/prisma.service';
+import { RESTRICCIONES_IMAGEN } from './archivos.restricciones';
 
 const PDF = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]);
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
 const BUCKET = 'pfg-documents';
 
 const makeArchivo = (overrides: Partial<any> = {}) => ({
@@ -153,6 +155,34 @@ describe('ArchivosService', () => {
         BadRequestException,
       );
       expect(minio.putObject).not.toHaveBeenCalled();
+    });
+
+    it('con las restricciones de imagen, rechaza un PDF válido', async () => {
+      await expect(
+        service.guardar(makeInput({ restricciones: RESTRICCIONES_IMAGEN })),
+      ).rejects.toThrow('Tipo de archivo no permitido. Solo JPG o PNG');
+      expect(minio.putObject).not.toHaveBeenCalled();
+    });
+
+    it('con las restricciones de imagen, rechaza una imagen de más de 2 MB', async () => {
+      const grande = Buffer.concat([PNG, Buffer.alloc(2 * 1024 * 1024)]);
+
+      await expect(
+        service.guardar(
+          makeInput({ buffer: grande, mimetype: 'image/png', restricciones: RESTRICCIONES_IMAGEN }),
+        ),
+      ).rejects.toThrow('El archivo supera el tamaño máximo de 2 MB');
+      expect(minio.putObject).not.toHaveBeenCalled();
+    });
+
+    it('con las restricciones de imagen, acepta un PNG', async () => {
+      prisma.archivos.create.mockResolvedValue(makeArchivo({ content_type: 'image/png' }));
+
+      await service.guardar(
+        makeInput({ buffer: PNG, mimetype: 'image/png', restricciones: RESTRICCIONES_IMAGEN }),
+      );
+
+      expect(minio.putObject).toHaveBeenCalled();
     });
 
     it('rechaza contenido que no coincide con el tipo declarado', async () => {

@@ -58,6 +58,7 @@ export class PersonalPerfilService {
         etnia: true,
         codigo_postal: true,
         seccional: true,
+        foto_archivo_id: true,
         credencial_civica: true,
         nivel_idoneidad: true,
         es_civil: true,
@@ -115,6 +116,7 @@ export class PersonalPerfilService {
       segundo_apellido: persona.segundo_apellido,
       nombre_completo: [persona.primer_nombre, persona.segundo_nombre, persona.primer_apellido, persona.segundo_apellido]
         .filter(Boolean).join(' '),
+      foto_id: persona.foto_archivo_id,
       fecha_nacimiento: persona.fecha_nacimiento,
       email: persona.email,
       telefono: persona.telefono,
