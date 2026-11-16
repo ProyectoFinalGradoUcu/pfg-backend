@@ -76,7 +76,6 @@ export class UnidadesService {
         comando: this.toComando(b.unidades),
         cantidadRoles: b._count.sub_unidades_roles,
         cantidadUsuarios: await this.sesiones.contarUsuariosDeSubUnidad(b.id),
-        cantidadFuncionarios: await this.contarFuncionarios(b.id),
       })),
     );
 
@@ -106,15 +105,7 @@ export class UnidadesService {
       comando: this.toComando(base.unidades),
       roles: base.sub_unidades_roles.map((sr) => this.toRol(sr.roles)),
       cantidadUsuarios: await this.sesiones.contarUsuariosDeSubUnidad(base.id),
-      cantidadFuncionarios: await this.contarFuncionarios(base.id),
     };
-  }
-
-  /** Funcionarios con relación laboral activa en la base. */
-  private contarFuncionarios(subUnidadId: bigint): Promise<number> {
-    return this.prisma.relaciones_laborales.count({
-      where: { sub_unidad_id: subUnidadId, fecha_fin: null },
-    });
   }
 
   /**
