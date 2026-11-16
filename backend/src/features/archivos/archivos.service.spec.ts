@@ -275,6 +275,18 @@ describe('ArchivosService', () => {
       );
     });
 
+    it('eliminar acepta usuario null y deja eliminado_por en null', async () => {
+      prisma.archivos.findFirst.mockResolvedValue(makeArchivo());
+
+      await service.eliminar(5n, null);
+
+      expect(prisma.archivos.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ eliminado_por: null }),
+        }),
+      );
+    });
+
     it('404 si el archivo no existe o ya fue eliminado', async () => {
       prisma.archivos.findFirst.mockResolvedValue(null);
 

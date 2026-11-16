@@ -26,6 +26,11 @@ import {
 import { CierreCarreraService } from '../retiros/cierre-carrera.service.js';
 import { DerechaService } from '../derecha/derecha.service.js';
 import { pertenenciaActiva, personaPuedeIntegrar } from '../comisiones/pertenencias.js';
+import {
+  INCLUDE_DOCUMENTOS,
+  SELECT_DOCUMENTO,
+  documentosDe,
+} from '../archivos/documentos-de-registro.js';
 
 @Injectable()
 export class PersonalPerfilService {
@@ -457,6 +462,7 @@ export class PersonalPerfilService {
       where: { persona_id: BigInt(id) },
       orderBy: { fecha_inicio: 'desc' },
       select: {
+        id: true,
         numero_orden: true,
         boletin: true,
         fecha_inicio: true,
@@ -472,10 +478,13 @@ export class PersonalPerfilService {
             es_obligatorio: true,
           },
         },
+        archivo_orden: { select: SELECT_DOCUMENTO },
+        archivo_boletin: { select: SELECT_DOCUMENTO },
       },
     });
 
     return registros.map((r) => ({
+      id: r.id.toString(),
       curso_id: Number(r.cursos.id),
       nombre_curso: r.cursos.nombre_curso,
       institucion: r.cursos.institucion,
@@ -489,6 +498,7 @@ export class PersonalPerfilService {
       calificacion: r.calificacion,
       observacion: r.observacion_calificacion,
       completado: r.fecha_fin != null,
+      documentos: documentosDe(r),
     }));
   }
 
@@ -506,13 +516,16 @@ export class PersonalPerfilService {
             misiones: {
               select: { id: true, nombre_mision: true, pais: true },
             },
+            ...INCLUDE_DOCUMENTOS,
           },
         },
+        ...INCLUDE_DOCUMENTOS,
       },
       orderBy: { convocatorias: { fecha_salida: 'desc' } },
     });
 
     return registros.map((r) => ({
+      id: r.id.toString(),
       mision_id: r.convocatorias.misiones.id.toString(),
       convocatoria_id: r.convocatoria_id.toString(),
       nombre_mision: r.convocatorias.misiones.nombre_mision,
@@ -528,6 +541,8 @@ export class PersonalPerfilService {
       finalizada:
         r.convocatorias.fecha_llegada !== null &&
         r.convocatorias.fecha_llegada <= new Date(),
+      documentos: documentosDe(r),
+      documentos_convocatoria: documentosDe(r.convocatorias),
     }));
   }
 
@@ -540,6 +555,7 @@ export class PersonalPerfilService {
       include: {
         unidades: { select: { id: true, codigo: true, denominacion: true } },
         sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
+        ...INCLUDE_DOCUMENTOS,
       },
       orderBy: { fecha_inicio: 'desc' },
     });
@@ -561,6 +577,7 @@ export class PersonalPerfilService {
       boletin: a.boletin,
       observaciones: a.observaciones,
       activo: a.fecha_fin == null,
+      documentos: documentosDe(a),
     }));
   }
 

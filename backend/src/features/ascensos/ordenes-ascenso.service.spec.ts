@@ -640,6 +640,26 @@ describe('OrdenesAscensoService', () => {
       expect(res.cantidad_funcionarios).toBe(1);
     });
 
+    it('devuelve los documentos adjuntos de la orden', async () => {
+      const archivo = {
+        nombre_original: 'orden.pdf',
+        content_type: 'application/pdf',
+        tamanio_bytes: 8n,
+        subido_en: new Date('2027-02-03'),
+      };
+      prisma.ascensos_ordenes.findUnique.mockResolvedValue(
+        makeOrdenFila({ archivo_orden: archivo, archivo_boletin: null }),
+      );
+
+      const res = await service.obtener(70);
+
+      expect(res.documentos).toEqual({ orden: archivo, boletin: null });
+      expect(prisma.ascensos_ordenes.findFirst.mock.calls[0][0].include).toMatchObject({
+        archivo_orden: expect.anything(),
+        archivo_boletin: expect.anything(),
+      });
+    });
+
     it('pagina los funcionarios de la orden', async () => {
       await service.obtener(70, { page: 3, pageSize: 5 });
 
@@ -700,6 +720,64 @@ describe('OrdenesAscensoService', () => {
       await expect(
         service.obtener(70, {}, { tipo: 'unidad', subUnidadIds: ['6'], comandoIds: [] }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('verificarAlcanceOrden', () => {
+    const UNIDAD_6 = { tipo: 'unidad' as const, subUnidadIds: ['6'], comandoIds: [] };
+    const GLOBAL = { tipo: 'global' as const, subUnidadIds: [], comandoIds: [] };
+    const ordenDe = (n: number) => ({
+      id: 70n,
+      ascensos: Array.from({ length: n }, (_, i) => ({ id: 900n + BigInt(i) })),
+    });
+
+    it('con alcance global solo comprueba que la orden exista', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+
+      await expect(service.verificarAlcanceOrden(70, GLOBAL, 'gestionar')).resolves.toBeUndefined();
+      expect(prisma.ascensos.count).not.toHaveBeenCalled();
+    });
+
+    it('sin alcance solo comprueba que la orden exista', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+
+      await expect(service.verificarAlcanceOrden(70, undefined, 'ver')).resolves.toBeUndefined();
+    });
+
+    it('404 si la orden no existe', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(null);
+
+      await expect(service.verificarAlcanceOrden(70, GLOBAL, 'ver')).rejects.toThrow(NotFoundException);
+    });
+
+    it('con alcance de unidad y ningún funcionario visible, 404', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(0);
+
+      await expect(service.verificarAlcanceOrden(70, UNIDAD_6, 'ver')).rejects.toThrow(NotFoundException);
+    });
+
+    it('gestionar con funcionarios fuera del alcance, 403', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(1);
+
+      await expect(service.verificarAlcanceOrden(70, UNIDAD_6, 'gestionar')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('ver con algunos funcionarios visibles pasa', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(1);
+
+      await expect(service.verificarAlcanceOrden(70, UNIDAD_6, 'ver')).resolves.toBeUndefined();
+    });
+
+    it('gestionar con todos los funcionarios visibles pasa', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(2);
+
+      await expect(service.verificarAlcanceOrden(70, UNIDAD_6, 'gestionar')).resolves.toBeUndefined();
     });
   });
 

@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CursosService } from './cursos.service';
 import { PrismaService } from '../../lib/prisma.service';
+import { ArchivosService } from '../archivos/archivos.service';
 import { AlcanceResuelto } from '../../lib/alcance/alcance.types';
 import { CursoDto } from './dto/curso.dto';
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
@@ -115,6 +116,7 @@ const makePrismaMock = () => ({
 describe('CursosService', () => {
   let service: CursosService;
   let prisma: ReturnType<typeof makePrismaMock>;
+  const archivos = { eliminar: jest.fn() };
 
   beforeAll(async () => {
     prisma = makePrismaMock();
@@ -123,6 +125,7 @@ describe('CursosService', () => {
       providers: [
         CursosService,
         { provide: PrismaService, useValue: prisma },
+        { provide: ArchivosService, useValue: archivos },
       ],
     }).compile();
 
@@ -131,6 +134,7 @@ describe('CursosService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    archivos.eliminar.mockResolvedValue(undefined);
     prisma.personas.findMany.mockImplementation(({ where }) => Promise.resolve(where.id.in.map((id: bigint) => ({ id }))));
     // Handles both: callback form (async tx => ...) and array form ([p1, p2])
     prisma.$transaction.mockImplementation((arg: any) => {
@@ -456,6 +460,10 @@ describe('CursosService', () => {
   // ─── removeCurso ──────────────────────────────────────────────────────────
 
   describe('removeCurso', () => {
+    beforeEach(() => {
+      prisma.$queryRaw.mockResolvedValue([]);
+    });
+
     it('elimina un curso existente', async () => {
       prisma.cursos.findUnique.mockResolvedValue(makeCurso());
       prisma.funcionarios_cursos.deleteMany.mockResolvedValue({ count: 0 });
@@ -471,6 +479,52 @@ describe('CursosService', () => {
       prisma.cursos.findUnique.mockResolvedValue(null);
 
       await expect(service.removeCurso(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('removeCurso da de baja los archivos de sus designaciones', async () => {
+      prisma.cursos.findUnique.mockResolvedValue(makeCurso());
+      prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([
+        { archivo_orden_id: 7n, archivo_boletin_id: null },
+        { archivo_orden_id: null, archivo_boletin_id: 8n },
+      ]);
+      prisma.funcionarios_cursos.deleteMany.mockResolvedValue({ count: 2 });
+      prisma.cursos.delete.mockResolvedValue(makeCurso());
+
+      await service.removeCurso(1);
+
+      expect(prisma.$queryRaw.mock.calls[0][0].join('?')).toMatch(/FROM cursos[\s\S]*FOR UPDATE/);
+      expect(prisma.$queryRaw.mock.calls[1][0].join('?')).toContain('FROM funcionarios_cursos');
+      expect(prisma.funcionarios_cursos.findMany).not.toHaveBeenCalled();
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(archivos.eliminar).toHaveBeenCalledWith(8n, null);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.funcionarios_cursos.deleteMany.mock.invocationCallOrder[0],
+      );
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.cursos.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si el borrado falla, no da de baja ningún archivo', async () => {
+      prisma.cursos.findUnique.mockResolvedValue(makeCurso());
+      prisma.$queryRaw.mockResolvedValue([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+      prisma.cursos.delete.mockRejectedValue(new Error('FK'));
+
+      await expect(service.removeCurso(1)).rejects.toThrow('FK');
+      expect(archivos.eliminar).not.toHaveBeenCalled();
+    });
+
+    it('si la baja falla, removeCurso igual responde', async () => {
+      prisma.cursos.findUnique.mockResolvedValue(makeCurso());
+      prisma.$queryRaw.mockResolvedValue([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+      archivos.eliminar.mockRejectedValue(new Error('minio caído'));
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const result = await service.removeCurso(1);
+
+      expect(log).toHaveBeenCalled();
+      expect(result).toEqual({ id: '1', eliminado: true });
+      log.mockRestore();
     });
   });
 
@@ -653,6 +707,20 @@ describe('CursosService', () => {
       expect(prisma.funcionarios_cursos.create).toHaveBeenCalledTimes(3);
     });
 
+    it('devuelve el id de cada designación creada', async () => {
+      prisma.funcionarios_cursos.create
+        .mockResolvedValueOnce({ id: 101n, persona_id: 10n, curso_id: 1n })
+        .mockResolvedValueOnce({ id: 102n, persona_id: 20n, curso_id: 1n });
+
+      const result = await service.crearDesignacion(1, { ...baseDto, numero_orden: 'ORD-001' });
+
+      expect(result.designaciones).toEqual([
+        { id: 101n, persona_id: 10n },
+        { id: 102n, persona_id: 20n },
+      ]);
+      expect(result.personas_designadas).toBe(2);
+    });
+
     it('lanza NotFoundException si algún módulo no pertenece al curso', async () => {
       prisma.modulos_curso.count.mockResolvedValue(0); // módulos inválidos
 
@@ -706,6 +774,22 @@ describe('CursosService', () => {
       expect(prisma.funcionarios_cursos.findMany.mock.calls[0][0].where.personas).toEqual({
         relaciones_laborales: { some: { fecha_fin: null, derecha: { gte: 1, lte: 5 } } },
       });
+    });
+
+    it('getCursosPorFuncionario devuelve los documentos de cada designación', async () => {
+      const orden = { nombre_original: 'o.pdf', content_type: 'application/pdf', tamanio_bytes: 8n, subido_en: new Date() };
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([
+        makeInscripcion({ archivo_orden: orden, archivo_boletin: null }),
+      ]);
+
+      const result = await service.getCursosPorFuncionario({}, GLOBAL);
+
+      expect(result.items[0].documentos).toEqual({ orden, boletin: null });
+      const [ids, filas] = prisma.funcionarios_cursos.findMany.mock.calls.map((c: any[]) => c[0]);
+      expect(ids.include).toBeUndefined();
+      expect(filas.include).toEqual(
+        expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }),
+      );
     });
 
     it('lista inscripciones paginadas con datos de funcionario y curso', async () => {

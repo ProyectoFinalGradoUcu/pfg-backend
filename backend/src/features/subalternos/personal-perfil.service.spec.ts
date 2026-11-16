@@ -64,6 +64,8 @@ const makePrismaMock = () => ({
   personas: { findUnique: jest.fn(), update: jest.fn() },
   motivos_baja: { findFirst: jest.fn() },
   destinos: { findMany: jest.fn() },
+  funcionarios_convocatorias: { findMany: jest.fn() },
+  funcionarios_cursos: { findMany: jest.fn() },
   relaciones_familiares: {
     findMany: jest.fn(),
     findFirst: jest.fn(),
@@ -152,8 +154,24 @@ describe('PersonalPerfilService', () => {
           boletin: null,
           observaciones: null,
           activo: true,
+          documentos: { orden: null, boletin: null },
         },
       ]);
+    });
+
+    it('findDestinos devuelve documentos de cada asignación', async () => {
+      const subido_en = new Date('2026-11-06T12:00:00Z');
+      const orden = { nombre_original: 'orden.pdf', content_type: 'application/pdf', tamanio_bytes: 8n, subido_en };
+      prisma.destinos.findMany.mockResolvedValue([makeAsignacion({ archivo_orden: orden, archivo_boletin: null })]);
+
+      const result = await service.findDestinos(100);
+
+      expect(result[0].documentos).toEqual({ orden, boletin: null });
+      expect(prisma.destinos.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }),
+        }),
+      );
     });
 
     it('marca como no activo el destino ya cerrado', async () => {
@@ -695,6 +713,82 @@ describe('PersonalPerfilService', () => {
       await expect(pipe.transform({ primer_nombre: '   ' }, meta)).rejects.toThrow(BadRequestException);
       await expect(pipe.transform({ primer_apellido: '' }, meta)).rejects.toThrow(BadRequestException);
       await expect(pipe.transform({ primer_nombre: '  Juan ' }, meta)).resolves.toMatchObject({ primer_nombre: 'Juan' });
+    });
+  });
+
+  describe('findCursos', () => {
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue({ id: 100n });
+    });
+
+    it('devuelve el id de la inscripción y sus documentos', async () => {
+      const boletin = { nombre_original: 'b.pdf', content_type: 'application/pdf', tamanio_bytes: 8n, subido_en: new Date() };
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([
+        {
+          id: 400n,
+          numero_orden: null,
+          boletin: 'B-1',
+          fecha_inicio: null,
+          fecha_fin: null,
+          aprobado: null,
+          calificacion: null,
+          observacion_calificacion: null,
+          archivo_orden: null,
+          archivo_boletin: boletin,
+          cursos: { id: 3n, nombre_curso: 'Supervivencia', institucion: 'EMA', es_obligatorio: false },
+        },
+      ]);
+
+      const result = await service.findCursos(100);
+
+      expect(result[0]).toMatchObject({
+        id: '400',
+        curso_id: 3,
+        documentos: { orden: null, boletin },
+      });
+      const select = prisma.funcionarios_cursos.findMany.mock.calls[0][0].select;
+      expect(select).toEqual(
+        expect.objectContaining({ id: true, archivo_orden: expect.anything(), archivo_boletin: expect.anything() }),
+      );
+    });
+  });
+
+  describe('findMisiones', () => {
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue({ id: 100n });
+    });
+
+    it('devuelve id de la asignación, sus documentos y los de la convocatoria', async () => {
+      const orden = { nombre_original: 'o.pdf', content_type: 'application/pdf', tamanio_bytes: 8n, subido_en: new Date() };
+      const boletin = { nombre_original: 'b.pdf', content_type: 'application/pdf', tamanio_bytes: 8n, subido_en: new Date() };
+      prisma.funcionarios_convocatorias.findMany.mockResolvedValue([
+        {
+          id: 300n,
+          convocatoria_id: 10n,
+          numero_orden: 'O-1',
+          boletin: null,
+          archivo_orden: orden,
+          archivo_boletin: null,
+          convocatorias: {
+            fecha_salida: null,
+            fecha_llegada: null,
+            archivo_orden: null,
+            archivo_boletin: boletin,
+            misiones: { id: 1n, nombre_mision: 'Congo', pais: 'RDC' },
+          },
+        },
+      ]);
+
+      const result = await service.findMisiones(100);
+
+      expect(result[0]).toMatchObject({
+        id: '300',
+        documentos: { orden, boletin: null },
+        documentos_convocatoria: { orden: null, boletin },
+      });
+      const include = prisma.funcionarios_convocatorias.findMany.mock.calls[0][0].include;
+      expect(include).toEqual(expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }));
+      expect(include.convocatorias.include).toEqual(expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }));
     });
   });
 });

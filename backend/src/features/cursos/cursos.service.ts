@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
@@ -32,6 +33,14 @@ import {
   tieneFiltroDerechaNumor,
   whereRelacionPorDerechaNumor,
 } from '../../lib/personal/filtro-derecha-numor';
+import { ArchivosService } from '../archivos/archivos.service';
+import {
+  INCLUDE_DOCUMENTOS,
+  archivosDeFilas,
+  type ArchivosFila,
+  darDeBajaArchivos,
+  documentosDe,
+} from '../archivos/documentos-de-registro';
 
 /** Base del curso con su comando, o `null` si es general. */
 function baseDelCurso(
@@ -42,7 +51,12 @@ function baseDelCurso(
 
 @Injectable()
 export class CursosService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(CursosService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly archivos: ArchivosService,
+  ) {}
 
   async create(dto: CursoDto, alcance?: AlcanceResuelto) {
     const existe = await this.prisma.cursos.findFirst({
@@ -238,12 +252,18 @@ export class CursosService {
       throw new NotFoundException(`No existe curso con id ${id}`);
     }
 
-    await this.prisma.$transaction([
+    const archivos = await this.prisma.$transaction(async (tx) => {
+      // Padre primero: una inscripción nueva necesita KEY SHARE sobre el curso y espera hasta el commit.
+      await tx.$queryRaw`SELECT id FROM cursos WHERE id = ${curso.id} FOR UPDATE`;
+      const designaciones = await tx.$queryRaw<ArchivosFila[]>`
+        SELECT archivo_orden_id, archivo_boletin_id FROM funcionarios_cursos WHERE curso_id = ${curso.id} FOR UPDATE`;
       // Borra inscripciones (cascada sus filas de módulo) para no violar las FK.
-      this.prisma.funcionarios_cursos.deleteMany({ where: { curso_id: BigInt(id) } }),
+      await tx.funcionarios_cursos.deleteMany({ where: { curso_id: curso.id } });
       // Borra el curso (cascada las definiciones de módulos_curso).
-      this.prisma.cursos.delete({ where: { id: BigInt(id) } }),
-    ]);
+      await tx.cursos.delete({ where: { id: curso.id } });
+      return archivosDeFilas(designaciones);
+    });
+    await darDeBajaArchivos(this.archivos, archivos, null, this.logger);
 
     return { id: id.toString(), eliminado: true };
   }
@@ -333,6 +353,7 @@ export class CursosService {
         usuarios: {
           select: { id: true, username: true },
         },
+        ...INCLUDE_DOCUMENTOS,
       },
     });
     const porId = new Map(filas.map((r) => [r.id.toString(), r]));
@@ -385,6 +406,7 @@ export class CursosService {
         calificacion: m.calificacion !== null && m.calificacion !== undefined ? Number(m.calificacion) : null,
         observacion: m.observacion_calificacion,
       })),
+      documentos: documentosDe(r),
     })),
       total,
       page,
@@ -629,6 +651,7 @@ export class CursosService {
     }
     const aNivelModulo = moduloIds.length > 0;
 
+    const designaciones: { id: bigint; persona_id: bigint }[] = [];
     try { await this.prisma.$transaction(async (tx) => {
       const ids = personaIds.map(BigInt);
       await assertPersonasCursos(tx, ids, alcance);
@@ -646,6 +669,7 @@ export class CursosService {
             fecha_fin: fechaFin,
           },
         });
+        designaciones.push({ id: inscripcion.id, persona_id: inscripcion.persona_id });
 
         for (const moduloId of moduloIds) {
           await tx.funcionarios_modulos_curso.upsert({
@@ -683,6 +707,7 @@ export class CursosService {
       modulos_designados: moduloIds.length,
       numero_orden: dto.numero_orden ?? null,
       boletin: dto.boletin ?? null,
+      designaciones,
     };
   }
 

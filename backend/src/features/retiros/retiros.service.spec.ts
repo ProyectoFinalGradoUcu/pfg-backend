@@ -9,6 +9,7 @@ import { RetirosService } from './retiros.service';
 import { PrismaService } from '../../lib/prisma.service';
 import { CierreCarreraService } from './cierre-carrera.service';
 import { DerechaService } from '../derecha/derecha.service';
+import { ArchivosService } from '../archivos/archivos.service';
 import { SELECT_DOCUMENTO_RETIRO } from './retiros-documentos.service';
 
 import {
@@ -24,6 +25,7 @@ describe('RetirosService', () => {
   let service: RetirosService;
   let prisma: ReturnType<typeof makePrismaMock>;
   let cierre: { cerrar: jest.Mock };
+  const archivos = { eliminar: jest.fn() };
   let derecha: { asignarEnAltaEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
 
   beforeAll(async () => {
@@ -37,6 +39,7 @@ describe('RetirosService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: CierreCarreraService, useValue: cierre },
         { provide: DerechaService, useValue: derecha },
+        { provide: ArchivosService, useValue: archivos },
       ],
     }).compile();
 
@@ -45,6 +48,7 @@ describe('RetirosService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    archivos.eliminar.mockResolvedValue(undefined);
     prisma.$transaction.mockImplementation((arg: any) =>
       typeof arg === 'function' ? arg(prisma) : Promise.all(arg),
     );
@@ -1239,6 +1243,27 @@ describe('RetirosService', () => {
         destino_borrado: '77',
         destino_reabierto: '60',
       });
+    });
+
+    it('da de baja los archivos del destino que borra', async () => {
+      // El adjunto entró después de la lectura: solo la fila borrada lo ve.
+      prisma.destinos.delete.mockResolvedValue({ id: 77n, archivo_orden_id: 7n, archivo_boletin_id: null });
+
+      await service.anularReincorporacion(88, dto, 9n);
+
+      expect(archivos.eliminar).toHaveBeenCalledTimes(1);
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, 9n);
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.relaciones_laborales.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si la transacción falla, no da de baja ningún archivo', async () => {
+      prisma.destinos.delete.mockResolvedValue({ id: 77n, archivo_orden_id: 7n, archivo_boletin_id: null });
+      prisma.relaciones_laborales.delete.mockRejectedValue(new Error('FK'));
+
+      await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow('FK');
+      expect(archivos.eliminar).not.toHaveBeenCalled();
     });
 
     it('la saca de la derecha antes de borrar la relación', async () => {
