@@ -1183,7 +1183,7 @@ export async function armarPlan(
     const p = personaPorId.get(l.persona);
     if (vacias.length) {
       incidencia({ nivel: 'aviso', origen: 'base de datos', cedula: p?.cedula, nombre: p && `${p.primer_apellido}, ${p.primer_nombre}`,
-        motivo: `tenía ${vacias.join(' y ')} de la carga inicial y el Access no trae la suya: queda sin ${vacias.join(' ni ')} (ubicarlo desde Configuración de derecha)` });
+        motivo: `tenía ${vacias.join(' y ')} de la carga inicial y el Access no trae la suya: queda sin ${vacias.join(' ni ')}; asignársel${vacias.length > 1 ? 'os' : 'o'} desde Configuración de derecha` });
     }
   }
   if (plan.liberar.length) contar('Derecha/Numor de oficiales de la carga inicial reemplazados por los del Access', plan.liberar.length);
