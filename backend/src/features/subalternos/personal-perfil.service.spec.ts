@@ -61,7 +61,7 @@ const makeRelacion = (overrides: Partial<any> = {}) => ({
 });
 
 const makePrismaMock = () => ({
-  personas: { findUnique: jest.fn(), update: jest.fn() },
+  personas: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
   motivos_baja: { findFirst: jest.fn() },
   destinos: { findMany: jest.fn() },
   funcionarios_convocatorias: { findMany: jest.fn() },
@@ -131,6 +131,31 @@ describe('PersonalPerfilService', () => {
       prisma.personas.findUnique.mockResolvedValue(null);
 
       await expect(service.findDestinos(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('con alcance de unidad rechaza con 404 a una persona fuera de sus bases (SCRUM-163)', async () => {
+      prisma.personas.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.findDestinos(100, { tipo: 'unidad', subUnidadIds: ['1'], comandoIds: ['1'] }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.destinos.findMany).not.toHaveBeenCalled();
+    });
+
+    it('con alcance de unidad devuelve los destinos de una persona de sus bases (SCRUM-163)', async () => {
+      prisma.personas.findFirst.mockResolvedValue({ id: 100n });
+      prisma.destinos.findMany.mockResolvedValue([makeAsignacion()]);
+
+      const result = await service.findDestinos(100, { tipo: 'unidad', subUnidadIds: ['17'], comandoIds: ['5'] });
+
+      expect(result).toHaveLength(1);
+      expect(prisma.personas.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [17n] } } },
+          }),
+        }),
+      );
     });
 
     it('devuelve el historial de destinos del funcionario', async () => {

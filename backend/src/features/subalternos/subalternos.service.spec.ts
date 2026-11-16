@@ -854,22 +854,44 @@ describe('SubalternosService', () => {
   describe('alcance por unidad', () => {
     const UNIDAD: any = { tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['1'] };
     const GLOBAL: any = { tipo: 'global' };
+    const UNIDAD_VARIAS: any = { tipo: 'unidad', subUnidadIds: ['7', '8', '9'], comandoIds: ['1'] };
 
     beforeEach(() => {
       prisma.personas.count = jest.fn().mockResolvedValue(0);
       prisma.personas.findMany = jest.fn().mockResolvedValue([]);
     });
 
-    it('fuerza las bases propias en el listado e ignora el filtro destino del query', async () => {
-      await service.findAllPersonas({ destino: '99' } as any, UNIDAD);
-
+    const conBases = (ids: bigint[]) =>
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            AND: [{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [7n] } } } }],
+            AND: [{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: ids } } } }],
           }),
         }),
       );
+
+    it('sin filtro destino lista todas las bases propias', async () => {
+      await service.findAllPersonas({}, UNIDAD_VARIAS);
+
+      conBases([7n, 8n, 9n]);
+    });
+
+    it('con filtro destino lista solo las bases propias elegidas', async () => {
+      await service.findAllPersonas({ destino: [8] }, UNIDAD_VARIAS);
+
+      conBases([8n]);
+    });
+
+    it('descarta las bases elegidas que no son propias', async () => {
+      await service.findAllPersonas({ destino: [8, 99] }, UNIDAD_VARIAS);
+
+      conBases([8n]);
+    });
+
+    it('si ninguna base elegida es propia no lista a nadie', async () => {
+      await service.findAllPersonas({ destino: [99] }, UNIDAD);
+
+      conBases([]);
     });
 
     it('respeta el filtro destino del query con alcance global', async () => {

@@ -547,7 +547,8 @@ export class PersonalPerfilService {
   }
 
   // ─── GET /personas/:id/destinos ───────────────────────────────────────────
-  async findDestinos(id: number) {
+  async findDestinos(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
     await this.assertExiste(id);
 
     const asignaciones = await this.prisma.destinos.findMany({

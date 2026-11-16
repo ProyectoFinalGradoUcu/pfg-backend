@@ -120,8 +120,8 @@ export class SubalternosService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
-    // Con alcance de unidad las bases se fuerzan y se IGNORA `query.destino`: el filtro no es
-    // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
+    // Con alcance de unidad el filtro por base no se puede desactivar (spec 002 §3): sin `destino`
+    // se ven todas las bases del usuario, y con `destino` solo las elegidas que sean suyas.
     const basesForzadas = alcance ? subUnidadIdsDeAlcance(alcance) : null;
 
     // Un retirado tiene fecha_fin, así que por defecto queda fuera del listado.
@@ -138,8 +138,11 @@ export class SubalternosService {
 
     // La base se toma de la relación laboral ACTIVA, el mismo criterio que la ficha
     // (`assertPersonaEnAlcance`): quien no tiene destino cargado igual aparece en su base.
-    // Con alcance de unidad se fuerzan las bases del usuario; sin alcance, `query.destino` es opcional.
-    const bases = basesForzadas ?? (query.destino?.length ? query.destino.map((id) => BigInt(id)) : null);
+    const elegidas = query.destino?.length ? query.destino.map((id) => BigInt(id)) : null;
+    // Una base elegida fuera del alcance se descarta; si no queda ninguna, el listado sale vacío.
+    const bases = basesForzadas
+      ? (elegidas?.filter((id) => basesForzadas.includes(id)) ?? basesForzadas)
+      : elegidas;
     // Cada palabra tiene que aparecer en algún campo, así "nombre apellido" encuentra a la persona.
     const palabras = query.search?.trim().split(/\s+/).filter(Boolean) ?? [];
     const and = [
