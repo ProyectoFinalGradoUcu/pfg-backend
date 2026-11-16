@@ -626,6 +626,64 @@ describe('RetirosService', () => {
       await expect(service.corregir(88, { motivo: 'x' })).rejects.toThrow(ConflictException);
     });
 
+    describe('cierres que aplicó el retiro', () => {
+      const conCierres = () =>
+        makeRetiro({ cierres_aplicados: { destino_id: '30', comisiones: [{ id: '7', fecha_fin_anterior: null }] } });
+
+      beforeEach(() => {
+        prisma.retiros.findUnique.mockResolvedValue(conCierres());
+        prisma.relaciones_laborales.findUnique.mockResolvedValue({ fecha_inicio: new Date('2015-03-01') });
+        prisma.movimientos_laborales.findFirst.mockResolvedValue(null);
+        prisma.destinos.findUnique.mockResolvedValue({
+          id: 30n,
+          fecha_inicio: new Date('2020-01-01'),
+          fecha_fin: new Date('2026-08-28'),
+        });
+        prisma.asignaciones_comision.findMany.mockResolvedValue([
+          { id: 7n, fecha_inicio: new Date('2024-01-01') },
+        ]);
+      });
+
+      it('mueve el fin del destino y de las comisiones que cerró', async () => {
+        await service.corregir(88, { fecha_retiro: '2026-08-20' });
+
+        expect(prisma.destinos.update).toHaveBeenCalledWith({
+          where: { id: 30n },
+          data: { fecha_fin: new Date('2026-08-20') },
+        });
+        expect(prisma.asignaciones_comision.findMany.mock.calls[0][0].where).toEqual({
+          id: { in: [7n] },
+          fecha_fin: new Date('2026-08-28'),
+        });
+        expect(prisma.asignaciones_comision.updateMany).toHaveBeenCalledWith({
+          where: { id: { in: [7n] } },
+          data: { fecha_fin: new Date('2026-08-20') },
+        });
+      });
+
+      it('no toca el destino si después se editó su fin a mano', async () => {
+        prisma.destinos.findUnique.mockResolvedValue({
+          id: 30n,
+          fecha_inicio: new Date('2020-01-01'),
+          fecha_fin: new Date('2026-08-25'),
+        });
+
+        await service.corregir(88, { fecha_retiro: '2026-08-20' });
+
+        expect(prisma.destinos.update).not.toHaveBeenCalled();
+      });
+
+      it('400 si la fecha nueva queda antes del inicio del destino que cerró', async () => {
+        prisma.destinos.findUnique.mockResolvedValue({
+          id: 30n,
+          fecha_inicio: new Date('2026-08-25'),
+          fecha_fin: new Date('2026-08-28'),
+        });
+
+        await expect(service.corregir(88, { fecha_retiro: '2026-08-20' })).rejects.toThrow(BadRequestException);
+      });
+    });
+
     describe('fecha corregida', () => {
       beforeEach(() => {
         prisma.relaciones_laborales.findUnique.mockResolvedValue({ fecha_inicio: new Date('2015-03-01') });
@@ -857,6 +915,33 @@ describe('RetirosService', () => {
         ConflictException,
       );
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('anular el retiro por fallecimiento borra la fecha de fallecimiento', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(
+        retiroConCierres({
+          motivos_baja: makeMotivoBaja({ codigo: 'FALLECIMIENTO' }),
+          personas: makePersonaMin({ fecha_fallecimiento: new Date('2026-08-28') }),
+        }),
+      );
+
+      await service.anular(88, { motivo_anulacion: 'La muerte se cargó por error' }, 9n);
+
+      expect(prisma.personas.update).toHaveBeenCalledWith({
+        where: { id: 100n },
+        data: { fecha_fallecimiento: null },
+      });
+    });
+
+    it('409 si el fallecimiento es de otra fecha que el retiro por fallecimiento', async () => {
+      prisma.retiros.findUnique.mockResolvedValue(
+        retiroConCierres({
+          motivos_baja: makeMotivoBaja({ codigo: 'FALLECIMIENTO' }),
+          personas: makePersonaMin({ fecha_fallecimiento: new Date('2026-10-01') }),
+        }),
+      );
+
+      await expect(service.anular(88, { motivo_anulacion: 'Error' }, 9n)).rejects.toThrow(ConflictException);
     });
 
     it('anula un retiro por fallecimiento cuando la persona ya no tiene la fecha cargada', async () => {
@@ -1130,6 +1215,35 @@ describe('RetirosService', () => {
     it('404 si el retiro no existe', async () => {
       prisma.retiros.findUnique.mockResolvedValue(null);
       await expect(service.anularReincorporacion(88, dto, 9n)).rejects.toThrow(NotFoundException);
+    });
+
+    it('los ascensos y retiros ya anulados no la bloquean', async () => {
+      await service.anularReincorporacion(88, dto, 9n);
+
+      expect(prisma.ascensos.count.mock.calls[0][0].where).toMatchObject({ anulado_en: null });
+      expect(prisma.retiros.count.mock.calls[0][0].where).toEqual({
+        relacion_laboral_id: 99n,
+        anulado: false,
+      });
+    });
+
+    it('suelta los ascensos anulados y borra los retiros anulados antes de borrar la relación', async () => {
+      await service.anularReincorporacion(88, dto, 9n);
+
+      expect(prisma.ascensos.updateMany).toHaveBeenCalledWith({
+        where: { relacion_laboral_anterior_id: 99n, anulado_en: { not: null } },
+        data: { relacion_laboral_anterior_id: null },
+      });
+      expect(prisma.ascensos.updateMany).toHaveBeenCalledWith({
+        where: { relacion_laboral_nueva_id: 99n, anulado_en: { not: null } },
+        data: { relacion_laboral_nueva_id: null },
+      });
+      expect(prisma.retiros.deleteMany).toHaveBeenCalledWith({
+        where: { relacion_laboral_id: 99n, anulado: true },
+      });
+      expect(prisma.retiros.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.relaciones_laborales.delete.mock.invocationCallOrder[0],
+      );
     });
 
     it('409 si no hubo reincorporación', async () => {

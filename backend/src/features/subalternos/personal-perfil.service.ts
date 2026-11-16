@@ -11,7 +11,10 @@ import { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
-import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import {
+  assertFechaFallecimientoValida,
+  assertFechaInicioPosteriorANacimiento,
+} from './validaciones-fechas.js';
 import {
   guardarLegajoEnTransaccion,
 } from './legajo-militar.service.js';
@@ -653,6 +656,14 @@ export class PersonalPerfilService {
       );
     }
 
+    if (dto.fecha_fallecimiento) {
+      assertFechaFallecimientoValida(
+        dto.fecha_fallecimiento,
+        dto.fecha_nacimiento ?? persona.fecha_nacimiento,
+        relacionActiva?.fecha_inicio,
+      );
+    }
+
     // Datos personales, relación laboral y legajo se guardan juntos o no se guarda nada.
     await this.prisma.$transaction(async (tx) => {
       await tx.personas.update({
@@ -679,7 +690,8 @@ export class PersonalPerfilService {
             nivel_idoneidad: dto.nivel_idoneidad ?? null,
           }),
           ...(dto.fecha_fallecimiento !== undefined && {
-            fecha_fallecimiento: new Date(dto.fecha_fallecimiento),
+            // null borra la fecha (new Date(null) daba 1970-01-01).
+            fecha_fallecimiento: dto.fecha_fallecimiento ? new Date(dto.fecha_fallecimiento) : null,
           }),
         },
       });

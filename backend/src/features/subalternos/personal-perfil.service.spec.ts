@@ -661,5 +661,29 @@ describe('PersonalPerfilService', () => {
 
       expect(cierre.cerrar).not.toHaveBeenCalled();
     });
+
+    it('con fecha_fallecimiento null la borra, no guarda 1970-01-01', async () => {
+      await service.update(100, { fecha_fallecimiento: null } as any, 7n);
+
+      expect(prisma.personas.update.mock.calls[0][0].data.fecha_fallecimiento).toBeNull();
+      expect(cierre.cerrar).not.toHaveBeenCalled();
+    });
+
+    it('400 si el fallecimiento es anterior al nacimiento', async () => {
+      await expect(service.update(100, { fecha_fallecimiento: '1970-01-01' } as any, 7n)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.personas.update).not.toHaveBeenCalled();
+    });
+
+    it('400 si el fallecimiento es anterior al inicio de la relación vigente o futuro', async () => {
+      await expect(service.update(100, { fecha_fallecimiento: '2005-01-01' } as any, 7n)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.update(100, { fecha_fallecimiento: '2099-01-01' } as any, 7n)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(cierre.cerrar).not.toHaveBeenCalled();
+    });
   });
 });
