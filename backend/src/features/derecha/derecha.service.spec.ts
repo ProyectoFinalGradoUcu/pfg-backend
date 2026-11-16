@@ -102,7 +102,10 @@ const makePrismaMock = (filas = makeFilas()) => {
           const ids = where.id.in.map(String);
           return filas.filter((r) => ids.includes(String(r.id))).map(conPersona);
         }
-        return filas.filter((r) => r.derecha !== null || r.numor !== null).map(conPersona);
+        const conVigentes = where?.OR?.some((c: any) => c.fecha_fin === null);
+        return filas
+          .filter((r) => r.derecha !== null || r.numor !== null || (conVigentes && r.fecha_fin === null && r.estado === 'activo'))
+          .map(conPersona);
       }),
       findFirst: jest.fn(async ({ where }: any) => {
         const r = filas.find(
@@ -192,11 +195,59 @@ describe('DerechaService', () => {
     it('lista todo el padrón por escala y derecha, con grado y escalafón', async () => {
       const r = await service.listarPersonal();
       expect(r.map((x) => [x.persona_id, x.derecha])).toEqual([
-        ['1', 1], ['2', 2], ['3', 3], ['4', 4], ['5', 5], ['6', 6], ['7', 1], ['8', 2], ['9', 3],
+        ['1', 1], ['2', 2], ['3', 3], ['4', 4], ['5', 5], ['6', 6], ['10', null], ['7', 1], ['8', 2], ['9', 3],
       ]);
       expect(r[5]).toEqual(
         expect.objectContaining({ grado: 'Cnel.', escala: 'OFICIALES', escalafon: 'NAV', derecha: 6, numor: 1 }),
       );
+    });
+
+    it('incluye al final de su grado a quien está en actividad sin derecha ni numor', async () => {
+      const r = await service.listarPersonal();
+      expect(r.find((x) => x.persona_id === '10')).toEqual(
+        expect.objectContaining({ grado: 'Cnel.', escalafon: 'AV', derecha: null, numor: null }),
+      );
+    });
+  });
+
+  describe('funcionarios en actividad sin derecha', () => {
+    it('se ubican escribiéndoles una derecha, y entran al final de su grupo de numor', async () => {
+      await service.aplicarCambios([{ persona_id: 10, derecha: 5 }]);
+
+      expect(valores(prisma.filas, 10n)).toEqual({ derecha: 5, numor: 2 });
+      expect(valores(prisma.filas, 5n)).toEqual({ derecha: 6, numor: 1 });
+      expect(valores(prisma.filas, 6n)).toEqual({ derecha: 7, numor: 1 });
+      expect(valores(prisma.filas, 7n).derecha).toBe(1);
+      verificarInvariantes(prisma.filas);
+    });
+
+    it('el historial registra su ubicación como alta', async () => {
+      await service.aplicarCambios([{ persona_id: 10, derecha: 7, numor: 1 }]);
+
+      const propios = prisma.historial.filter((h: any) => h.persona_id === 10n);
+      expect(propios.map((h: any) => [h.tipo, h.operacion, h.valor_anterior, h.valor_nuevo])).toEqual([
+        ['DERECHA', 'ALTA', null, 7],
+        ['NUMOR', 'ALTA', null, 1],
+      ]);
+      expect(valores(prisma.filas, 5n).numor).toBe(2);
+    });
+
+    it('un cambio sobre otro funcionario no les asigna derecha', async () => {
+      await service.aplicarCambios([{ persona_id: 4, derecha: 2 }]);
+
+      expect(valores(prisma.filas, 10n)).toEqual({ derecha: null, numor: null });
+      expect(prisma.historial.some((h: any) => h.persona_id === 10n)).toBe(false);
+    });
+
+    it('rechaza una derecha fuera del bloque de su grado, contando el lugar que ocupa', async () => {
+      await expect(service.aplicarCambios([{ persona_id: 10, derecha: 8 }])).rejects.toThrow(
+        'La derecha 8 está fuera del bloque del grado Cnel. (de 5 a 7)',
+      );
+      await expect(service.aplicarCambios([{ persona_id: 10, derecha: 4 }])).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza darles solo un numor', async () => {
+      await expect(service.aplicarCambios([{ persona_id: 10, numor: 1 }])).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -734,7 +785,7 @@ describe('DerechaService', () => {
 
     it('con alcance global trae a todos', async () => {
       const r = await service.listarPersonal({ tipo: 'global' });
-      expect(r).toHaveLength(9);
+      expect(r).toHaveLength(10);
     });
 
     it('la sugerencia de orden no expone a los de otras bases, pero el orden es del grado entero', async () => {

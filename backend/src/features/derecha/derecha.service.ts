@@ -185,11 +185,14 @@ class Padron {
   readonly grados = new Map<string, GradoJerarquia>();
   private readonly porGrado = new Map<string, Integrante[]>();
   private readonly porGrupo = new Map<string, Integrante[]>();
+  /** En actividad sin derecha ni numor: se listan, pero entran a la escala solo cuando se los ubica. */
+  private readonly pendientes = new Map<string, Integrante>();
 
   constructor(
     readonly jerarquia: GradoJerarquia[],
     readonly escalafones: Map<string, string>,
     integrantes: Integrante[],
+    pendientes: Integrante[] = [],
   ) {
     for (const g of jerarquia) {
       this.grados.set(g.id.toString(), g);
@@ -207,6 +210,40 @@ class Padron {
       .flat()
       .sort((a, b) => compararNulosAlFinal(a.numor, b.numor) || compararIds(a.relacionId, b.relacionId));
     for (const i of ubicados) this.grupo(i.gradoId, i.escalafonId).push(i);
+
+    for (const i of pendientes) {
+      if (this.tieneDerecha(i.gradoId) && !this.ubicacion(i.personaId)) this.pendientes.set(i.personaId.toString(), i);
+    }
+  }
+
+  pendiente(personaId: bigint): Integrante | null {
+    return this.pendientes.get(personaId.toString()) ?? null;
+  }
+
+  pendientesDeGrado(gradoId: bigint): Integrante[] {
+    return [...this.pendientes.values()].filter((i) => i.gradoId === gradoId);
+  }
+
+  /** Primera derecha del bloque del grado, aunque el grado esté vacío. */
+  inicioDeGrado(gradoId: bigint): number {
+    const g = this.grado(gradoId);
+    return this.jerarquia
+      .filter((x) => x.escala === g.escala && x.posicion < g.posicion)
+      .reduce((n, x) => n + this.porGrado.get(x.id.toString())!.length, 1);
+  }
+
+  /** Lo pone en la derecha escrita (y en el numor, o al final de su grupo) y corre al resto. */
+  ubicarPendiente(i: Integrante, derecha: number, numor?: number | null) {
+    const desde = this.inicioDeGrado(i.gradoId);
+    const hasta = desde + this.integrantesDeGrado(i.gradoId).length;
+    if (derecha < desde || derecha > hasta) {
+      throw new BadRequestException(
+        `La derecha ${derecha} está fuera del bloque del grado ${this.grado(i.gradoId).denominacion} (de ${desde} a ${hasta})`,
+      );
+    }
+    this.pendientes.delete(i.personaId.toString());
+    this.insertarEnGrado(i, derecha - desde + 1);
+    this.insertarEnGrupo(i, numor);
   }
 
   grado(gradoId: bigint): GradoJerarquia {
@@ -436,7 +473,7 @@ export class DerechaService {
     return [...padron.jerarquia]
       .sort((a, b) => porEscala(a.escala) - porEscala(b.escala) || a.posicion - b.posicion)
       .flatMap((g) =>
-        padron.integrantesDeGrado(g.id).filter(visible).map((i) => ({
+        [...padron.integrantesDeGrado(g.id), ...padron.pendientesDeGrado(g.id)].filter(visible).map((i) => ({
           persona_id: i.personaId.toString(),
           nombre: i.nombre,
           cedula: i.cedula,
@@ -907,6 +944,14 @@ export class DerechaService {
       conservar: [],
       aplicar: (p) => {
         const actual = p.ubicacion(personaId);
+        const pendiente = actual ? null : p.pendiente(personaId);
+        if (pendiente) {
+          if (derecha == null) {
+            throw new BadRequestException(`${pendiente.nombre} no tiene derecha: para ubicarlo hay que escribirle una`);
+          }
+          p.ubicarPendiente(pendiente, derecha, numor);
+          return;
+        }
         if (!actual) {
           throw new BadRequestException(
             `El funcionario ${personaId} no está en actividad o su grado no tiene derecha`,
@@ -1116,7 +1161,8 @@ export class DerechaService {
       tipo,
       valor_anterior: a.antes,
       valor_nuevo: a.despues,
-      operacion: plan.operacion,
+      // Un pendiente que se ubica entra a la escala: es un alta, aunque venga en un reorden.
+      operacion: plan.operacion === 'REORDEN' && a.antes === null ? 'ALTA' : plan.operacion,
       motivo: ctx.motivo?.trim() || null,
       usuario_id: ctx.usuarioId ?? null,
       lote_id: loteId,
@@ -1144,12 +1190,15 @@ export class DerechaService {
       }),
       db.escalafones.findMany({ select: { id: true, codigo: true } }),
       db.relaciones_laborales.findMany({
-        where: { OR: [{ derecha: { not: null } }, { numor: { not: null } }] },
+        where: {
+          OR: [{ derecha: { not: null } }, { numor: { not: null } }, { fecha_fin: null, estado: 'activo' }],
+        },
         select: SELECT_INTEGRANTE,
       }),
     ]);
 
-    const guardados = filas.map(aIntegrante);
+    const todos = filas.map(aIntegrante);
+    const guardados = todos.filter((i) => i.derecha !== null || i.numor !== null);
     const conservados = new Set(conservar.map(String));
     const padron = new Padron(
       jerarquia.map((j) => ({
@@ -1163,6 +1212,7 @@ export class DerechaService {
       guardados
         .filter((i) => i.vigente || conservados.has(i.personaId.toString()))
         .map((i) => ({ ...i })),
+      todos.filter((i) => i.vigente && i.derecha === null && i.numor === null),
     );
     return { padron, guardados };
   }
