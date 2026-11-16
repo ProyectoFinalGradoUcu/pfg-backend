@@ -17,6 +17,8 @@ export function escribirInforme(
     `Archivos: ${archivos.join(', ')}`,
     `Opciones: ${[op.crearActivos && '--crear-activos', op.crearCatalogos && '--crear-catalogos'].filter(Boolean).join(' ') || '(ninguna)'}`,
     '',
+    ...estadoDerecha(res, op.aplicar),
+    '',
     `## ${verbo}`,
     '',
     `- Personas nuevas: ${res.personas}`,
@@ -80,4 +82,33 @@ export function escribirInforme(
   // BOM para que Excel abra bien los acentos.
   writeFileSync(join(carpeta, 'incidencias.csv'), '﻿' + csv, 'utf8');
   return resumen;
+}
+
+/**
+ * La aplicación numera la Derecha y el Numor sin huecos: si la importación los deja, la primera
+ * operación que los toca (alta, ascenso, retiro o un cambio en Configuración de derecha) renumera
+ * a todos los que siguen. Por eso se importa todo antes de empezar a usarla.
+ */
+function estadoDerecha(res: Resultado, aplicada: boolean): string[] {
+  const huecos = (escala: string) => res.huecosDerecha[escala] ?? 0;
+  const pendiente = res.activosSinDerecha + huecos('OFICIALES') + huecos('SUBALTERNOS')
+    + res.numorConHuecos.length + res.activosSinNumor;
+  if (!pendiente) {
+    return ['## Derecha y Numor completos', '',
+      `No ${aplicada ? 'quedan' : 'quedarían'} activos sin Derecha ni huecos: se puede empezar a usar la aplicación.`];
+  }
+  return [
+    '## Derecha y Numor: todavía no empezar a usar la aplicación', '',
+    `- Activos sin Derecha: ${res.activosSinDerecha}`,
+    `- Huecos en la Derecha: Oficiales ${huecos('OFICIALES')}, Subalternos ${huecos('SUBALTERNOS')}`,
+    `- Grupos con huecos en el Numor: ${res.numorConHuecos.length}`
+      + (res.numorConHuecos.length ? ` (${res.numorConHuecos.map((g) => `${g.grado} ${g.escalafon}: ${g.huecos}`).join('; ')})` : ''),
+    `- Activos con Derecha y sin Numor: ${res.activosSinNumor}`,
+    '',
+    'La aplicación numera sin huecos. Mientras queden, la primera operación que toque la Derecha o el Numor (un alta, '
+      + 'un ascenso, un retiro o un cambio en Configuración de derecha) renumera a todos los que están después de cada hueco: '
+      + 'el orden se mantiene, cambian los números. Revisar las incidencias, corregir el Access y volver a correr el importador '
+      + 'hasta que esto quede en cero. A los activos sin Derecha que el Access no trae se les asigna desde Configuración de derecha '
+      + 'cuando ya no queden huecos.',
+  ];
 }

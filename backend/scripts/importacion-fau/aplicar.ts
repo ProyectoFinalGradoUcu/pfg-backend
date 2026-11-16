@@ -25,6 +25,10 @@ export interface Resultado {
   historialDerecha: number;
   derechasPorPrecedencia: number;
   activosSinDerecha: number;
+  /** Por escala: números libres entre 1 y la Derecha más alta de los activos. */
+  huecosDerecha: Record<string, number>;
+  numorConHuecos: Array<{ grado: string; escalafon: string; huecos: number }>;
+  activosSinNumor: number;
   legajos: number;
   cursos: number;
   ascensos: number;
@@ -48,7 +52,7 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
     return v;
   };
   const res: Resultado = { catalogosCreados: {}, personas: 0, completadas: 0, relaciones: 0, destinos: 0, periodosVuelo: 0, periodosVueloCerrados: 0,
-    vuelos: 0, derechasLiberadas: 0, derechasCompletadas: 0, historialDerecha: 0, derechasPorPrecedencia: 0, activosSinDerecha: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
+    vuelos: 0, derechasLiberadas: 0, derechasCompletadas: 0, historialDerecha: 0, derechasPorPrecedencia: 0, activosSinDerecha: 0, huecosDerecha: {}, numorConHuecos: [], activosSinNumor: 0, legajos: 0, cursos: 0, ascensos: 0, motivosCompletados: 0, conductasCompletadas: 0, tiposCompletados: 0, comisiones: 0, retiros: 0, familiares: 0, misiones: 0,
     participaciones: 0 };
 
   // Catálogos, en orden de dependencia ──────────────────────────────────────
@@ -337,6 +341,23 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
   res.activosSinDerecha = Number((await db.query(
     `SELECT count(*) AS n FROM relaciones_laborales r JOIN derecha_jerarquia_grados j ON j.grado_id = r.grado_id
       WHERE r.fecha_fin IS NULL AND r.estado = 'activo' AND r.derecha IS NULL`,
+  )).rows[0].n);
+  // La aplicación numera sin huecos: si quedan, la primera operación de Derecha renumera a los que siguen.
+  for (const h of (await db.query(
+    `SELECT escala_derecha AS escala, max(derecha) - count(derecha) AS huecos FROM relaciones_laborales
+      WHERE fecha_fin IS NULL AND estado = 'activo' AND derecha IS NOT NULL GROUP BY 1`,
+  )).rows) res.huecosDerecha[h.escala] = Number(h.huecos);
+  res.numorConHuecos = (await db.query(
+    `SELECT g.denominacion AS grado, e.codigo AS escalafon, max(r.numor) - count(r.numor) AS huecos
+       FROM relaciones_laborales r JOIN grados g ON g.id = r.grado_id JOIN escalafones e ON e.id = r.escalafon_id
+       LEFT JOIN derecha_jerarquia_grados j ON j.grado_id = r.grado_id
+      WHERE r.fecha_fin IS NULL AND r.estado = 'activo' AND r.numor IS NOT NULL
+      GROUP BY j.escala, j.posicion, g.denominacion, e.codigo HAVING max(r.numor) > count(r.numor)
+      ORDER BY j.escala, j.posicion, e.codigo`,
+  )).rows.map((g) => ({ ...g, huecos: Number(g.huecos) }));
+  res.activosSinNumor = Number((await db.query(
+    `SELECT count(*) AS n FROM relaciones_laborales
+      WHERE fecha_fin IS NULL AND estado = 'activo' AND derecha IS NOT NULL AND numor IS NULL`,
   )).rows[0].n);
 
   return res;
