@@ -79,47 +79,50 @@ export const movimientosPersonalReporte: DefinicionReporte = {
     const rango = rangoFecha(filtros.desde, filtros.hasta);
     const categoria = categoriaDeFiltros(filtros);
 
-    const altasRaw = await prisma.movimientos_laborales.findMany({
+    // Alta por ingreso = primera relación laboral de la persona. Los movimientos es_alta son
+    // reintegros, pases, etc., no ingresos.
+    const candidatas = await prisma.relaciones_laborales.findMany({
       where: {
-        tipos_movimiento: { es_alta: true },
-        ...(rango ? { fecha_movimiento: rango } : {}),
-        relaciones_laborales: { ...whereRelacionPorAlcance(filtros), ...(categoria && { tipo_funcionario: categoria }) },
+        ...(rango ? { fecha_inicio: rango } : {}),
+        ...whereRelacionPorAlcance(filtros),
+        ...(categoria ? { tipo_funcionario: categoria } : {}),
       },
       include: {
-        tipos_movimiento: true,
-        relaciones_laborales: {
-          include: {
-            personas: true,
-            grados: true,
-            unidades: true,
-            sub_unidades: true,
-            regimenes: true,
-          },
-        },
+        personas: true,
+        grados: true,
+        unidades: true,
+        sub_unidades: true,
+        regimenes: true,
       },
-      orderBy: { fecha_movimiento: 'desc' },
+      orderBy: { fecha_inicio: 'desc' },
     });
-    const altas = altasRaw.map((m) => {
-      const rel = m.relaciones_laborales;
-      return {
-        cedula: rel?.personas?.cedula ?? '',
-        grado: rel?.grados?.denominacion ?? '',
-        nombre: unir(
-          rel?.personas?.primer_nombre,
-          rel?.personas?.segundo_nombre,
-        ),
-        apellido: unir(
-          rel?.personas?.primer_apellido,
-          rel?.personas?.segundo_apellido,
-        ),
-        fecha: fmtFecha(m.fecha_movimiento),
-        causal: m.observaciones ?? m.tipos_movimiento?.nombre ?? '',
-        base: rel?.sub_unidades?.denominacion ?? '',
-        comando: rel?.unidades?.denominacion ?? '',
-        correo: rel?.personas?.email ?? '',
-        ley: rel?.regimenes?.numero_ley ?? '',
-      };
-    });
+    const personasCandidatas = [...new Set(candidatas.map((rl) => rl.persona_id))];
+    const historial = personasCandidatas.length
+      ? await prisma.relaciones_laborales.findMany({
+          where: { persona_id: { in: personasCandidatas } },
+          orderBy: [{ fecha_inicio: 'asc' }, { id: 'asc' }],
+          select: { id: true, persona_id: true },
+        })
+      : [];
+    const primeraDe = new Map<string, bigint>();
+    for (const rl of historial) {
+      const clave = rl.persona_id.toString();
+      if (!primeraDe.has(clave)) primeraDe.set(clave, rl.id);
+    }
+    const altas = candidatas
+      .filter((rl) => primeraDe.get(rl.persona_id.toString()) === rl.id)
+      .map((rl) => ({
+        cedula: rl.personas?.cedula ?? '',
+        grado: rl.grados?.denominacion ?? '',
+        nombre: unir(rl.personas?.primer_nombre, rl.personas?.segundo_nombre),
+        apellido: unir(rl.personas?.primer_apellido, rl.personas?.segundo_apellido),
+        fecha: fmtFecha(rl.fecha_inicio),
+        causal: 'Alta por ingreso',
+        base: rl.sub_unidades?.denominacion ?? '',
+        comando: rl.unidades?.denominacion ?? '',
+        correo: rl.personas?.email ?? '',
+        ley: rl.regimenes?.numero_ley ?? '',
+      }));
 
     const ascRaw = await prisma.ascensos.findMany({
       // Un ascenso anulado no es una novedad del período: se revirtió.
@@ -172,6 +175,8 @@ export const movimientosPersonalReporte: DefinicionReporte = {
     const bajasRaw = await prisma.relaciones_laborales.findMany({
       where: {
         motivo_baja_id: { not: null },
+        // Las que cerró un retiro ya van en Retiros.
+        retiros: { none: { anulado: false } },
         ...whereRelacionPorAlcance(filtros),
         ...(rango ? { fecha_fin: rango } : {}),
         ...(categoria ? { tipo_funcionario: categoria } : {}),
