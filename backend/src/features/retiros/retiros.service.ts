@@ -17,6 +17,7 @@ import { ActualizarReincorporacionDto } from './dto/actualizar-reincorporacion.d
 import { CierreCarreraService } from './cierre-carrera.service';
 import { DerechaService } from '../derecha/derecha.service';
 import { periodosSolapados } from '../comisiones/pertenencias';
+import { SELECT_DOCUMENTO_RETIRO, aDocumentoRetiro } from './retiros-documentos.service';
 
 export type Impacto = {
   persona: any;
@@ -460,6 +461,8 @@ export class RetirosService {
     },
     usuarios_registro: { select: { id: true, username: true } },
     usuarios_anulacion: { select: { id: true, username: true } },
+    archivo_orden: { select: SELECT_DOCUMENTO_RETIRO },
+    archivo_boletin: { select: SELECT_DOCUMENTO_RETIRO },
   };
 
   /**
@@ -592,6 +595,10 @@ export class RetirosService {
           }
         : null,
       reincorporacion: await this.buscarReincorporacion(r),
+      documentos: {
+        orden: aDocumentoRetiro(r.archivo_orden),
+        boletin: aDocumentoRetiro(r.archivo_boletin),
+      },
     };
   }
   async corregir(retiroId: number, dto: UpdateRetiroDto) {
