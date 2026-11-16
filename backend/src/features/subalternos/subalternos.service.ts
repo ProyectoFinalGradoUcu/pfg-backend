@@ -279,6 +279,7 @@ export class SubalternosService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await this.derecha.bloquearEnTransaccion(tx);
       const persona = await tx.personas.create({
         data: {
           cedula: dto.cedula,
@@ -420,6 +421,7 @@ export class SubalternosService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await this.derecha.bloquearEnTransaccion(tx);
         const persona = await tx.personas.create({
           data: {
             cedula: dto.cedula,
@@ -511,6 +513,7 @@ export class SubalternosService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await this.derecha.bloquearEnTransaccion(tx);
         const persona = await tx.personas.create({
           data: {
             cedula: dto.cedula,

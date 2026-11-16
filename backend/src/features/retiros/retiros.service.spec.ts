@@ -23,12 +23,12 @@ describe('RetirosService', () => {
   let service: RetirosService;
   let prisma: ReturnType<typeof makePrismaMock>;
   let cierre: { cerrar: jest.Mock };
-  let derecha: { asignarEnAltaEnTransaccion: jest.Mock };
+  let derecha: { asignarEnAltaEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
 
   beforeAll(async () => {
     prisma = makePrismaMock();
     cierre = { cerrar: jest.fn() };
-    derecha = { asignarEnAltaEnTransaccion: jest.fn() };
+    derecha = { asignarEnAltaEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

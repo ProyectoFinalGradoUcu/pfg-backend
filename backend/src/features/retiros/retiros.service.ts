@@ -838,6 +838,7 @@ export class RetirosService {
     };
 
     return this.prisma.$transaction(async (tx: any) => {
+      await this.derecha.bloquearEnTransaccion(tx);
       // Si después del retiro se le abrió otro destino o pertenencia, reabrir los anteriores
       // violaría los índices únicos: se corta antes con un 409.
       await tx.$queryRaw`SELECT id FROM personas WHERE id = ${retiro.persona_id} FOR UPDATE`;
@@ -1416,6 +1417,7 @@ export class RetirosService {
     }
 
     return this.prisma.$transaction(async (tx: any) => {
+      await this.derecha.bloquearEnTransaccion(tx);
       const relacion = await tx.relaciones_laborales.create({
         data: {
           persona_id: retiro.persona_id,

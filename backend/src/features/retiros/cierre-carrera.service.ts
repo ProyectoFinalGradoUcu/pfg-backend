@@ -98,6 +98,7 @@ export class CierreCarreraService {
     const inscripcionesACerrar = forzar ? idsValidos : pedidas;
 
     const resultado = await this.prisma.$transaction(async (tx: any) => {
+      await this.derecha.bloquearEnTransaccion(tx);
       await tx.$queryRaw`SELECT id FROM personas WHERE id = ${BigInt(params.personaId)} FOR UPDATE`;
       // Volver a consultar bajo bloqueo: un alta puede haber terminado después de la previa.
       const futuras = await tx.asignaciones_comision.findFirst({ where: { persona_id: BigInt(params.personaId), fecha_inicio: { gt: params.fechaRetiro } } });

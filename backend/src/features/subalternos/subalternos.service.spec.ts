@@ -7,10 +7,10 @@ import { ListPersonasQueryDto } from './dto/list-personas-query.dto';
 describe('SubalternosService', () => {
   let service: SubalternosService;
   let prisma: any;
-  let derecha: { asignarEnAltaEnTransaccion: jest.Mock };
+  let derecha: { asignarEnAltaEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
 
   beforeEach(() => {
-    derecha = { asignarEnAltaEnTransaccion: jest.fn() };
+    derecha = { asignarEnAltaEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
     prisma = {
       personas: {
         findUnique: jest.fn(),

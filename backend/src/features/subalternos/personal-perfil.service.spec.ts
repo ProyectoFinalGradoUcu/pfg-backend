@@ -85,6 +85,7 @@ describe('PersonalPerfilService', () => {
     ascenderEnTransaccion: jest.Mock;
     cambiarEscalafonEnTransaccion: jest.Mock;
     moverAValoresEnTransaccion: jest.Mock;
+    bloquearEnTransaccion: jest.Mock;
   };
 
   beforeAll(async () => {
@@ -94,6 +95,7 @@ describe('PersonalPerfilService', () => {
       ascenderEnTransaccion: jest.fn(),
       cambiarEscalafonEnTransaccion: jest.fn(),
       moverAValoresEnTransaccion: jest.fn(),
+      bloquearEnTransaccion: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({

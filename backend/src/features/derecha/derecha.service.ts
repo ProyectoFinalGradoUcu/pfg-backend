@@ -843,6 +843,11 @@ export class DerechaService {
    * situación): la persona no se mueve en la escala, así que no va al historial. Hay que
    * llamarlo con la relación nueva ya creada y antes de confirmar la transacción.
    */
+  // Se pide al principio de la transacción, antes de bloquear filas; si no, da deadlock.
+  async bloquearEnTransaccion(tx: Prisma.TransactionClient) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_DERECHA})`;
+  }
+
   async trasladarARelacionEnTransaccion(
     tx: Prisma.TransactionClient,
     origenId: bigint,
