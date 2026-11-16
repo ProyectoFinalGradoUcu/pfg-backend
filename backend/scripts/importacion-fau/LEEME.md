@@ -75,7 +75,7 @@ Se pueden pasar los tres archivos o solo algunos, en cualquier orden: el tipo se
 1. **Backup** de la base de producción (`pg_dump`) antes de aplicar nada.
 2. **Simulación**, sin opciones. Leer `resumen.md` y `incidencias.csv` en la carpeta del informe.
 3. Mirar en el resumen la sección **"Catálogos que faltan en la base"**. Si hay que crearlos, acordarlo con liquidación y simular de nuevo con `--crear-catalogos`.
-4. Mirar la sección **"Destinos sin equivalente en liquidación"**. Esas filas no se cargan: resolverlas con la FAU y liquidación.
+4. Mirar la sección **"Destinos sin equivalente en liquidación"**. Esas filas no se cargan: resolverlas con la FAU y liquidación. Excepción: si el oficial ya tiene un período activo en la base, se completan su Derecha y su Numor (el destino no hace falta para eso y no se toca).
 5. Mirar el conteo **"activos no creados"**. Si se van a crear, acordarlo con liquidación y simular con `--crear-activos`.
 6. Corregir en el Access o el Excel lo que se pueda de `incidencias.csv` y volver a simular.
 7. **Aplicar**: repetir el mismo comando de la última simulación agregando `--aplicar`.

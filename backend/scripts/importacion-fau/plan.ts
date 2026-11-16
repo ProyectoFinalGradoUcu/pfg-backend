@@ -709,7 +709,14 @@ export async function armarPlan(
       !inicio && 'sin fecha de ingreso válida',
     ].filter(Boolean) as string[];
     if (problemas.length) {
-      incidencia({ nivel: 'error', origen, cedula: ced.valor, nombre: nombreTxt, motivo: problemas.join('; ') });
+      // El destino solo hace falta para crear el período: a un activo que ya existe no se le toca, pero su Derecha sí se carga.
+      const existente = problemas.length === 1 && 'error' in lugar ? activaDb.get(refPersona(ced.valor)) : undefined;
+      if (existente) {
+        completarOrden({ ced, origen, nombreTxt, campos: { derecha: normalizarEntero(f['DERECHA']), numor: normalizarEntero(f['Numor']) } },
+          existente);
+      }
+      incidencia({ nivel: 'error', origen, cedula: ced.valor, nombre: nombreTxt,
+        motivo: problemas.join('; ') + (existente ? ': de su período activo solo se completan la Derecha y el Numor' : '') });
       contar('oficiales con error');
       continue;
     }
@@ -848,6 +855,27 @@ export async function armarPlan(
   }
 
   /**
+   * Derecha y Numor son columnas del módulo de personal (liquidación no las usa): si el período activo
+   * que ya existe no tiene ninguna de las dos (o son de la carga inicial), se completan con las del Access.
+   */
+  function completarOrden(r: { ced: Cedula; origen: string; nombreTxt: string; campos: Record<string, unknown> },
+    existente: (typeof relacionesDb)[number]) {
+    const accessD = (r.campos.derecha ?? null) as number | null;
+    const accessN = (r.campos.numor ?? null) as number | null;
+    if (!existente.id || (accessD === null && accessN === null)) return;
+    if (liberadas.has(existente.id) || (existente.derecha === null && existente.numor === null)) {
+      const orden = asignarOrden(r, existente.grado, existente.escalafon);
+      if (orden.derecha !== null || orden.numor !== null) {
+        plan.derechas.push({ relacionId: existente.id, ...orden });
+        contar('Derecha/Numor completados en activos existentes');
+      }
+    } else if (existente.derecha !== accessD || existente.numor !== accessN) {
+      incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
+        motivo: `Derecha/Numor "${existente.derecha ?? '-'}/${existente.numor ?? '-'}" en la base y "${accessD ?? '-'}/${accessN ?? '-'}" en el Access: no se cambia, la Derecha de oficiales de la base no es solo la de la carga inicial` });
+    }
+  }
+
+  /**
    * Período laboral. Devuelve la relación a la que corresponde (su id si ya estaba en la base,
    * "rel:N" si se crea en esta corrida), o undefined si no se carga.
    */
@@ -893,22 +921,7 @@ export async function armarPlan(
           incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
             motivo: `su período activo no tiene fecha de último ascenso; el Access dice ${r.campos.fecha_ultimo_ascenso} (no se carga: acordar con liquidación)` });
         }
-        // Derecha y Numor son columnas del módulo de personal (liquidación no las usa): si la
-        // relación existente no tiene ninguna de las dos (o son de la carga inicial), se completan con las del Access.
-        const accessD = (r.campos.derecha ?? null) as number | null;
-        const accessN = (r.campos.numor ?? null) as number | null;
-        const libre = existente.id && (liberadas.has(existente.id) || (existente.derecha === null && existente.numor === null));
-        if (libre && (accessD !== null || accessN !== null)) {
-          const orden = asignarOrden(r, existente.grado, existente.escalafon);
-          if (orden.derecha !== null || orden.numor !== null) {
-            plan.derechas.push({ relacionId: existente.id!, ...orden });
-            contar('Derecha/Numor completados en activos existentes');
-          }
-        } else if (!libre && (accessD !== null || accessN !== null)
-          && (existente.derecha !== accessD || existente.numor !== accessN)) {
-          incidencia({ nivel: 'aviso', origen: r.origen, cedula: r.ced.valor, nombre: r.nombreTxt,
-            motivo: `Derecha/Numor "${existente.derecha ?? '-'}/${existente.numor ?? '-'}" en la base y "${accessD ?? '-'}/${accessN ?? '-'}" en el Access: no se cambia, la Derecha de oficiales de la base no es solo la de la carga inicial` });
-        }
+        completarOrden(r, existente);
         // Tipo de funcionario y destino son del módulo de personal: se completan solo si el Access y la base coinciden.
         if (existente.id) {
           const tipoAccess = r.campos.tipo_funcionario as 'oficial' | 'subalterno';
@@ -1172,7 +1185,7 @@ export async function armarPlan(
       if (anterior === null) continue;
       const i = plan.historial.findIndex((h) => h.persona === l.persona && h.tipo === tipo && !h.operacion);
       if (i < 0) {
-        plan.historial.push({ persona: l.persona, tipo, valor: null, anterior, operacion: 'BAJA', origen: 'el Access no la trae' });
+        plan.historial.push({ persona: l.persona, tipo, valor: null, anterior, operacion: 'BAJA', origen: 'no se pudo cargar la del Access' });
         vacias.push(tipo === 'DERECHA' ? 'Derecha' : 'Numor');
       } else if (plan.historial[i].valor === anterior) {
         plan.historial.splice(i, 1);
@@ -1183,7 +1196,7 @@ export async function armarPlan(
     const p = personaPorId.get(l.persona);
     if (vacias.length) {
       incidencia({ nivel: 'aviso', origen: 'base de datos', cedula: p?.cedula, nombre: p && `${p.primer_apellido}, ${p.primer_nombre}`,
-        motivo: `tenía ${vacias.join(' y ')} de la carga inicial y el Access no trae la suya: queda sin ${vacias.join(' ni ')}; asignársel${vacias.length > 1 ? 'os' : 'o'} desde Configuración de derecha` });
+        motivo: `tenía ${vacias.join(' y ')} de la carga inicial y no se pudo cargar la del Access: queda sin ${vacias.join(' ni ')}; asignársel${vacias.length > 1 ? 'os' : 'o'} desde Configuración de derecha` });
     }
   }
   if (plan.liberar.length) contar('Derecha/Numor de oficiales de la carga inicial reemplazados por los del Access', plan.liberar.length);
