@@ -122,6 +122,24 @@ describe('PersonasCargaService', () => {
       expect(derecha.asignarEnAltaLote).toHaveBeenCalledWith([100n]);
     });
 
+    it('un email inválido o un código postal de más de 10 caracteres se rechazan en esa fila', async () => {
+      const encabezados = [...ENCABEZADOS, 'Email', 'Código postal'];
+      const wb = new Workbook();
+      const ws = wb.addWorksheet('Personal');
+      ws.addRow(encabezados);
+      ws.addRow([...filaMilitar('11111111', 'B.A.I. (C.A.O.)'), 'no-es-un-email', '11000']);
+      ws.addRow([...filaMilitar('22222222', 'B.A.I. (C.A.O.)'), 'juan@fau.mil.uy', '123456789012345']);
+      ws.addRow([...filaMilitar('33333333', 'B.A.I. (C.A.O.)'), 'ana@fau.mil.uy', '11000']);
+
+      const r = await service.procesarCarga(Buffer.from(await wb.xlsx.writeBuffer()));
+
+      expect(r).toMatchObject({ total: 3, exitosos: 1, errores: 2 });
+      expect(r.resultados[0]).toMatchObject({ estado: 'error', mensaje: expect.stringContaining('email') });
+      expect(r.resultados[1]).toMatchObject({ estado: 'error', mensaje: expect.stringContaining('código postal') });
+      expect(subalternos.createPersonal).toHaveBeenCalledTimes(1);
+      expect(subalternos.createPersonal.mock.calls[0][0]).toMatchObject({ cedula: '33333333', codigo_postal: '11000' });
+    });
+
     it('una base que no está en la lista se rechaza en esa fila', async () => {
       const r = await service.procesarCarga(await libro([filaMilitar('11111111', 'B.A.II. (C.A.O.)')]));
 

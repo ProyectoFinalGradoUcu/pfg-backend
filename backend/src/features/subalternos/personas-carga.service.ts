@@ -52,7 +52,7 @@ const COLUMNAS: ColumnaPlantilla[] = [
   { clave: 'email', titulo: 'Email' },
   { clave: 'telefono', titulo: 'Teléfono' },
   { clave: 'direccion', titulo: 'Dirección' },
-  { clave: 'codigo_postal', titulo: 'Código postal' },
+  { clave: 'codigo_postal', titulo: 'Código postal', ayuda: 'Hasta 10 caracteres.' },
   { clave: 'seccional', titulo: 'Seccional' },
   { clave: 'etnia', titulo: 'Etnia' },
   // Datos militares
@@ -170,6 +170,12 @@ export class PersonasCargaService {
     if (!v['primer_apellido']) throw new Error('Falta el primer apellido.');
     const tipo = elegirOpcion(v['tipo_personal'], t('tipo_personal'), TIPOS_PERSONAL);
     if (!tipo) throw new Error('Falta el tipo de personal (Oficial, Subalterno o Civil).');
+    if (v['email'] && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v['email']) || v['email'].length > 150)) {
+      throw new Error(`El email "${v['email']}" no es válido.`);
+    }
+    if (v['codigo_postal'] && v['codigo_postal'].length > 10) {
+      throw new Error(`El código postal "${v['codigo_postal']}" tiene más de 10 caracteres.`);
+    }
 
     const nivel = elegirOpcion(v['nivel_educativo'], t('nivel_educativo'), NIVELES_POR_ETIQUETA);
 
