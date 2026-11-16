@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
@@ -10,6 +11,13 @@ import { UpdateDestinoDto } from './dto/update-destino.dto';
 import { ListDestinosQueryDto } from './dto/list-destinos-query.dto';
 import { ListSubUnidadesQueryDto } from './dto/list-sub-unidades-query.dto';
 import { ListFuncionariosUnidadQueryDto } from './dto/list-funcionarios-unidad-query.dto';
+import {
+  INCLUDE_DOCUMENTOS,
+  archivosDeFilas,
+  darDeBajaArchivos,
+  documentosDe,
+} from '../archivos/documentos-de-registro';
+import { ArchivosService } from '../archivos/archivos.service';
 import { CategoriaPersonal, wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 
 // Un destino está vigente mientras no tenga fecha de fin.
@@ -26,7 +34,12 @@ const diaAnterior = (fecha: Date) => {
 
 @Injectable()
 export class DestinosService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(DestinosService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly archivos: ArchivosService,
+  ) {}
 
   private readonly includeDestino = {
     personas: {
@@ -34,6 +47,7 @@ export class DestinosService {
     },
     unidades: { select: { id: true, codigo: true, denominacion: true } },
     sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
+    ...INCLUDE_DOCUMENTOS,
   };
 
   /** Filtro de personas compartido por los listados (cédula, nombre o apellido). */
@@ -89,6 +103,7 @@ export class DestinosService {
       fecha_resolucion: soloFecha(a.fecha_resolucion),
       observaciones: a.observaciones,
       activo: esActivo(a.fecha_fin),
+      documentos: documentosDe(a),
     };
   }
 
@@ -445,8 +460,10 @@ export class DestinosService {
     });
     if (!asignacion) throw new NotFoundException(`No existe destino con id ${destinoId}`);
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.destinos.delete({ where: { id: asignacion.id } });
+    let borrado = asignacion;
+    const resultado = await this.prisma.$transaction(async (tx) => {
+      // Los archivos se toman de la fila borrada: un adjunto que entró tras la lectura no queda huérfano.
+      borrado = await tx.destinos.delete({ where: { id: asignacion.id } });
 
       // Un destino cerrado no define la unidad actual.
       if (asignacion.fecha_fin !== null || !asignacion.persona_id) {
@@ -484,5 +501,7 @@ export class DestinosService {
         destino_reabierto: contiguo ? anterior.id.toString() : null,
       };
     });
+    await darDeBajaArchivos(this.archivos, archivosDeFilas([borrado]), null, this.logger);
+    return resultado;
   }
 }

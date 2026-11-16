@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
 import {
@@ -31,6 +32,12 @@ import {
   whereRelacionPorDerechaNumor,
 } from '../../lib/personal/filtro-derecha-numor.js';
 import { DerechaService } from '../derecha/derecha.service.js';
+import { ArchivosService } from '../archivos/archivos.service.js';
+import {
+  archivosDeFilas,
+  type ArchivosFila,
+  darDeBajaArchivos,
+} from '../archivos/documentos-de-registro.js';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -62,7 +69,10 @@ export class SubalternosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly derecha: DerechaService,
+    private readonly archivos: ArchivosService,
   ) {}
+
+  private readonly logger = new Logger(SubalternosService.name);
 
   /**
    * La base (sub-unidad) es obligatoria para el personal militar y el comando sale de ella.
@@ -730,9 +740,16 @@ export class SubalternosService {
       });
     }
 
+    let archivosDestinos: bigint[] = [];
     try {
       await this.prisma.$transaction(async (tx) => {
+        // Padre primero: un destino nuevo necesita KEY SHARE sobre la persona y espera hasta el commit.
+        await tx.$queryRaw`SELECT id FROM personas WHERE id = ${personaId} FOR UPDATE`;
         await tx.relaciones_laborales.deleteMany({ where: { persona_id: personaId } });
+        archivosDestinos = archivosDeFilas(
+          await tx.$queryRaw<ArchivosFila[]>`
+            SELECT archivo_orden_id, archivo_boletin_id FROM destinos WHERE persona_id = ${personaId} FOR UPDATE`,
+        );
         await tx.destinos.deleteMany({ where: { persona_id: personaId } });
         await tx.asignaciones_comision.deleteMany({ where: { persona_id: personaId } });
         await tx.legajo_militar.deleteMany({ where: { persona_id: personaId } });
@@ -755,6 +772,7 @@ export class SubalternosService {
       throw err;
     }
 
+    await darDeBajaArchivos(this.archivos, archivosDestinos, null, this.logger);
     return { id, eliminado: true };
   }
 }

@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { MisionesService } from './misiones.service';
@@ -10,6 +10,7 @@ import { CreateConvocatoriaDto } from './dto/create-convocatoria.dto';
 import { AddFuncionariosConvocatoriaDto, FuncionarioConvocatoriaItemDto } from './dto/add-funcionarios-convocatoria.dto';
 import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convocatoria.dto';
 import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
+import { ArchivosService } from '../archivos/archivos.service';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 
 // ─── Fechas de referencia ─────────────────────────────────────────────────────
@@ -113,6 +114,7 @@ const makePrismaMock = () => ({
     findMany: jest.fn(),
   },
   $transaction: jest.fn(),
+  $queryRaw: jest.fn(),
 });
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -120,6 +122,7 @@ const makePrismaMock = () => ({
 describe('MisionesService', () => {
   let service: MisionesService;
   let prisma: ReturnType<typeof makePrismaMock>;
+  const archivos = { eliminar: jest.fn() };
 
   beforeAll(async () => {
     prisma = makePrismaMock();
@@ -133,6 +136,7 @@ describe('MisionesService', () => {
       providers: [
         MisionesService,
         { provide: PrismaService, useValue: prisma },
+        { provide: ArchivosService, useValue: archivos },
       ],
     }).compile();
 
@@ -141,6 +145,10 @@ describe('MisionesService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    archivos.eliminar.mockResolvedValue(undefined);
+    prisma.$queryRaw.mockResolvedValue([]);
+    prisma.convocatorias.findMany.mockResolvedValue([]);
+    prisma.funcionarios_convocatorias.findMany.mockResolvedValue([]);
     prisma.personas.findMany.mockImplementation(({ where }) => Promise.resolve(where.id.in.map((id: bigint) => ({ id }))));
     prisma.$transaction.mockImplementation((arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
@@ -393,6 +401,56 @@ describe('MisionesService', () => {
       expect(prisma.misiones.delete).toHaveBeenCalledWith({ where: { id: 4n } });
     });
 
+    it('eliminarMision da de baja los archivos de sus convocatorias y asignaciones', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision({ id: 4n }));
+      prisma.misiones.delete.mockResolvedValue({});
+      prisma.$queryRaw
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ archivo_orden_id: 7n, archivo_boletin_id: null }])
+        .mockResolvedValueOnce([{ archivo_orden_id: null, archivo_boletin_id: 8n }]);
+
+      await service.eliminarMision(4);
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+      for (const call of prisma.$queryRaw.mock.calls) expect(call[0].join('?')).toContain('FOR UPDATE');
+      expect(prisma.$queryRaw.mock.calls[0][0].join('?')).toContain('FROM misiones');
+      expect(prisma.$queryRaw.mock.calls[1][0].join('?')).toContain('FROM convocatorias');
+      expect(prisma.$queryRaw.mock.calls[2][0].join('?')).toContain('FROM funcionarios_convocatorias');
+      expect(prisma.convocatorias.findMany).not.toHaveBeenCalled();
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(archivos.eliminar).toHaveBeenCalledWith(8n, null);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+        prisma.misiones.delete.mock.invocationCallOrder[0],
+      );
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.misiones.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si el borrado falla, eliminarMision no da de baja ningún archivo', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision({ id: 4n }));
+      prisma.misiones.delete.mockRejectedValue(new Error('FK'));
+      prisma.$queryRaw.mockResolvedValue([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+
+      await expect(service.eliminarMision(4)).rejects.toThrow('FK');
+      expect(archivos.eliminar).not.toHaveBeenCalled();
+    });
+
+    it('si la baja falla, eliminarMision igual responde', async () => {
+      prisma.misiones.findUnique.mockResolvedValue(makeMision({ id: 4n }));
+      prisma.misiones.delete.mockResolvedValue({});
+      prisma.$queryRaw
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+      archivos.eliminar.mockRejectedValue(new Error('minio caído'));
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const result = await service.eliminarMision(4);
+
+      expect(log).toHaveBeenCalled();
+      expect(result).toEqual({ id: '4', eliminado: true });
+    });
+
     it('lanza NotFoundException si la misión no existe', async () => {
       prisma.misiones.findUnique.mockResolvedValue(null);
 
@@ -487,6 +545,22 @@ describe('MisionesService', () => {
       expect((result.items[0] as any).id).toBe('5');
       expect((result.items[0] as any).finalizada).toBe(false);
     });
+
+    it('devuelve los documentos con metadatos y pide archivo_orden/archivo_boletin', async () => {
+      const orden = { nombre_original: 'orden.pdf', content_type: 'application/pdf', tamanio_bytes: 10n, subido_en: new Date('2026-01-01') };
+      prisma.convocatorias.count.mockResolvedValue(1);
+      prisma.convocatorias.findMany.mockResolvedValue([
+        makeConvocatoria({ archivo_orden: orden, archivo_boletin: null }),
+      ]);
+
+      const result = await service.listarConvocatorias(1, {});
+
+      expect((result.items[0] as any).documentos).toEqual({ orden, boletin: null });
+      expect(prisma.convocatorias.findMany.mock.calls[0][0].include).toMatchObject({
+        archivo_orden: expect.anything(),
+        archivo_boletin: expect.anything(),
+      });
+    });
   });
 
   // ─── obtenerConvocatoria ──────────────────────────────────────────────────────
@@ -511,6 +585,21 @@ describe('MisionesService', () => {
       const result = await service.obtenerConvocatoria(1, 10) as any;
 
       expect(result.finalizada).toBe(false);
+    });
+
+    it('devuelve los documentos con metadatos y pide archivo_orden/archivo_boletin', async () => {
+      const boletin = { nombre_original: 'orden.pdf', content_type: 'application/pdf', tamanio_bytes: 10n, subido_en: new Date('2026-01-01') };
+      prisma.convocatorias.findFirst.mockResolvedValue(
+        makeConvocatoria({ archivo_orden: null, archivo_boletin: boletin }),
+      );
+
+      const result = await service.obtenerConvocatoria(1, 10) as any;
+
+      expect(result.documentos).toEqual({ orden: null, boletin });
+      expect(prisma.convocatorias.findFirst.mock.calls[0][0].include).toMatchObject({
+        archivo_orden: expect.anything(),
+        archivo_boletin: expect.anything(),
+      });
     });
 
     it('lanza NotFoundException si la convocatoria no existe', async () => {
@@ -790,6 +879,39 @@ describe('MisionesService', () => {
       expect(prisma.convocatorias.delete).toHaveBeenCalledWith({ where: { id: 10n } });
     });
 
+    it('eliminarConvocatoria da de baja los archivos de la convocatoria y de sus asignaciones', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(makeConvocatoria({ id: 10n }));
+      prisma.convocatorias.delete.mockResolvedValue({});
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{ archivo_orden_id: 7n, archivo_boletin_id: null }])
+        .mockResolvedValueOnce([{ archivo_orden_id: null, archivo_boletin_id: 8n }]);
+
+      await service.eliminarConvocatoria(1, 10);
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+      for (const call of prisma.$queryRaw.mock.calls) expect(call[0].join('?')).toContain('FOR UPDATE');
+      expect(prisma.$queryRaw.mock.calls[0][0].join('?')).toContain('FROM convocatorias');
+      expect(prisma.$queryRaw.mock.calls[1][0].join('?')).toContain('FROM funcionarios_convocatorias');
+      expect(prisma.convocatorias.findMany).not.toHaveBeenCalled();
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(archivos.eliminar).toHaveBeenCalledWith(8n, null);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+        prisma.convocatorias.delete.mock.invocationCallOrder[0],
+      );
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.convocatorias.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si el borrado falla, eliminarConvocatoria no da de baja ningún archivo', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(makeConvocatoria({ id: 10n }));
+      prisma.convocatorias.delete.mockRejectedValue(new Error('FK'));
+      prisma.$queryRaw.mockResolvedValue([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+
+      await expect(service.eliminarConvocatoria(1, 10)).rejects.toThrow('FK');
+      expect(archivos.eliminar).not.toHaveBeenCalled();
+    });
+
     it('lanza NotFoundException si la convocatoria no existe', async () => {
       prisma.convocatorias.findFirst.mockResolvedValue(null);
 
@@ -816,6 +938,19 @@ describe('MisionesService', () => {
       expect(result.items).toHaveLength(1);
       expect(result.items[0].cedula).toBe('12345678');
       expect(result.items[0].persona_id).toBe('100');
+    });
+
+    it('devuelve los documentos de cada asignación', async () => {
+      const orden = { nombre_original: 'o.pdf', content_type: 'application/pdf', tamanio_bytes: 8n, subido_en: new Date() };
+      prisma.funcionarios_convocatorias.count.mockResolvedValue(1);
+      prisma.funcionarios_convocatorias.findMany.mockResolvedValue([makeAsignacion({ archivo_orden: orden })]);
+
+      const result = await service.listarFuncionariosConvocatoria(1, 10, {});
+
+      expect(result.items[0].documentos).toEqual({ orden, boletin: null });
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ include: expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }) }),
+      );
     });
 
     it('lanza NotFoundException si la convocatoria no existe', async () => {
@@ -882,6 +1017,26 @@ describe('MisionesService', () => {
       expect(result.agregados).toBe(2);
       expect(result.convocatoria_id).toBe('10');
       expect(prisma.funcionarios_convocatorias.createMany).toHaveBeenCalled();
+    });
+
+    it('devuelve el id de cada asignación creada', async () => {
+      prisma.funcionarios_convocatorias.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { id: 301n, persona_id: 10n },
+          { id: 302n, persona_id: 20n },
+        ]);
+
+      const result = await service.agregarFuncionarios(1, 10, dto);
+
+      expect(result.asignaciones).toEqual([
+        { id: 301n, persona_id: 10n },
+        { id: 302n, persona_id: 20n },
+      ]);
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenLastCalledWith({
+        where: { convocatoria_id: 10n, persona_id: { in: [10n, 20n] } },
+        select: { id: true, persona_id: true },
+      });
     });
 
     it('lanza NotFoundException si la convocatoria no existe', async () => {
@@ -1017,12 +1172,39 @@ describe('MisionesService', () => {
   describe('quitarFuncionario', () => {
     it('elimina la asignación y devuelve { eliminado: true }', async () => {
       prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(makeAsignacion({ id: 200n }));
-      prisma.funcionarios_convocatorias.delete.mockResolvedValue({});
+      prisma.funcionarios_convocatorias.delete.mockResolvedValue(makeAsignacion({ id: 200n }));
 
       const result = await service.quitarFuncionario(1, 10, 100);
 
       expect(result).toEqual({ eliminado: true });
       expect(prisma.funcionarios_convocatorias.delete).toHaveBeenCalledWith({ where: { id: 200n } });
+    });
+
+    it('quitarFuncionario da de baja los archivos de la asignación', async () => {
+      prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(makeAsignacion({ id: 200n }));
+      prisma.funcionarios_convocatorias.delete.mockResolvedValue(
+        makeAsignacion({ id: 200n, archivo_orden_id: 7n, archivo_boletin_id: 8n }),
+      );
+
+      await service.quitarFuncionario(1, 10, 100);
+
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(archivos.eliminar).toHaveBeenCalledWith(8n, null);
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.funcionarios_convocatorias.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si la baja falla, quitarFuncionario igual responde', async () => {
+      prisma.funcionarios_convocatorias.findFirst.mockResolvedValue(makeAsignacion());
+      prisma.funcionarios_convocatorias.delete.mockResolvedValue(makeAsignacion({ archivo_orden_id: 7n }));
+      archivos.eliminar.mockRejectedValue(new Error('minio caído'));
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const result = await service.quitarFuncionario(1, 10, 100);
+
+      expect(log).toHaveBeenCalled();
+      expect(result).toEqual({ eliminado: true });
     });
 
     it('lanza NotFoundException si la asignación no existe', async () => {
@@ -1045,6 +1227,38 @@ describe('MisionesService', () => {
       expect(prisma.funcionarios_convocatorias.deleteMany).toHaveBeenCalledWith({
         where: { convocatoria_id: 10n },
       });
+    });
+
+    it('quitarTodosFuncionarios da de baja los archivos de las asignaciones', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(makeConvocatoria());
+      prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([
+        { archivo_orden_id: 7n, archivo_boletin_id: null },
+        { archivo_orden_id: null, archivo_boletin_id: 8n },
+      ]);
+      prisma.funcionarios_convocatorias.deleteMany.mockResolvedValue({ count: 2 });
+
+      await service.quitarTodosFuncionarios(1, 10);
+
+      expect(prisma.$queryRaw.mock.calls[0][0].join('?')).toMatch(/FROM convocatorias[\s\S]*FOR UPDATE/);
+      expect(prisma.$queryRaw.mock.calls[1][0].join('?')).toContain('FROM funcionarios_convocatorias');
+      expect(prisma.funcionarios_convocatorias.findMany).not.toHaveBeenCalled();
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(archivos.eliminar).toHaveBeenCalledWith(8n, null);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.funcionarios_convocatorias.deleteMany.mock.invocationCallOrder[0],
+      );
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.funcionarios_convocatorias.deleteMany.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si el borrado falla, quitarTodosFuncionarios no da de baja ningún archivo', async () => {
+      prisma.convocatorias.findFirst.mockResolvedValue(makeConvocatoria());
+      prisma.$queryRaw.mockResolvedValue([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+      prisma.funcionarios_convocatorias.deleteMany.mockRejectedValue(new Error('FK'));
+
+      await expect(service.quitarTodosFuncionarios(1, 10)).rejects.toThrow('FK');
+      expect(archivos.eliminar).not.toHaveBeenCalled();
     });
 
     it('lanza NotFoundException si la convocatoria no existe', async () => {
@@ -1076,6 +1290,21 @@ describe('MisionesService', () => {
       expect(item.persona.cedula).toBe('12345678');
       expect(item.mision.nombre_mision).toBe('Congo (MONUSCO)');
       expect(item.convocatoria_id).toBe('10');
+    });
+
+    it('devuelve los documentos de la asignación', async () => {
+      const boletin = { nombre_original: 'o.pdf', content_type: 'application/pdf', tamanio_bytes: 8n, subido_en: new Date() };
+      prisma.funcionarios_convocatorias.count.mockResolvedValue(1);
+      prisma.funcionarios_convocatorias.findMany.mockResolvedValue([
+        makeAsignacionConvocatoria({ archivo_boletin: boletin }),
+      ]);
+
+      const result = await service.listarPersonalEnMision({});
+
+      expect((result.items[0] as any).documentos).toEqual({ orden: null, boletin });
+      expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ include: expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }) }),
+      );
     });
 
     it('calcula finalizada=true para convocatoria con fecha_llegada en el pasado', async () => {

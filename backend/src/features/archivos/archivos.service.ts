@@ -164,7 +164,7 @@ export class ArchivosService implements OnModuleInit {
     }
   }
 
-  async eliminar(id: bigint, usuarioId: bigint): Promise<void> {
+  async eliminar(id: bigint, usuarioId: bigint | null): Promise<void> {
     const archivo = await this.prisma.archivos.findFirst({
       where: { id, eliminado_en: null },
     });

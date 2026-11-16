@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -18,6 +19,14 @@ import { ListFuncionariosConvocatoriaQueryDto } from './dto/list-funcionarios-co
 import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 import { buscarSolapamientos } from './solapamientos';
+import { ArchivosService } from '../archivos/archivos.service';
+import {
+  INCLUDE_DOCUMENTOS,
+  type ArchivosFila,
+  archivosDeFilas,
+  darDeBajaArchivos,
+  documentosDe,
+} from '../archivos/documentos-de-registro';
 
 // Computed: una convocatoria está finalizada cuando tiene fecha de llegada y ya pasó
 const esFinalizada = (fechaLlegada: Date | null) =>
@@ -33,7 +42,12 @@ const assertFechasOrdenadas = (salida: Date | null, llegada: Date | null) => {
 
 @Injectable()
 export class MisionesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(MisionesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly archivos: ArchivosService,
+  ) {}
 
   // ─── Misiones (catálogo) ────────────────────────────────────────────────────
 
@@ -202,8 +216,19 @@ export class MisionesService {
     const mision = await this.prisma.misiones.findUnique({ where: { id: BigInt(misionId) } });
     if (!mision) throw new NotFoundException(`No existe misión con id ${misionId}`);
 
-    // La cascada ON DELETE CASCADE en DB elimina convocatorias y funcionarios_convocatorias.
-    await this.prisma.misiones.delete({ where: { id: BigInt(misionId) } });
+    const archivos = await this.prisma.$transaction(async (tx) => {
+      // Padre primero: un hijo nuevo necesita KEY SHARE sobre él y espera hasta el commit.
+      await tx.$queryRaw`SELECT id FROM misiones WHERE id = ${mision.id} FOR UPDATE`;
+      const bloqueadas = await tx.$queryRaw<ArchivosFila[]>`
+        SELECT archivo_orden_id, archivo_boletin_id FROM convocatorias WHERE mision_id = ${mision.id} FOR UPDATE`;
+      const asignaciones = await tx.$queryRaw<ArchivosFila[]>`
+        SELECT fc.archivo_orden_id, fc.archivo_boletin_id FROM funcionarios_convocatorias fc
+        JOIN convocatorias c ON c.id = fc.convocatoria_id WHERE c.mision_id = ${mision.id} FOR UPDATE OF fc`;
+      // La cascada ON DELETE CASCADE en DB elimina convocatorias y funcionarios_convocatorias.
+      await tx.misiones.delete({ where: { id: mision.id } });
+      return archivosDeFilas([...bloqueadas, ...asignaciones]);
+    });
+    await darDeBajaArchivos(this.archivos, archivos, null, this.logger);
 
     return { id: misionId.toString(), eliminado: true };
   }
@@ -222,6 +247,7 @@ export class MisionesService {
       observaciones: c.observaciones,
       total_funcionarios: c._count?.funcionarios ?? 0,
       finalizada,
+      documentos: documentosDe(c),
     };
   }
 
@@ -262,7 +288,7 @@ export class MisionesService {
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { _count: { select: { funcionarios: true } } },
+        include: { _count: { select: { funcionarios: true } }, ...INCLUDE_DOCUMENTOS },
       }),
     ]);
 
@@ -277,7 +303,7 @@ export class MisionesService {
   async obtenerConvocatoria(misionId: number, convocatoriaId: number) {
     const conv = await this.prisma.convocatorias.findFirst({
       where: { id: BigInt(convocatoriaId), mision_id: BigInt(misionId) },
-      include: { _count: { select: { funcionarios: true } } },
+      include: { _count: { select: { funcionarios: true } }, ...INCLUDE_DOCUMENTOS },
     });
     if (!conv) {
       throw new NotFoundException(
@@ -413,8 +439,16 @@ export class MisionesService {
       );
     }
 
-    // ON DELETE CASCADE elimina los funcionarios_convocatorias automáticamente.
-    await this.prisma.convocatorias.delete({ where: { id: BigInt(convocatoriaId) } });
+    const archivos = await this.prisma.$transaction(async (tx) => {
+      const bloqueadas = await tx.$queryRaw<ArchivosFila[]>`
+        SELECT archivo_orden_id, archivo_boletin_id FROM convocatorias WHERE id = ${conv.id} FOR UPDATE`;
+      const asignaciones = await tx.$queryRaw<ArchivosFila[]>`
+        SELECT archivo_orden_id, archivo_boletin_id FROM funcionarios_convocatorias WHERE convocatoria_id = ${conv.id} FOR UPDATE`;
+      // ON DELETE CASCADE elimina los funcionarios_convocatorias automáticamente.
+      await tx.convocatorias.delete({ where: { id: conv.id } });
+      return archivosDeFilas([...bloqueadas, ...asignaciones]);
+    });
+    await darDeBajaArchivos(this.archivos, archivos, null, this.logger);
 
     return { id: convocatoriaId.toString(), eliminado: true };
   }
@@ -468,6 +502,7 @@ export class MisionesService {
               primer_apellido: true,
             },
           },
+          ...INCLUDE_DOCUMENTOS,
         },
       }),
     ]);
@@ -482,6 +517,7 @@ export class MisionesService {
         numero_orden: a.numero_orden,
         boletin: a.boletin,
         observaciones: a.observaciones,
+        documentos: documentosDe(a),
       })),
       total,
       page,
@@ -539,7 +575,17 @@ export class MisionesService {
       })),
     });
 
-    return { convocatoria_id: convocatoriaId.toString(), agregados: dto.funcionarios.length };
+    // createMany no devuelve ids y el front los necesita para adjuntar documentos.
+    const asignaciones = await this.prisma.funcionarios_convocatorias.findMany({
+      where: { convocatoria_id: BigInt(convocatoriaId), persona_id: { in: personaIds } },
+      select: { id: true, persona_id: true },
+    });
+
+    return {
+      convocatoria_id: convocatoriaId.toString(),
+      agregados: dto.funcionarios.length,
+      asignaciones,
+    };
   }
 
   async editarFuncionarioConvocatoria(
@@ -599,7 +645,9 @@ export class MisionesService {
       );
     }
 
-    await this.prisma.funcionarios_convocatorias.delete({ where: { id: asignacion.id } });
+    // Los archivos se toman de la fila borrada: un adjunto que entró tras la lectura no queda huérfano.
+    const borrada = await this.prisma.funcionarios_convocatorias.delete({ where: { id: asignacion.id } });
+    await darDeBajaArchivos(this.archivos, archivosDeFilas([borrada]), null, this.logger);
 
     return { eliminado: true };
   }
@@ -614,9 +662,17 @@ export class MisionesService {
       );
     }
 
-    const { count } = await this.prisma.funcionarios_convocatorias.deleteMany({
-      where: { convocatoria_id: BigInt(convocatoriaId) },
+    const { count, archivos } = await this.prisma.$transaction(async (tx) => {
+      // Padre primero: una asignación nueva necesita KEY SHARE sobre la convocatoria y espera hasta el commit.
+      await tx.$queryRaw`SELECT id FROM convocatorias WHERE id = ${conv.id} FOR UPDATE`;
+      const asignaciones = await tx.$queryRaw<ArchivosFila[]>`
+        SELECT archivo_orden_id, archivo_boletin_id FROM funcionarios_convocatorias WHERE convocatoria_id = ${conv.id} FOR UPDATE`;
+      const borradas = await tx.funcionarios_convocatorias.deleteMany({
+        where: { convocatoria_id: conv.id },
+      });
+      return { count: borradas.count, archivos: archivosDeFilas(asignaciones) };
     });
+    await darDeBajaArchivos(this.archivos, archivos, null, this.logger);
 
     return { eliminados: count };
   }
@@ -690,6 +746,7 @@ export class MisionesService {
               },
             },
           },
+          ...INCLUDE_DOCUMENTOS,
         },
       }),
     ]);
@@ -718,6 +775,7 @@ export class MisionesService {
           ? a.convocatorias.fecha_llegada.toISOString().split('T')[0]
           : null,
         finalizada: esFinalizada(a.convocatorias.fecha_llegada),
+        documentos: documentosDe(a),
       })),
       total,
       page,

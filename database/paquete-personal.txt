@@ -48,3 +48,5 @@ scripts/migration_cursos_sub_unidad.sql
 scripts/migration_comisiones_alcance.sql
 # Documento de la orden y del boletín de cada retiro (tabla archivos).
 scripts/migration_retiros_documentos.sql
+# Documento de la orden y del boletín en destinos, misiones, ascensos y cursos (tabla archivos).
+scripts/migration_documentos_orden_boletin.sql

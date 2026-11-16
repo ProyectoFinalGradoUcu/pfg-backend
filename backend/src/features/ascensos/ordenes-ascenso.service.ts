@@ -15,6 +15,7 @@ import {
   AscensoRegistroService,
   mensajeFueraDeCarrera,
 } from './ascenso-registro.service.js';
+import { INCLUDE_DOCUMENTOS, documentosDe } from '../archivos/documentos-de-registro.js';
 import { clasificarAscenso } from './ascensos.constants.js';
 import { ElegibilidadService } from './elegibilidad.service.js';
 import { CreateOrdenDto } from './dto/create-orden.dto.js';
@@ -387,6 +388,7 @@ export class OrdenesAscensoService {
       include: {
         usuario_creacion: { select: { id: true, username: true } },
         usuario_anulacion: { select: { id: true, username: true } },
+        ...INCLUDE_DOCUMENTOS,
         ascensos: {
           where: visibles ?? undefined,
           include: includeAscenso,
@@ -412,6 +414,7 @@ export class OrdenesAscensoService {
 
     return {
       ...this.mapOrden(orden, true, todos),
+      documentos: documentosDe(orden),
       page,
       pageSize,
       vigentes: todos
@@ -424,6 +427,32 @@ export class OrdenesAscensoService {
           grado_anterior: a.grados_grado_anterior,
         })),
     };
+  }
+
+  /** Alcance sobre la orden para sus documentos: ver pide algún funcionario visible, gestionar todos. */
+  async verificarAlcanceOrden(
+    id: number,
+    alcance: AlcanceResuelto | undefined,
+    modo: 'ver' | 'gestionar',
+  ): Promise<void> {
+    const orden = await this.prisma.ascensos_ordenes.findUnique({
+      where: { id: BigInt(id) },
+      select: { id: true, ascensos: { select: { id: true } } },
+    });
+    if (!orden) throw new NotFoundException(`No existe la orden de ascenso ${id}`);
+
+    const visibles = this.filtroAscensosPorAlcance(alcance);
+    if (!visibles) return;
+
+    const enAlcance = await this.prisma.ascensos.count({
+      where: { orden_ascenso_id: orden.id, ...visibles },
+    });
+    if (enAlcance === 0) throw new NotFoundException(`No existe la orden de ascenso ${id}`);
+    if (modo === 'gestionar' && enAlcance < orden.ascensos.length) {
+      throw new ForbiddenException(
+        'La orden incluye funcionarios de unidades fuera de tu alcance: solo la puede modificar alguien con alcance sobre todos ellos.',
+      );
+    }
   }
 
   // ─── Anulación ────────────────────────────────────────────────────────────

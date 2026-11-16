@@ -4,6 +4,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -17,6 +18,11 @@ import { ActualizarReincorporacionDto } from './dto/actualizar-reincorporacion.d
 import { CierreCarreraService } from './cierre-carrera.service';
 import { DerechaService } from '../derecha/derecha.service';
 import { periodosSolapados } from '../comisiones/pertenencias';
+import { ArchivosService } from '../archivos/archivos.service';
+import {
+  archivosDeFilas,
+  darDeBajaArchivos,
+} from '../archivos/documentos-de-registro';
 import { SELECT_DOCUMENTO_RETIRO, aDocumentoRetiro } from './retiros-documentos.service';
 
 export type Impacto = {
@@ -76,7 +82,10 @@ export class RetirosService {
     @Inject(forwardRef(() => CierreCarreraService))
     private readonly cierre: CierreCarreraService,
     private readonly derecha: DerechaService,
+    private readonly archivos: ArchivosService,
   ) {}
+
+  private readonly logger = new Logger(RetirosService.name);
 
   protected readonly includeFila = {
     personas: {
@@ -1181,7 +1190,8 @@ export class RetirosService {
       );
     }
 
-    return this.prisma.$transaction(async (tx: any) => {
+    let destinoBorrado: { archivo_orden_id: bigint | null; archivo_boletin_id: bigint | null } | null = null;
+    const resultado = await this.prisma.$transaction(async (tx: any) => {
       // Mientras la relación existe: la baja la saca del padrón y deja el historial.
       await this.derecha.quitarPorInactividadEnTransaccion(tx, retiro.persona_id, {
         motivo: `${MOTIVO_ANULACION_REINCORPORACION}: ${dto.motivo_anulacion}`,
@@ -1192,7 +1202,8 @@ export class RetirosService {
 
       let destinoReabierto: string | null = null;
       if (destinoNuevo) {
-        await tx.destinos.delete({ where: { id: destinoNuevo.id } });
+        // Los archivos salen de la fila borrada: un adjunto que entró tras la lectura no queda huérfano.
+        destinoBorrado = await tx.destinos.delete({ where: { id: destinoNuevo.id } });
         // El que la reincorporación cerró el día anterior estaba abierto.
         const cerrado = await tx.destinos.findFirst({
           where: { persona_id: retiro.persona_id, fecha_fin: diaAnterior(relacion.fecha_inicio) },
@@ -1228,6 +1239,13 @@ export class RetirosService {
         },
       };
     });
+    await darDeBajaArchivos(
+      this.archivos,
+      archivosDeFilas(destinoBorrado ? [destinoBorrado] : []),
+      autorId,
+      this.logger,
+    );
+    return resultado;
   }
 
   private async evaluarReincorporacion(retiroId: number) {

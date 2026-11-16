@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { SubalternosService } from './subalternos.service';
+import { ArchivosService } from '../archivos/archivos.service';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto';
@@ -8,8 +9,10 @@ describe('SubalternosService', () => {
   let service: SubalternosService;
   let prisma: any;
   let derecha: { asignarEnAltaEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
+  let archivos: { eliminar: jest.Mock };
 
   beforeEach(() => {
+    archivos = { eliminar: jest.fn().mockResolvedValue(undefined) };
     derecha = { asignarEnAltaEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
     prisma = {
       personas: {
@@ -43,6 +46,7 @@ describe('SubalternosService', () => {
       },
       destinos: {
         create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn(),
       },
       legajo_militar: { deleteMany: jest.fn() },
@@ -51,9 +55,10 @@ describe('SubalternosService', () => {
       relaciones_familiares: { count: jest.fn().mockResolvedValue(0) },
       personas_documentos: { deleteMany: jest.fn() },
       sub_unidades: { findUnique: jest.fn().mockResolvedValue({ unidad_id: 1n, vigente: true }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
       $transaction: jest.fn((cb) => cb(prisma)),
     };
-    service = new SubalternosService(prisma, derecha as any);
+    service = new SubalternosService(prisma, derecha as any, archivos as unknown as ArchivosService);
   });
 
   const dto = {
@@ -635,6 +640,48 @@ describe('SubalternosService', () => {
       expect(prisma.personas.delete).toHaveBeenCalled();
     });
 
+    it('borrar la persona da de baja los archivos de sus destinos', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.$queryRaw.mockResolvedValue([
+        { archivo_orden_id: 7n, archivo_boletin_id: 8n },
+        { archivo_orden_id: null, archivo_boletin_id: null },
+      ]);
+
+      await service.remove(1);
+
+      expect(archivos.eliminar).toHaveBeenCalledTimes(2);
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(archivos.eliminar).toHaveBeenCalledWith(8n, null);
+    });
+
+    it('bloquea los destinos FOR UPDATE antes de borrarlos y da de baja después de la transacción', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.$queryRaw
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+
+      await service.remove(1);
+
+      expect(prisma.$queryRaw.mock.calls[0][0].join('?')).toMatch(/FROM personas[\s\S]*FOR UPDATE/);
+      expect(prisma.$queryRaw.mock.calls[1][0].join('?')).toMatch(/FROM destinos[\s\S]*FOR UPDATE/);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+        prisma.destinos.deleteMany.mock.invocationCallOrder[0],
+      );
+      expect(prisma.destinos.findMany).not.toHaveBeenCalled();
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.personas.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si la transacción falla después de bloquear, no da de baja ningún archivo', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.$queryRaw.mockResolvedValue([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+      prisma.personas.delete.mockRejectedValue(new Error('boom'));
+
+      await expect(service.remove(1)).rejects.toThrow('boom');
+      expect(archivos.eliminar).not.toHaveBeenCalled();
+    });
+
     it('Error porque no existe', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await expect(service.remove(999)).rejects.toThrow(NotFoundException);
@@ -745,6 +792,7 @@ describe('SubalternosService', () => {
         message: 'No se puede eliminar: el funcionario tiene registros asociados',
         data: { motivo: 'tiene_registros', registros: [] },
       });
+      expect(archivos.eliminar).not.toHaveBeenCalled();
     });
   });
 

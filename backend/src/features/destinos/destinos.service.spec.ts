@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { DestinosService } from './destinos.service';
 import { PrismaService } from '../../lib/prisma.service';
+import { ArchivosService } from '../archivos/archivos.service';
 import { CreateDestinoDto } from './dto/create-destino.dto';
 import { UpdateDestinoDto } from './dto/update-destino.dto';
 
@@ -81,12 +82,17 @@ const makePrismaMock = () => ({
 describe('DestinosService', () => {
   let service: DestinosService;
   let prisma: ReturnType<typeof makePrismaMock>;
+  const archivos = { eliminar: jest.fn() };
 
   beforeAll(async () => {
     prisma = makePrismaMock();
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [DestinosService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        DestinosService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: ArchivosService, useValue: archivos },
+      ],
     }).compile();
 
     service = module.get<DestinosService>(DestinosService);
@@ -94,6 +100,7 @@ describe('DestinosService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    archivos.eliminar.mockResolvedValue(undefined);
     prisma.$transaction.mockImplementation((arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
       return Promise.all(arg);
@@ -276,6 +283,24 @@ describe('DestinosService', () => {
       expect(result.stats.total_destinos).toBe(2);
       expect(result.stats.destinos_activos).toBe(5);
       expect(result.stats.sub_unidades_con_personal).toBe(2);
+    });
+
+    it('listarDestinos devuelve documentos con los metadatos de orden y boletín', async () => {
+      const subido_en = new Date('2026-11-06T12:00:00Z');
+      const boletin = { nombre_original: 'bol.pdf', content_type: 'application/pdf', tamanio_bytes: 9n, subido_en };
+      prisma.destinos.count.mockResolvedValue(1);
+      prisma.destinos.findMany.mockResolvedValueOnce([
+        makeAsignacion({ archivo_orden: null, archivo_boletin: boletin }),
+      ]);
+
+      const result = await service.listarDestinos();
+
+      expect(result.items[0].documentos).toEqual({ orden: null, boletin });
+      expect(prisma.destinos.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }),
+        }),
+      );
     });
 
     it('usa page=1 y pageSize=10 por defecto', async () => {
@@ -507,6 +532,10 @@ describe('DestinosService', () => {
   // ─── eliminarDestino ────────────────────────────────────────────────────────
 
   describe('eliminarDestino', () => {
+    beforeEach(() => {
+      prisma.destinos.delete.mockResolvedValue(makeAsignacion());
+    });
+
     it('elimina un destino ya cerrado sin tocar la relación laboral', async () => {
       prisma.destinos.findUnique.mockResolvedValue(makeAsignacion({ fecha_fin: new Date('2025-01-01') }));
 
@@ -514,6 +543,35 @@ describe('DestinosService', () => {
 
       expect(prisma.destinos.delete).toHaveBeenCalledWith({ where: { id: 200n } });
       expect(prisma.relaciones_laborales.updateMany).not.toHaveBeenCalled();
+      expect(result).toEqual({ id: '200', eliminado: true, destino_reabierto: null });
+    });
+
+    it('da de baja los archivos de la fila borrada, no los de la lectura previa', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(makeAsignacion({ fecha_fin: new Date('2025-01-01') }));
+      prisma.destinos.delete.mockResolvedValue(
+        makeAsignacion({ archivo_orden_id: 7n, archivo_boletin_id: null }),
+      );
+
+      await service.eliminarDestino(200);
+
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.destinos.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si la baja falla, igual responde', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(makeAsignacion({ fecha_fin: new Date('2025-01-01') }));
+      prisma.destinos.delete.mockResolvedValue(
+        makeAsignacion({ archivo_orden_id: 7n, archivo_boletin_id: null }),
+      );
+      archivos.eliminar.mockRejectedValue(new Error('minio caído'));
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const result = await service.eliminarDestino(200);
+
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(log).toHaveBeenCalled();
       expect(result).toEqual({ id: '200', eliminado: true, destino_reabierto: null });
     });
 

@@ -96,6 +96,16 @@ model archivos {
   eliminado_por                             BigInt?
   usuarios_archivos_subido_porTousuarios    usuarios?  @relation("archivos_subido_porTousuarios", fields: [subido_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_archivos_eliminado_porTousuarios usuarios?  @relation("archivos_eliminado_porTousuarios", fields: [eliminado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destinos_orden   destinos[] @relation("destinos_archivo_orden")
+  destinos_boletin destinos[] @relation("destinos_archivo_boletin")
+  convocatorias_orden   convocatorias[] @relation("convocatorias_archivo_orden")
+  convocatorias_boletin convocatorias[] @relation("convocatorias_archivo_boletin")
+  funcionarios_convocatorias_orden   funcionarios_convocatorias[] @relation("funcionarios_convocatorias_archivo_orden")
+  funcionarios_convocatorias_boletin funcionarios_convocatorias[] @relation("funcionarios_convocatorias_archivo_boletin")
+  ascensos_ordenes_orden   ascensos_ordenes[] @relation("ascensos_ordenes_archivo_orden")
+  ascensos_ordenes_boletin ascensos_ordenes[] @relation("ascensos_ordenes_archivo_boletin")
+  funcionarios_cursos_orden   funcionarios_cursos[] @relation("funcionarios_cursos_archivo_orden")
+  funcionarios_cursos_boletin funcionarios_cursos[] @relation("funcionarios_cursos_archivo_boletin")
   personas_documentos                       personas_documentos?
   retiros_orden                             retiros[]  @relation("retiros_archivo_orden")
   retiros_boletin                           retiros[]  @relation("retiros_archivo_boletin")
@@ -157,6 +167,10 @@ model ascensos_ordenes {
   ascensos          ascensos[]
   usuario_creacion  usuarios?  @relation("ascensos_ordenes_creada_por", fields: [creada_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuario_anulacion usuarios?  @relation("ascensos_ordenes_anulada_por", fields: [anulada_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("ascensos_ordenes_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("ascensos_ordenes_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([fecha_orden(sort: Desc)], map: "idx_ascensos_ordenes_fecha")
   @@index([numero_orden], map: "idx_ascensos_ordenes_numero")
@@ -251,6 +265,10 @@ model destinos {
   unidades         unidades? @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sub_unidades     sub_unidades? @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   personas         personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("destinos_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("destinos_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([unidad_id], map: "idx_destinos_unidad")
   @@index([sub_unidad_id], map: "idx_destinos_sub_unidad")
@@ -586,6 +604,10 @@ model funcionarios_cursos {
   usuarios                 usuarios?                    @relation(fields: [dado_de_baja_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   personas                 personas                     @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   modulos                  funcionarios_modulos_curso[]
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("funcionarios_cursos_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("funcionarios_cursos_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([persona_id, curso_id])
 }
@@ -873,6 +895,10 @@ model convocatorias {
   observaciones   String?
   misiones        misiones                     @relation(fields: [mision_id], references: [id], onDelete: Cascade)
   funcionarios    funcionarios_convocatorias[]
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("convocatorias_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("convocatorias_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model funcionarios_convocatorias {
@@ -884,6 +910,10 @@ model funcionarios_convocatorias {
   observaciones   String?
   convocatorias   convocatorias @relation(fields: [convocatoria_id], references: [id], onDelete: Cascade)
   personas        personas      @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("funcionarios_convocatorias_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("funcionarios_convocatorias_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([convocatoria_id, persona_id])
 }
