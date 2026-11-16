@@ -18,6 +18,7 @@ import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import { assertCamposDelTipo, assertGradoCoherenteConTipo } from './coherencia-tipo-funcionario.js';
 import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
 import {
   describirBloqueos,
@@ -382,6 +383,9 @@ export class SubalternosService {
       );
     }
 
+    // El civil no tiene tipo de funcionario: no lleva nivel de idoneidad ni códigos del legajo.
+    assertCamposDelTipo(dto.es_civil ? null : dto.tipo_funcionario, dto);
+
     if (dto.es_civil) {
       return this.createPersonalCivil(dto);
     }
@@ -504,6 +508,13 @@ export class SubalternosService {
     }
 
     assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
+
+    // Si el grado no existe, lo rechaza la FK al crear la relación.
+    const grado = await this.prisma.grados.findUnique({
+      where: { id: BigInt(dto.grado_id!) },
+      select: { denominacion: true, es_oficial: true, es_subalterno: true },
+    });
+    if (grado) assertGradoCoherenteConTipo(dto.tipo_funcionario, grado);
 
     const familiaresResueltos = dto.familiares && dto.familiares.length > 0
       ? await this.resolverFamiliares(dto.familiares)

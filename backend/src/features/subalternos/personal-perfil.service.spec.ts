@@ -62,6 +62,7 @@ const makeRelacion = (overrides: Partial<any> = {}) => ({
 
 const makePrismaMock = () => ({
   personas: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+  grados: { findUnique: jest.fn() },
   motivos_baja: { findFirst: jest.fn() },
   destinos: { findMany: jest.fn() },
   funcionarios_convocatorias: { findMany: jest.fn() },
@@ -814,6 +815,74 @@ describe('PersonalPerfilService', () => {
       const include = prisma.funcionarios_convocatorias.findMany.mock.calls[0][0].include;
       expect(include).toEqual(expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }));
       expect(include.convocatorias.include).toEqual(expect.objectContaining({ archivo_orden: expect.anything(), archivo_boletin: expect.anything() }));
+    });
+  });
+  describe('findOne — códigos del legajo (SCRUM-159)', () => {
+    it('devuelve los códigos del legajo de la relación vigente', async () => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 71n, cedula: '12345678', primer_nombre: 'Ana', segundo_nombre: null,
+        primer_apellido: 'Paz', segundo_apellido: null, es_civil: false, legajo_militar: null,
+        relaciones_laborales: [{ id: 9n, tipo_funcionario: 'oficial', codigos_legajo: '-1-4-7-8-' }],
+      });
+
+      const r: any = await service.findOne(71);
+
+      expect(r.relacion_laboral.codigos_legajo).toBe('-1-4-7-8-');
+      const select = prisma.personas.findUnique.mock.calls[0][0].select;
+      expect(select.relaciones_laborales.select.codigos_legajo).toBe(true);
+    });
+  });
+
+  describe('update — campos según el tipo de funcionario (SCRUM-196, SCRUM-179)', () => {
+    const conTipo = (tipo: string | null) =>
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n,
+        fecha_nacimiento: new Date('1980-01-01'),
+        relaciones_laborales: tipo
+          ? [{ id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n, tipo_funcionario: tipo }]
+          : [],
+      });
+
+    beforeEach(() => {
+      prisma.personas.update.mockResolvedValue({ id: 100n });
+      prisma.relaciones_laborales.update.mockResolvedValue({ id: 45n });
+    });
+
+    it('rechaza el nivel de idoneidad a un oficial', async () => {
+      conTipo('oficial');
+      await expect(service.update(100, { nivel_idoneidad: 7 } as any, 7n)).rejects.toThrow(BadRequestException);
+      expect(prisma.personas.update).not.toHaveBeenCalled();
+    });
+
+    it('rechaza el nivel de idoneidad a un civil', async () => {
+      conTipo(null);
+      await expect(service.update(100, { nivel_idoneidad: 7 } as any, 7n)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza los códigos del legajo a un subalterno', async () => {
+      conTipo('subalterno');
+      await expect(service.update(100, { codigos_legajo: '-1-' } as any, 7n)).rejects.toThrow(BadRequestException);
+    });
+
+    it('acepta null en los campos que no corresponden (borrar el dato)', async () => {
+      conTipo('subalterno');
+      await service.update(100, { nivel_idoneidad: 5, codigos_legajo: null } as any, 7n);
+      expect(prisma.personas.update).toHaveBeenCalled();
+    });
+
+    it('el DTO rechaza un código postal de más de 10 caracteres (SCRUM-187)', async () => {
+      const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+      const meta = { type: 'body' as const, metatype: UpdatePersonalDto };
+
+      await expect(pipe.transform({ codigo_postal: '12345678901' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ codigo_postal: '1234567890' }, meta)).resolves.toBeDefined();
+    });
+
+    it('rechaza pasar a un oficial a un grado de subalterno', async () => {
+      conTipo('oficial');
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Sargento', es_oficial: false, es_subalterno: true });
+      await expect(service.update(100, { grado_id: 5 } as any, 7n)).rejects.toThrow(BadRequestException);
+      expect(derecha.ascenderEnTransaccion).not.toHaveBeenCalled();
     });
   });
 });

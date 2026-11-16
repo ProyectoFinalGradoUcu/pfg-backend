@@ -15,6 +15,7 @@ import {
   assertFechaFallecimientoValida,
   assertFechaInicioPosteriorANacimiento,
 } from './validaciones-fechas.js';
+import { assertCamposDelTipo, assertGradoCoherenteConTipo } from './coherencia-tipo-funcionario.js';
 import {
   guardarLegajoEnTransaccion,
 } from './legajo-militar.service.js';
@@ -94,6 +95,7 @@ export class PersonalPerfilService {
             prima_solidaria_familiar: true,
             tiene_mando: true,
             observaciones: true,
+            codigos_legajo: true,
             grados: { select: { id: true, denominacion: true, codigo: true } },
             unidades: { select: { id: true, denominacion: true, codigo: true } },
             situaciones: { select: { id: true, denominacion: true, codigo: true } },
@@ -162,6 +164,7 @@ export class PersonalPerfilService {
         prima_solidaria_familiar: rel.prima_solidaria_familiar,
         tiene_mando: rel.tiene_mando,
         observaciones: rel.observaciones,
+        codigos_legajo: rel.codigos_legajo,
         grado: rel.grados ? { id: Number(rel.grados.id), denominacion: rel.grados.denominacion, codigo: rel.grados.codigo } : null,
         unidad: rel.unidades ? { id: Number(rel.unidades.id), denominacion: rel.unidades.denominacion, codigo: rel.unidades.codigo } : null,
         situacion: rel.situaciones ? { id: Number(rel.situaciones.id), denominacion: rel.situaciones.denominacion, codigo: rel.situaciones.codigo } : null,
@@ -636,6 +639,7 @@ export class PersonalPerfilService {
             situacion_id: true,
             derecha: true,
             numor: true,
+            tipo_funcionario: true,
           },
         },
       },
@@ -643,6 +647,16 @@ export class PersonalPerfilService {
     if (!persona) throw new NotFoundException(`No existe personal con id ${id}`);
 
     const relacionActiva = persona.relaciones_laborales[0];
+    const tipo = relacionActiva?.tipo_funcionario ?? null;
+
+    assertCamposDelTipo(tipo, dto);
+    if (relacionActiva && dto.grado_id && BigInt(dto.grado_id) !== relacionActiva.grado_id) {
+      const grado = await this.prisma.grados.findUnique({
+        where: { id: BigInt(dto.grado_id) },
+        select: { denominacion: true, es_oficial: true, es_subalterno: true },
+      });
+      if (grado) assertGradoCoherenteConTipo(tipo, grado);
+    }
 
     // Editarla en el lugar no es lo que hace liquidación: cierra la relación y abre otra.
     if (dto.situacion_id && BigInt(dto.situacion_id) !== relacionActiva?.situacion_id) {

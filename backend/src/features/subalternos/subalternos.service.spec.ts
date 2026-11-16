@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, ValidationPipe } from '@nestjs/common';
+import { CreatePersonalDto } from './dto/create-personal.dto';
 import { SubalternosService } from './subalternos.service';
 import { ArchivosService } from '../archivos/archivos.service';
 import { plainToInstance } from 'class-transformer';
@@ -15,6 +16,9 @@ describe('SubalternosService', () => {
     archivos = { eliminar: jest.fn().mockResolvedValue(undefined) };
     derecha = { asignarEnAltaEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
     prisma = {
+      grados: {
+        findUnique: jest.fn().mockResolvedValue({ denominacion: 'Sargento', es_oficial: false, es_subalterno: true }),
+      },
       personas: {
         findUnique: jest.fn(),
         create: jest.fn().mockResolvedValue({ id: 1n, cedula: '12345678' }),
@@ -591,6 +595,74 @@ describe('SubalternosService', () => {
       expect(prisma.destinos.create).toHaveBeenCalledWith({
         data: { persona_id: 1n, unidad_id: 1n, sub_unidad_id: 3n, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
       });
+    });
+  });
+
+  describe('createPersonal · coherencia con el tipo de funcionario (SCRUM-179, SCRUM-196)', () => {
+    const dtoMilitar = { ...dto, es_civil: false, tipo_funcionario: 'oficial' };
+
+    beforeEach(() => prisma.personas.findUnique.mockResolvedValue(null));
+
+    it('rechaza un oficial con grado de subalterno', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Sargento', es_oficial: false, es_subalterno: true });
+      await expect(service.createPersonal(dtoMilitar as any)).rejects.toThrow(BadRequestException);
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un subalterno con grado de oficial', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Capitán', es_oficial: true, es_subalterno: false });
+      await expect(
+        service.createPersonal({ ...dtoMilitar, tipo_funcionario: 'subalterno' } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('acepta un oficial con grado de oficial', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Capitán', es_oficial: true, es_subalterno: false });
+      await service.createPersonal(dtoMilitar as any);
+      expect(prisma.personas.create).toHaveBeenCalled();
+    });
+
+    it('rechaza el nivel de idoneidad a un oficial', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Capitán', es_oficial: true, es_subalterno: false });
+      await expect(service.createPersonal({ ...dtoMilitar, nivel_idoneidad: 7 } as any)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza los códigos del legajo a un subalterno', async () => {
+      await expect(
+        service.createPersonal({ ...dtoMilitar, tipo_funcionario: 'subalterno', codigos_legajo: '-1-' } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza el nivel de idoneidad y los códigos a un civil', async () => {
+      const civil = { cedula: '12345678', primer_nombre: 'A', primer_apellido: 'B', es_civil: true, familiares: [{ cedula: '1' }] };
+      await expect(service.createPersonal({ ...civil, nivel_idoneidad: 7 } as any)).rejects.toThrow(BadRequestException);
+      await expect(service.createPersonal({ ...civil, codigos_legajo: '-1-' } as any)).rejects.toThrow(BadRequestException);
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('CreatePersonalDto · validación (SCRUM-181)', () => {
+    const pipe = new ValidationPipe({ whitelist: true, transform: true });
+    const meta = { type: 'body' as const, metatype: CreatePersonalDto };
+    const valido = { cedula: '12345678', primer_nombre: 'Juan', primer_apellido: 'Pérez', es_civil: false };
+
+    it('acepta un alta válida', async () => {
+      await expect(pipe.transform(valido, meta)).resolves.toBeDefined();
+    });
+
+    it('rechaza una cédula con formato inválido', async () => {
+      await expect(pipe.transform({ ...valido, cedula: 'QA-abc' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ ...valido, cedula: '12345' }, meta)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza nombres y apellidos en blanco', async () => {
+      await expect(pipe.transform({ ...valido, primer_nombre: '   ' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ ...valido, primer_apellido: '' }, meta)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza un email inválido', async () => {
+      await expect(pipe.transform({ ...valido, email: 'no-es-email' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ ...valido, email: 'juan@fau.mil.uy' }, meta)).resolves.toBeDefined();
     });
   });
 

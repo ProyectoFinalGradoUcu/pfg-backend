@@ -10,38 +10,51 @@ import {
   MaxLength,
   IsIn,
   Min,
+  IsNotEmpty,
+  IsEmail,
+  Matches,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FamiliarDto } from './familiar.dto.js';
 import { NIVELES_EDUCATIVOS } from '../legajo-militar.constants.js';
 
+// Saca los espacios del principio y del final.
+const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+
 export class CreatePersonalDto {
   // --- Datos personales (siempre requeridos) ---
 
-  @ApiProperty({ example: '12345678', maxLength: 12 })
+  @ApiProperty({ example: '12345678', description: 'Entre 6 y 9 dígitos, sin puntos ni guión' })
+  @Transform(trim)
   @IsString()
-  @MaxLength(12)
+  @Matches(/^\d{6,9}$/, { message: 'La cédula tiene que tener entre 6 y 9 dígitos, sin puntos ni guión' })
   cedula: string;
 
   @ApiProperty({ example: 'Juan', maxLength: 100 })
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty({ message: 'El primer nombre no puede quedar vacío' })
   @MaxLength(100)
   primer_nombre: string;
 
   @ApiProperty({ example: 'Pérez', maxLength: 100 })
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty({ message: 'El primer apellido no puede quedar vacío' })
   @MaxLength(100)
   primer_apellido: string;
 
   @ApiPropertyOptional({ example: 'Carlos', maxLength: 100 })
   @IsOptional()
+  @Transform(trim)
   @IsString()
   @MaxLength(100)
   segundo_nombre?: string;
 
   @ApiPropertyOptional({ example: 'García', maxLength: 100 })
   @IsOptional()
+  @Transform(trim)
   @IsString()
   @MaxLength(100)
   segundo_apellido?: string;
@@ -53,7 +66,7 @@ export class CreatePersonalDto {
 
   @ApiPropertyOptional({ example: 'juan.perez@ejemplo.com', maxLength: 150 })
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: 'El email no es válido' })
   @MaxLength(150)
   email?: string;
 
@@ -114,7 +127,7 @@ export class CreatePersonalDto {
   @ApiPropertyOptional({
     example: 5,
     enum: [3, 5, 7, 9],
-    description: 'Nivel de pericia/idoneidad otorgado por la ETA al personal subalterno',
+    description: 'Nivel de pericia/idoneidad otorgado por la ETA. Solo para personal subalterno.',
   })
   @IsOptional()
   @IsInt()
@@ -133,7 +146,7 @@ export class CreatePersonalDto {
   @ApiPropertyOptional({
     example: '-1-4-7-8-',
     maxLength: 20,
-    description: 'Códigos del legajo. Se guarda en la relación laboral.',
+    description: 'Códigos del legajo. Solo para oficiales. Se guarda en la relación laboral.',
   })
   @IsOptional()
   @IsString()
