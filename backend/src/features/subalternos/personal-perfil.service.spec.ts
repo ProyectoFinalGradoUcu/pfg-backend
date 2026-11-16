@@ -685,5 +685,14 @@ describe('PersonalPerfilService', () => {
       );
       expect(cierre.cerrar).not.toHaveBeenCalled();
     });
+
+    it('el DTO rechaza un primer nombre de solo espacios y recorta los demás', async () => {
+      const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+      const meta = { type: 'body' as const, metatype: UpdatePersonalDto };
+
+      await expect(pipe.transform({ primer_nombre: '   ' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ primer_apellido: '' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ primer_nombre: '  Juan ' }, meta)).resolves.toMatchObject({ primer_nombre: 'Juan' });
+    });
   });
 });

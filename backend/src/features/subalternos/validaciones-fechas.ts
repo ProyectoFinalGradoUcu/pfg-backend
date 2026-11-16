@@ -47,3 +47,16 @@ export function assertFechaFallecimientoValida(
     );
   }
 }
+
+// El egreso de la ETA no puede ser anterior al ingreso.
+export function assertEgresoEtaPosteriorAIngreso(
+  fechaIngreso: Date | string | null | undefined,
+  fechaEgreso: Date | string | null | undefined,
+): void {
+  const ingreso = aFecha(fechaIngreso);
+  const egreso = aFecha(fechaEgreso);
+  if (!ingreso || !egreso) return;
+  if (egreso.getTime() < ingreso.getTime()) {
+    throw new BadRequestException('La fecha de egreso de la ETA no puede ser anterior a la de ingreso');
+  }
+}
