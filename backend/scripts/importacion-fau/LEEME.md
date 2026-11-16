@@ -78,8 +78,9 @@ Se pueden pasar los tres archivos o solo algunos, en cualquier orden: el tipo se
 4. Mirar la sección **"Destinos sin equivalente en liquidación"**. Esas filas no se cargan: resolverlas con la FAU y liquidación. Excepción: si el oficial ya tiene un período activo en la base, se completan su Derecha y su Numor (el destino no hace falta para eso y no se toca).
 5. Mirar el conteo **"activos no creados"**. Si se van a crear, acordarlo con liquidación y simular con `--crear-activos`.
 6. Corregir en el Access o el Excel lo que se pueda de `incidencias.csv` y volver a simular.
-7. **Aplicar**: repetir el mismo comando de la última simulación agregando `--aplicar`.
-8. Las filas que quedaron en `incidencias.csv` se cargan a mano desde el sistema.
+7. Mirar al principio del resumen la sección **"Derecha y Numor"**. La aplicación numera sin huecos: si quedan huecos o activos sin Derecha, la primera operación que la toque (un alta, un ascenso, un retiro o un cambio en Configuración de derecha) renumera a todos los que están después de cada hueco. Corregir el Access y volver a simular hasta que diga **"Derecha y Numor completos"**.
+8. **Aplicar**: repetir el mismo comando de la última simulación agregando `--aplicar`.
+9. Las filas que quedaron en `incidencias.csv` se cargan a mano desde el sistema. **Recién después de aplicar, con la Derecha y el Numor completos, se empieza a usar la aplicación.**
 
 ## El informe
 
