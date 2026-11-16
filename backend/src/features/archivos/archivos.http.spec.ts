@@ -14,7 +14,9 @@ import {
   NombreOriginalInterceptor,
   nombreOriginalUtf8,
   streamArchivo,
+  validadorDeArchivo,
 } from './archivos.http';
+import { RESTRICCIONES_IMAGEN } from './archivos.restricciones';
 
 const makeRes = () => {
   const headers: Record<string, string> = {};
@@ -98,6 +100,14 @@ describe('escribirEncabezados', () => {
 
     expect(headers['Content-Disposition']).toMatch(/^attachment; /);
   });
+
+  it('con cacheControl manda ese en vez de no-store', () => {
+    const { res, headers } = makeRes();
+
+    escribirEncabezados(res, makeArchivo(), { cacheControl: 'private, max-age=60' });
+
+    expect(headers['Cache-Control']).toBe('private, max-age=60');
+  });
 });
 
 describe('streamArchivo', () => {
@@ -149,6 +159,16 @@ describe('LimiteDeTamanioInterceptor', () => {
     expect(error.message).toBe('El archivo supera el tamaño máximo de 10 MB');
   });
 
+  it('usa el mensaje que se le pasa', async () => {
+    const interceptor = new LimiteDeTamanioInterceptor('El archivo supera el tamaño máximo de 2 MB');
+
+    const error = await lastValueFrom(
+      interceptor.intercept(contexto, fallaCon(new PayloadTooLargeException('File too large'))),
+    ).catch((e) => e);
+
+    expect(error.message).toBe('El archivo supera el tamaño máximo de 2 MB');
+  });
+
   it('deja pasar cualquier otro error tal cual', async () => {
     const interceptor = new LimiteDeTamanioInterceptor();
     const original = new BadRequestException('Unexpected field');
@@ -176,5 +196,21 @@ describe('NombreOriginalInterceptor', () => {
 
   it('sin archivo no hace nada', () => {
     expect(() => new NombreOriginalInterceptor().intercept(contextoCon({}), siguiente)).not.toThrow();
+  });
+});
+
+// El tipo no se prueba acá: el FileTypeValidator de Nest no carga `file-type` bajo Jest.
+describe('validadorDeArchivo', () => {
+  it('con las restricciones de imagen rechaza más de 2 MB', async () => {
+    const archivo = {
+      originalname: 'foto.png',
+      mimetype: 'image/png',
+      buffer: Buffer.alloc(0),
+      size: 2 * 1024 * 1024 + 1,
+    } as Express.Multer.File;
+
+    await expect(validadorDeArchivo(RESTRICCIONES_IMAGEN).transform(archivo)).rejects.toThrow(
+      'El archivo supera el tamaño máximo de 2 MB',
+    );
   });
 });

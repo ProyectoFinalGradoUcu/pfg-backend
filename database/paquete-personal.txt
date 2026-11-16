@@ -31,6 +31,8 @@ scripts/seed_retiros.sql
 scripts/migration_retiros_v2.sql
 
 scripts/migration_archivos.sql
+# Foto del funcionario (tabla archivos).
+scripts/migration_personas_foto.sql
 
 scripts/migration_derecha_numor.sql
 

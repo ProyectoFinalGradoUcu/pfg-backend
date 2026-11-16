@@ -17,10 +17,12 @@ import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec
 import type { Response } from 'express';
 import type { Readable } from 'node:stream';
 import { catchError, Observable, throwError } from 'rxjs';
-import { TAMANIO_MAXIMO_BYTES } from './archivos.service';
 import type { ArchivoConStream } from './archivos.service';
-
-const MENSAJE_TAMANIO = 'El archivo supera el tamaño máximo de 10 MB';
+import {
+  mensajeTamanio,
+  RESTRICCIONES_DOCUMENTO,
+  type RestriccionesArchivo,
+} from './archivos.restricciones';
 
 /**
  * Con `limits.fileSize`, multer corta la subida apenas pasa el límite en vez de cargar el
@@ -28,12 +30,14 @@ const MENSAJE_TAMANIO = 'El archivo supera el tamaño máximo de 10 MB';
  */
 @Injectable()
 export class LimiteDeTamanioInterceptor implements NestInterceptor {
+  constructor(private readonly mensaje = mensajeTamanio(RESTRICCIONES_DOCUMENTO)) {}
+
   intercept(_contexto: ExecutionContext, siguiente: CallHandler): Observable<unknown> {
     return siguiente.handle().pipe(
       catchError((error: unknown) =>
         throwError(() =>
           error instanceof PayloadTooLargeException
-            ? new PayloadTooLargeException(MENSAJE_TAMANIO)
+            ? new PayloadTooLargeException(this.mensaje)
             : error,
         ),
       ),
@@ -55,11 +59,12 @@ export class NombreOriginalInterceptor implements NestInterceptor {
 export function SubidaDeArchivo(
   campo = 'archivo',
   camposExtra: Record<string, SchemaObject> = {},
+  restricciones: RestriccionesArchivo = RESTRICCIONES_DOCUMENTO,
 ) {
   return applyDecorators(
     UseInterceptors(
-      LimiteDeTamanioInterceptor,
-      FileInterceptor(campo, { limits: { fileSize: TAMANIO_MAXIMO_BYTES } }),
+      new LimiteDeTamanioInterceptor(mensajeTamanio(restricciones)),
+      FileInterceptor(campo, { limits: { fileSize: restricciones.tamanioMaximoBytes } }),
       NombreOriginalInterceptor,
     ),
     ApiConsumes('multipart/form-data'),
@@ -73,17 +78,20 @@ export function SubidaDeArchivo(
   );
 }
 
-export const validadorDeArchivo = () =>
+const escaparRegex = (texto: string) => texto.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
+export const validadorDeArchivo = (
+  restricciones: RestriccionesArchivo = RESTRICCIONES_DOCUMENTO,
+) =>
   new ParseFilePipe({
     validators: [
       new MaxFileSizeValidator({
-        maxSize: TAMANIO_MAXIMO_BYTES,
-        errorMessage: MENSAJE_TAMANIO,
+        maxSize: restricciones.tamanioMaximoBytes,
+        errorMessage: mensajeTamanio(restricciones),
       }),
       new FileTypeValidator({
-        fileType: /^(application\/pdf|image\/jpeg|image\/png)$/,
-        errorMessage:
-          'Tipo de archivo no permitido, o el contenido no coincide con el tipo declarado. Solo PDF, JPG o PNG',
+        fileType: new RegExp(`^(${restricciones.tipos.map(escaparRegex).join('|')})$`),
+        errorMessage: `Tipo de archivo no permitido, o el contenido no coincide con el tipo declarado. Solo ${restricciones.tiposLegibles}`,
       }),
     ],
   });
@@ -96,6 +104,7 @@ export type MetadatosArchivo = Pick<
 export interface OpcionesDescarga {
   /** `attachment` en vez de `inline`: el navegador baja el archivo en vez de mostrarlo. */
   descarga?: boolean;
+  cacheControl?: string;
 }
 
 /**
@@ -119,7 +128,7 @@ export function contentDisposition(nombre: string, tipo: 'inline' | 'attachment'
 export function escribirEncabezados(
   res: Response,
   archivo: MetadatosArchivo,
-  { descarga = false }: OpcionesDescarga = {},
+  { descarga = false, cacheControl = 'private, no-store' }: OpcionesDescarga = {},
 ): void {
   res.setHeader('Content-Type', archivo.content_type);
   res.setHeader('Content-Length', archivo.tamanio_bytes.toString());
@@ -127,8 +136,8 @@ export function escribirEncabezados(
     'Content-Disposition',
     contentDisposition(archivo.nombre_original, descarga ? 'attachment' : 'inline'),
   );
-  // Documentos de personal: que no queden en el caché de disco de una PC compartida.
-  res.setHeader('Cache-Control', 'private, no-store');
+  // Por defecto no-store: que los documentos no queden en el caché de disco de una PC compartida.
+  res.setHeader('Cache-Control', cacheControl);
 }
 
 export function streamArchivo(

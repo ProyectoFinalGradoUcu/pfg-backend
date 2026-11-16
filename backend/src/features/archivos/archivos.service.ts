@@ -12,10 +12,15 @@ import { createHash } from 'node:crypto';
 import type * as Minio from 'minio';
 import { PrismaService } from '../../lib/prisma.service';
 import { construirObjectKey } from './archivos.keys';
-import { coincideMagicNumber, TIPOS_PERMITIDOS } from './archivos.mime';
+import { coincideMagicNumber } from './archivos.mime';
+import {
+  mensajeTamanio,
+  RESTRICCIONES_DOCUMENTO,
+  type RestriccionesArchivo,
+} from './archivos.restricciones';
 
 export const MINIO_CLIENT = 'MINIO_CLIENT';
-export const TAMANIO_MAXIMO_BYTES = 10 * 1024 * 1024;
+export const TAMANIO_MAXIMO_BYTES = RESTRICCIONES_DOCUMENTO.tamanioMaximoBytes;
 
 export const calcularSha256 = (buffer: Buffer): string =>
   createHash('sha256').update(buffer).digest('hex');
@@ -28,6 +33,8 @@ export interface GuardarArchivoInput {
   buffer: Buffer;
   mimetype: string;
   usuarioId: bigint;
+  /** Por defecto, las de los documentos: PDF, JPG o PNG de hasta 10 MB. */
+  restricciones?: RestriccionesArchivo;
 }
 
 export interface ArchivoConStream {
@@ -86,11 +93,14 @@ export class ArchivosService implements OnModuleInit {
   }
 
   async guardar(input: GuardarArchivoInput): Promise<ArchivoPublico> {
-    if (!TIPOS_PERMITIDOS.includes(input.mimetype)) {
-      throw new BadRequestException('Tipo de archivo no permitido. Solo PDF, JPG o PNG');
+    const restricciones = input.restricciones ?? RESTRICCIONES_DOCUMENTO;
+    if (!restricciones.tipos.includes(input.mimetype)) {
+      throw new BadRequestException(
+        `Tipo de archivo no permitido. Solo ${restricciones.tiposLegibles}`,
+      );
     }
-    if (input.buffer.length > TAMANIO_MAXIMO_BYTES) {
-      throw new BadRequestException('El archivo supera el tamaño máximo de 10 MB');
+    if (input.buffer.length > restricciones.tamanioMaximoBytes) {
+      throw new BadRequestException(mensajeTamanio(restricciones));
     }
     if (!coincideMagicNumber(input.buffer, input.mimetype)) {
       throw new BadRequestException(
