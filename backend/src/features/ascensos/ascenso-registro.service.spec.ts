@@ -137,11 +137,11 @@ const escenarioOk = (prisma: any, overrides: { relacion?: any; destino?: any } =
 describe('AscensoRegistroService', () => {
   let service: AscensoRegistroService;
   let prisma: ReturnType<typeof makePrismaMock>;
-  let derecha: { ascenderEnTransaccion: jest.Mock };
+  let derecha: { ascenderEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
-    derecha = { ascenderEnTransaccion: jest.fn() };
+    derecha = { ascenderEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AscensoRegistroService,
@@ -391,6 +391,16 @@ describe('AscensoRegistroService', () => {
     });
 
     // ─── Concurrencia ─────────────────────────────────────────────────────────
+
+    it('toma el lock de la derecha antes que el de la persona', async () => {
+      escenarioOk(prisma);
+
+      await service.registrar(params());
+
+      expect(derecha.bloquearEnTransaccion.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.$executeRaw.mock.invocationCallOrder[0],
+      );
+    });
 
     it('toma el lock de la persona antes de leer la relación vigente', async () => {
       escenarioOk(prisma);

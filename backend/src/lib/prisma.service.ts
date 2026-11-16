@@ -23,7 +23,8 @@ export class PrismaService
       connectionString: databaseUrl,
     });
     const adapter = new PrismaPg(pool);
-    super({ adapter });
+    // Las transacciones que esperan el lock de la derecha pueden pasar los 5 s del default.
+    super({ adapter, transactionOptions: { maxWait: 10_000, timeout: 20_000 } });
   }
 
   async onModuleInit() {

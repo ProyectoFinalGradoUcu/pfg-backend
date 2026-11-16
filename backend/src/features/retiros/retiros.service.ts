@@ -639,6 +639,7 @@ export class RetirosService {
             data: { fecha_movimiento: fechaNueva },
           });
         }
+        await this.moverCierresAplicados(tx, retiro, fechaNueva);
       }
     });
 
@@ -646,6 +647,55 @@ export class RetirosService {
     // sin commitear.
     return this.obtener(retiroId);
   }
+  // Mueve el fin del destino y de las comisiones que cerró el retiro. Si después se editaron a
+  // mano no se tocan.
+  private async moverCierresAplicados(
+    tx: any,
+    retiro: { fecha_retiro: Date; cierres_aplicados?: unknown },
+    fechaNueva: Date,
+  ) {
+    const cierres = (retiro.cierres_aplicados ?? {}) as {
+      destino_id?: string | null;
+      comisiones?: { id: string }[];
+    };
+    const fechaVieja = retiro.fecha_retiro;
+
+    if (cierres.destino_id) {
+      const destino = await tx.destinos.findUnique({
+        where: { id: BigInt(cierres.destino_id) },
+        select: { id: true, fecha_inicio: true, fecha_fin: true },
+      });
+      if (destino && destino.fecha_fin && destino.fecha_fin.getTime() === fechaVieja.getTime()) {
+        if (fechaNueva < destino.fecha_inicio) {
+          throw new BadRequestException(
+            `La fecha de retiro es anterior al inicio del destino que cerró (${soloFecha(destino.fecha_inicio)})`,
+          );
+        }
+        await tx.destinos.update({ where: { id: destino.id }, data: { fecha_fin: fechaNueva } });
+      }
+    }
+
+    const idsComisiones = (cierres.comisiones ?? []).map((c) => BigInt(c.id));
+    if (idsComisiones.length) {
+      const pertenencias = await tx.asignaciones_comision.findMany({
+        where: { id: { in: idsComisiones }, fecha_fin: fechaVieja },
+        select: { id: true, fecha_inicio: true },
+      });
+      const invalida = pertenencias.find((p: any) => p.fecha_inicio && fechaNueva < p.fecha_inicio);
+      if (invalida) {
+        throw new BadRequestException(
+          `La fecha de retiro es anterior al inicio de una pertenencia a comisión que cerró (${soloFecha(invalida.fecha_inicio)})`,
+        );
+      }
+      if (pertenencias.length) {
+        await tx.asignaciones_comision.updateMany({
+          where: { id: { in: pertenencias.map((p: any) => p.id) } },
+          data: { fecha_fin: fechaNueva },
+        });
+      }
+    }
+  }
+
   /**
    * La fecha corregida pasa a ser el fin de la relación que cerró el retiro: tiene que caer entre el
    * inicio de esa relación (y su último movimiento anterior al retiro) y el inicio de la relación
@@ -741,14 +791,21 @@ export class RetirosService {
           },
         },
         relaciones_laborales: { select: { fecha_inicio: true } },
+        motivos_baja: { select: { codigo: true } },
       },
     });
     if (!retiro) throw new NotFoundException('Retiro no encontrado');
     if (retiro.anulado) throw new ConflictException('El retiro ya está anulado');
 
-    if (retiro.personas.fecha_fallecimiento) {
+    // Anular el retiro por fallecimiento borra la fecha de fallecimiento.
+    const fallecimiento = retiro.personas.fecha_fallecimiento;
+    const revierteFallecimiento =
+      !!fallecimiento &&
+      retiro.motivos_baja?.codigo === 'FALLECIMIENTO' &&
+      fallecimiento.getTime() === retiro.fecha_retiro.getTime();
+    if (fallecimiento && !revierteFallecimiento) {
       throw new ConflictException(
-        'El funcionario tiene fecha de fallecimiento: el retiro no se puede anular. Si la fecha se cargó por error, borrala primero',
+        'El funcionario tiene fecha de fallecimiento posterior a este retiro: el retiro no se puede anular',
       );
     }
 
@@ -781,6 +838,7 @@ export class RetirosService {
     };
 
     return this.prisma.$transaction(async (tx: any) => {
+      await this.derecha.bloquearEnTransaccion(tx);
       // Si después del retiro se le abrió otro destino o pertenencia, reabrir los anteriores
       // violaría los índices únicos: se corta antes con un 409.
       await tx.$queryRaw`SELECT id FROM personas WHERE id = ${retiro.persona_id} FOR UPDATE`;
@@ -810,6 +868,13 @@ export class RetirosService {
       });
 
       await tx.movimientos_laborales.delete({ where: { id: movimientoId } });
+
+      if (revierteFallecimiento) {
+        await tx.personas.update({
+          where: { id: retiro.persona_id },
+          data: { fecha_fallecimiento: null },
+        });
+      }
 
       if (cierres.destino_id) {
         await tx.destinos.update({
@@ -1058,12 +1123,14 @@ export class RetirosService {
           where: { relacion_laboral_id: relacion.id },
           select: { id: true, tipos_movimiento: { select: { nombre: true, es_alta: true } } },
         }),
+        // Los anulados no cuentan.
         this.prisma.ascensos.count({
           where: {
+            anulado_en: null,
             OR: [{ relacion_laboral_anterior_id: relacion.id }, { relacion_laboral_nueva_id: relacion.id }],
           },
         }),
-        this.prisma.retiros.count({ where: { relacion_laboral_id: relacion.id } }),
+        this.prisma.retiros.count({ where: { relacion_laboral_id: relacion.id, anulado: false } }),
         this.prisma.items_liquidacion.count({ where: { relacion_laboral_id: relacion.id } }),
         this.prisma.compensaciones_diferencia_ascenso.count({
           where: { relacion_laboral_nueva_id: relacion.id },
@@ -1130,6 +1197,17 @@ export class RetirosService {
           destinoReabierto = cerrado.id.toString();
         }
       }
+
+      // Soltar las FK de los ascensos y retiros anulados antes de borrar la relación.
+      await tx.ascensos.updateMany({
+        where: { relacion_laboral_anterior_id: relacion.id, anulado_en: { not: null } },
+        data: { relacion_laboral_anterior_id: null },
+      });
+      await tx.ascensos.updateMany({
+        where: { relacion_laboral_nueva_id: relacion.id, anulado_en: { not: null } },
+        data: { relacion_laboral_nueva_id: null },
+      });
+      await tx.retiros.deleteMany({ where: { relacion_laboral_id: relacion.id, anulado: true } });
 
       await tx.relaciones_laborales.delete({ where: { id: relacion.id } });
 
@@ -1339,6 +1417,7 @@ export class RetirosService {
     }
 
     return this.prisma.$transaction(async (tx: any) => {
+      await this.derecha.bloquearEnTransaccion(tx);
       const relacion = await tx.relaciones_laborales.create({
         data: {
           persona_id: retiro.persona_id,

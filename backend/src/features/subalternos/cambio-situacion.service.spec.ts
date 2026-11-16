@@ -109,11 +109,11 @@ const makePrismaMock = () => {
 describe('CambioSituacionService', () => {
   let service: CambioSituacionService;
   let prisma: ReturnType<typeof makePrismaMock>;
-  let derecha: { trasladarARelacionEnTransaccion: jest.Mock };
+  let derecha: { trasladarARelacionEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
-    derecha = { trasladarARelacionEnTransaccion: jest.fn() };
+    derecha = { trasladarARelacionEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CambioSituacionService,

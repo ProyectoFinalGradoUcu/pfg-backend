@@ -458,6 +458,8 @@ export class AscensoRegistroService {
    * de id para que dos órdenes que comparten funcionarios no hagan deadlock.
    */
   async bloquearPersonas(tx: Prisma.TransactionClient, personaIds: bigint[]) {
+    // Primero el lock de la derecha.
+    await this.derecha.bloquearEnTransaccion(tx);
     const ordenados = [...new Set(personaIds.map(String))]
       .map((id) => BigInt(id))
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));

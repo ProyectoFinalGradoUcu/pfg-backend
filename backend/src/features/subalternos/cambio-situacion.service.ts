@@ -68,6 +68,7 @@ export class CambioSituacionService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await this.derecha.bloquearEnTransaccion(tx);
       // El mismo lock que el ascenso: los dos cierran la relación activa de la persona.
       const clave = Number(id % 2_147_483_647n);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_ASCENSO_PERSONA}::int, ${clave}::int)`;

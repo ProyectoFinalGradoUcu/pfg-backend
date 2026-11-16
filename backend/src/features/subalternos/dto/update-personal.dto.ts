@@ -1,13 +1,17 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsIn, MaxLength, Min } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsIn, IsNotEmpty, MaxLength, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+// Saca los espacios del principio y del final.
+const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { NIVELES_EDUCATIVOS } from '../legajo-militar.constants.js';
 
 export class UpdatePersonalDto {
   // Datos personales
-  @ApiPropertyOptional({ example: 'Juan' }) @IsOptional() @IsString() @MaxLength(100) primer_nombre?: string;
-  @ApiPropertyOptional({ example: 'Carlos' }) @IsOptional() @IsString() @MaxLength(100) segundo_nombre?: string;
-  @ApiPropertyOptional({ example: 'Rodríguez' }) @IsOptional() @IsString() @MaxLength(100) primer_apellido?: string;
-  @ApiPropertyOptional({ example: 'García' }) @IsOptional() @IsString() @MaxLength(100) segundo_apellido?: string;
+  @ApiPropertyOptional({ example: 'Juan' }) @IsOptional() @Transform(trim) @IsString() @IsNotEmpty({ message: 'El primer nombre no puede quedar vacío' }) @MaxLength(100) primer_nombre?: string;
+  @ApiPropertyOptional({ example: 'Carlos' }) @IsOptional() @Transform(trim) @IsString() @MaxLength(100) segundo_nombre?: string;
+  @ApiPropertyOptional({ example: 'Rodríguez' }) @IsOptional() @Transform(trim) @IsString() @IsNotEmpty({ message: 'El primer apellido no puede quedar vacío' }) @MaxLength(100) primer_apellido?: string;
+  @ApiPropertyOptional({ example: 'García' }) @IsOptional() @Transform(trim) @IsString() @MaxLength(100) segundo_apellido?: string;
   @ApiPropertyOptional({ example: '1975-03-14' }) @IsOptional() @IsDateString() fecha_nacimiento?: string;
   @ApiPropertyOptional({ example: 'jc@fau.mil.uy' }) @IsOptional() @IsString() @MaxLength(150) email?: string;
   @ApiPropertyOptional({ example: '099 123 456' }) @IsOptional() @IsString() @MaxLength(30) telefono?: string;

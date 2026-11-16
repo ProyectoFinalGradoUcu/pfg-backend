@@ -17,7 +17,7 @@ describe('CierreCarreraService', () => {
   let prisma: ReturnType<typeof makePrismaMock>;
   let sesiones: { invalidarUsuario: jest.Mock };
   let retiros: { calcularImpacto: jest.Mock };
-  let derecha: { quitarPorInactividadEnTransaccion: jest.Mock };
+  let derecha: { quitarPorInactividadEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
 
   const impactoBase = () => ({
     persona: makePersonaMin(),
@@ -54,7 +54,7 @@ describe('CierreCarreraService', () => {
     prisma = makePrismaMock();
     sesiones = { invalidarUsuario: jest.fn() };
     retiros = { calcularImpacto: jest.fn() };
-    derecha = { quitarPorInactividadEnTransaccion: jest.fn() };
+    derecha = { quitarPorInactividadEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -101,6 +101,14 @@ describe('CierreCarreraService', () => {
     const data = prisma.relaciones_laborales.update.mock.calls[0][0].data;
     expect(data).not.toHaveProperty('situacion_id');
     expect(data).toHaveProperty('fecha_actualizacion');
+  });
+
+  it('toma el lock de la derecha antes de bloquear a la persona', async () => {
+    await service.cerrar(paramsBase());
+
+    expect(derecha.bloquearEnTransaccion.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.$queryRaw.mock.invocationCallOrder[0],
+    );
   });
 
   it('quita la derecha y el numor en la misma transacción', async () => {
