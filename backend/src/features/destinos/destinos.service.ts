@@ -226,7 +226,7 @@ export class DestinosService {
         this.prisma.destinos.count({ where: { fecha_fin: null } }),
         this.prisma.destinos.findMany({
           where,
-          orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }],
+          orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }, { id: 'desc' }],
           skip: (page - 1) * pageSize,
           take: pageSize,
           include: this.includeDestino,
@@ -336,7 +336,7 @@ export class DestinosService {
       this.prisma.destinos.count({ where }),
       this.prisma.destinos.findMany({
         where,
-        orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }],
+        orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
