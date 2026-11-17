@@ -108,7 +108,7 @@ export class InvitacionesService {
     // Las cuentas están separadas por aplicación: tener cuenta en liquidación no impide tener
     // una en Personal con el mismo email.
     const usuarioExistente = await this.prisma.usuarios.findFirst({
-      where: { username: dto.email, aplicacion: APLICACION },
+      where: { username: { equals: dto.email, mode: 'insensitive' as const }, aplicacion: APLICACION },
       select: { id: true },
     });
     if (usuarioExistente) {
@@ -117,7 +117,7 @@ export class InvitacionesService {
 
     const pendienteExistente = await this.prisma.invitaciones.findFirst({
       where: {
-        email: dto.email,
+        email: { equals: dto.email, mode: 'insensitive' as const },
         estado: 'pendiente',
         expira_en: { gt: new Date() },
       },
@@ -133,7 +133,7 @@ export class InvitacionesService {
 
     const invitacion = await this.prisma.invitaciones.create({
       data: {
-        email: dto.email,
+        email: dto.email.trim().toLowerCase(),
         token_hash: tokenHash,
         persona_id: dto.personaId ? BigInt(dto.personaId) : null,
         roles: dto.roles ?? [],
@@ -233,7 +233,7 @@ export class InvitacionesService {
     }
 
     const usuarioExistente = await this.prisma.usuarios.findFirst({
-      where: { username: invitacion.email, aplicacion: APLICACION },
+      where: { username: { equals: invitacion.email, mode: 'insensitive' as const }, aplicacion: APLICACION },
     });
     if (usuarioExistente) {
       throw new ConflictException('Ya existe un usuario con ese email');

@@ -186,7 +186,7 @@ export class UsuariosService {
 
   async create(dto: CreateUsuarioDto, actor: AuthenticatedUser) {
     const existente = await this.prisma.usuarios.findFirst({
-      where: { username: dto.username, aplicacion: APLICACION },
+      where: { username: { equals: dto.username, mode: 'insensitive' as const }, aplicacion: APLICACION },
     });
     if (existente) throw new ConflictException('Ya existe un usuario con ese username');
 
