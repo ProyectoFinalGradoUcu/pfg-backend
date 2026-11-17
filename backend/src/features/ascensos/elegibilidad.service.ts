@@ -16,6 +16,7 @@ import {
   ListPasiblesQueryDto,
 } from './dto/list-pasibles-query.dto.js';
 import { SimularImpactoDto } from './dto/simular-impacto.dto.js';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 const listaDeEnv = (nombre: string, porDefecto: string[]): string[] => {
   const crudo = process.env[nombre];
@@ -300,12 +301,7 @@ export class ElegibilidadService {
     if (query.query) {
       where['personas'] = {
         es_civil: false,
-        OR: [
-          { cedula: { contains: query.query, mode: 'insensitive' } },
-          { primer_nombre: { contains: query.query, mode: 'insensitive' } },
-          { primer_apellido: { contains: query.query, mode: 'insensitive' } },
-          { segundo_apellido: { contains: query.query, mode: 'insensitive' } },
-        ],
+        ...whereBusqueda(query.query, CAMPOS_PERSONA),
       };
     }
 

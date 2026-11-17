@@ -126,7 +126,7 @@ describe('RetirosService', () => {
       await service.listar({ query: 'Pérez' });
 
       const where = prisma.retiros.findMany.mock.calls[0][0].where;
-      expect(where.personas.OR).toHaveLength(3);
+      expect(JSON.stringify(where.personas)).toContain('"segundo_apellido":{"contains":"perez"');
     });
 
     it('pagina con los valores por defecto', async () => {

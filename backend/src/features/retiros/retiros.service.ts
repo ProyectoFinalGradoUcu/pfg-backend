@@ -24,6 +24,7 @@ import {
   darDeBajaArchivos,
 } from '../archivos/documentos-de-registro';
 import { SELECT_DOCUMENTO_RETIRO, aDocumentoRetiro } from './retiros-documentos.service';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 export type Impacto = {
   persona: any;
@@ -175,13 +176,7 @@ export class RetirosService {
       ...(query.motivo_baja_id ? { motivo_baja_id: BigInt(query.motivo_baja_id) } : {}),
       ...(query.query
         ? {
-            personas: {
-              OR: [
-                { cedula: { contains: query.query, mode: 'insensitive' as const } },
-                { primer_nombre: { contains: query.query, mode: 'insensitive' as const } },
-                { primer_apellido: { contains: query.query, mode: 'insensitive' as const } },
-              ],
-            },
+            personas: whereBusqueda(query.query, CAMPOS_PERSONA),
           }
         : {}),
     };

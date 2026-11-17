@@ -12,6 +12,7 @@ import { UpdateFuncionarioConvocatoriaDto } from './dto/update-funcionario-convo
 import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto';
 import { ArchivosService } from '../archivos/archivos.service';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 // ─── Fechas de referencia ─────────────────────────────────────────────────────
 const FECHA_PASADA = new Date('2020-01-01');
@@ -203,7 +204,7 @@ describe('MisionesService', () => {
       expect(prisma.misiones.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            nombre_mision: { contains: 'congo', mode: 'insensitive' },
+            AND: whereBusqueda('congo', ['nombre_mision'])!.AND,
           }),
         }),
       );
@@ -218,7 +219,7 @@ describe('MisionesService', () => {
       expect(prisma.misiones.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            pais: { contains: 'república', mode: 'insensitive' },
+            AND: whereBusqueda('república', ['pais'])!.AND,
           }),
         }),
       );
@@ -969,13 +970,7 @@ describe('MisionesService', () => {
       expect(prisma.funcionarios_convocatorias.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            personas: {
-              OR: expect.arrayContaining([
-                { cedula: { contains: 'pérez', mode: 'insensitive' } },
-                { primer_nombre: { contains: 'pérez', mode: 'insensitive' } },
-                { primer_apellido: { contains: 'pérez', mode: 'insensitive' } },
-              ]),
-            },
+            personas: whereBusqueda('pérez', CAMPOS_PERSONA),
           }),
         }),
       );
@@ -1372,15 +1367,7 @@ describe('MisionesService', () => {
       it('busca cada palabra en cédula, nombre o apellido', async () => {
         await service.listarPersonalEnMision({ query: ' Ana  García ' });
 
-        const porPalabra = (palabra: string) => ({
-          personas: {
-            OR: [
-              { cedula: { contains: palabra, mode: 'insensitive' } },
-              { primer_nombre: { contains: palabra, mode: 'insensitive' } },
-              { primer_apellido: { contains: palabra, mode: 'insensitive' } },
-            ],
-          },
-        });
+        const porPalabra = (palabra: string) => ({ personas: whereBusqueda(palabra, CAMPOS_PERSONA)!.AND[0] });
         expect(whereUsado()).toEqual({ AND: [porPalabra('Ana'), porPalabra('García')] });
       });
 

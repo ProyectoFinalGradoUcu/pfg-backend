@@ -173,10 +173,7 @@ describe('UnidadesService', () => {
       expect(prisma.sub_unidades.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            OR: [
-              { codigo: { contains: 'B.A.I', mode: 'insensitive' } },
-              { denominacion: { contains: 'B.A.I', mode: 'insensitive' } },
-            ],
+            AND: [{ OR: expect.arrayContaining([{ codigo: { contains: 'b.a.i', mode: 'insensitive' } }, { denominacion: { contains: 'b.a.i', mode: 'insensitive' } }]) }],
           }),
         }),
       );

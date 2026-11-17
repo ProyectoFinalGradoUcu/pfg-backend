@@ -19,6 +19,7 @@ import {
 } from '../archivos/documentos-de-registro';
 import { ArchivosService } from '../archivos/archivos.service';
 import { CategoriaPersonal, wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 // Un destino está vigente mientras no tenga fecha de fin.
 const esActivo = (fechaFin: Date | null) => fechaFin == null;
@@ -52,16 +53,11 @@ export class DestinosService {
 
   /** Filtro de personas compartido por los listados (cédula, nombre o apellido). */
   private filtroPersona(texto?: string, categoria?: CategoriaPersonal) {
-    return {
-      ...(texto && {
-        OR: [
-          { cedula: { contains: texto, mode: 'insensitive' as const } },
-          { primer_nombre: { contains: texto, mode: 'insensitive' as const } },
-          { primer_apellido: { contains: texto, mode: 'insensitive' as const } },
-        ],
-      }),
-      ...(categoria && { AND: [wherePersonaPorCategoria(categoria)] }),
-    };
+    const and = [
+      ...(whereBusqueda(texto, CAMPOS_PERSONA)?.AND ?? []),
+      ...(categoria ? [wherePersonaPorCategoria(categoria)] : []),
+    ];
+    return and.length ? { AND: and } : {};
   }
 
   private mapDestino(a: any) {

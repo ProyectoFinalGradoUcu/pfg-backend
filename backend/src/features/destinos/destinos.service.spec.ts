@@ -7,6 +7,7 @@ import { PrismaService } from '../../lib/prisma.service';
 import { ArchivosService } from '../archivos/archivos.service';
 import { CreateDestinoDto } from './dto/create-destino.dto';
 import { UpdateDestinoDto } from './dto/update-destino.dto';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -370,13 +371,7 @@ describe('DestinosService', () => {
       expect(prisma.destinos.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            personas: {
-              OR: [
-                { cedula: { contains: 'perez', mode: 'insensitive' } },
-                { primer_nombre: { contains: 'perez', mode: 'insensitive' } },
-                { primer_apellido: { contains: 'perez', mode: 'insensitive' } },
-              ],
-            },
+            personas: whereBusqueda('perez', CAMPOS_PERSONA),
           }),
         }),
       );

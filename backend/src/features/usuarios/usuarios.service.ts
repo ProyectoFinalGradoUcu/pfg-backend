@@ -18,6 +18,7 @@ import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ListUsuariosQueryDto } from './dto/list-usuarios-query.dto';
+import { whereBusqueda } from '../../lib/query/busqueda';
 
 const DEFAULT_BCRYPT_ROUNDS = 12;
 
@@ -131,27 +132,9 @@ export class UsuariosService {
   async findAll(query: ListUsuariosQueryDto = {}) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
-    const palabras = query.search?.trim().split(/\s+/).filter(Boolean) ?? [];
-    const coincide = (texto: string) => ({
-      contains: texto,
-      mode: Prisma.QueryMode.insensitive,
-    });
-
     const where: Prisma.usuariosWhereInput = {
       aplicacion: APLICACION,
-      // Palabra por palabra: nombre y apellido van en columnas separadas, y así
-      // "Victoria Castro" encuentra a la persona aunque ninguna columna tenga el texto entero.
-      ...(palabras.length
-        ? {
-            AND: palabras.map((palabra) => ({
-              OR: [
-                { username: coincide(palabra) },
-                { personas: { primer_nombre: coincide(palabra) } },
-                { personas: { primer_apellido: coincide(palabra) } },
-              ],
-            })),
-          }
-        : {}),
+      ...whereBusqueda(query.search, ['username', 'personas.primer_nombre', 'personas.primer_apellido']),
       ...(query.rolId ? { usuarios_roles: { some: { rol_id: BigInt(query.rolId) } } } : {}),
       ...(query.estado ? { estado: query.estado } : {}),
     };

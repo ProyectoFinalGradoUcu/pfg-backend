@@ -39,6 +39,7 @@ import {
   type ArchivosFila,
   darDeBajaArchivos,
 } from '../archivos/documentos-de-registro.js';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -156,25 +157,12 @@ export class SubalternosService {
     const bases = basesForzadas
       ? (elegidas?.filter((id) => basesForzadas.includes(id)) ?? basesForzadas)
       : elegidas;
-    // Cada palabra tiene que aparecer en algún campo, así "nombre apellido" encuentra a la persona.
-    const palabras = query.search?.trim().split(/\s+/).filter(Boolean) ?? [];
     const and = [
       ...(query.categoria ? [wherePersonaPorCategoria(query.categoria)] : []),
       ...(bases !== null
         ? [{ relaciones_laborales: { some: { ...RELACION_ACTIVA, sub_unidad_id: { in: bases } } } }]
         : []),
-      ...palabras.map((palabra) => {
-        const contiene = { contains: palabra, mode: 'insensitive' as const };
-        return {
-          OR: [
-            { cedula: contiene },
-            { primer_nombre: contiene },
-            { segundo_nombre: contiene },
-            { primer_apellido: contiene },
-            { segundo_apellido: contiene },
-          ],
-        };
-      }),
+      ...(whereBusqueda(query.search, CAMPOS_PERSONA)?.AND ?? []),
     ];
 
     const where = {

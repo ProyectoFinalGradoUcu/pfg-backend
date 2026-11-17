@@ -12,6 +12,7 @@ import { UpdateDesignacionDto } from './dto/update-designacion.dto';
 import { CalificarDesignacionesDto } from './dto/calificar-designaciones.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
+import { whereBusqueda } from '../../lib/query/busqueda';
 
 const GLOBAL: AlcanceResuelto = { tipo: 'global' };
 
@@ -281,7 +282,7 @@ describe('CursosService', () => {
       expect(prisma.cursos.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            nombre_curso: { contains: 'aviacion', mode: 'insensitive' },
+            AND: whereBusqueda('aviacion', ['nombre_curso'])!.AND,
           }),
         }),
       );
@@ -296,7 +297,7 @@ describe('CursosService', () => {
       expect(prisma.cursos.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            institucion: { contains: 'EMA', mode: 'insensitive' },
+            AND: whereBusqueda('EMA', ['institucion'])!.AND,
           }),
         }),
       );
@@ -353,8 +354,7 @@ describe('CursosService', () => {
       expect(prisma.cursos.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
-            nombre_curso: { contains: 'aviacion', mode: 'insensitive' },
-            institucion: { contains: 'EMA', mode: 'insensitive' },
+            AND: [...whereBusqueda('aviacion', ['nombre_curso'])!.AND, ...whereBusqueda('EMA', ['institucion'])!.AND],
             es_obligatorio: true,
           },
         }),

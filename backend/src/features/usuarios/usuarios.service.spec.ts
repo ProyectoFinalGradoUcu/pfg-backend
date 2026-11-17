@@ -136,13 +136,16 @@ describe('UsuariosService', () => {
       expect(Object.keys(argsDelListado().where)).toEqual(['aplicacion']);
     });
 
-    const condicionDe = (palabra: string) => ({
-      OR: [
-        { username: { contains: palabra, mode: 'insensitive' } },
-        { personas: { primer_nombre: { contains: palabra, mode: 'insensitive' } } },
-        { personas: { primer_apellido: { contains: palabra, mode: 'insensitive' } } },
-      ],
-    });
+    const condicionDe = (palabra: string) => {
+      const p = palabra.toLowerCase();
+      return {
+        OR: expect.arrayContaining([
+          { username: { contains: p, mode: 'insensitive' } },
+          { personas: { primer_nombre: { contains: p, mode: 'insensitive' } } },
+          { personas: { primer_apellido: { contains: p, mode: 'insensitive' } } },
+        ]),
+      };
+    };
 
     it('busca en el email, el nombre y el apellido, sin distinguir mayúsculas ni espacios sobrantes', async () => {
       await service.findAll({ search: '  JEFE ' });

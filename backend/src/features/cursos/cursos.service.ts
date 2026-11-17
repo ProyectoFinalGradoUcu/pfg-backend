@@ -41,6 +41,7 @@ import {
   darDeBajaArchivos,
   documentosDe,
 } from '../archivos/documentos-de-registro';
+import { whereBusqueda } from '../../lib/query/busqueda';
 
 /** Base del curso con su comando, o `null` si es general. */
 function baseDelCurso(
@@ -128,9 +129,12 @@ export class CursosService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
+    const busqueda = [
+      ...(whereBusqueda(query.nombre, ['nombre_curso'])?.AND ?? []),
+      ...(whereBusqueda(query.institucion, ['institucion'])?.AND ?? []),
+    ];
     const where = {
-      ...(query.institucion ? { institucion: { contains: query.institucion, mode: 'insensitive' as const } } : {}),
-      ...(query.nombre ? { nombre_curso: { contains: query.nombre, mode: 'insensitive' as const } } : {}),
+      ...(busqueda.length ? { AND: busqueda } : {}),
       ...(query.es_obligatorio !== undefined ? { es_obligatorio: query.es_obligatorio } : {}),
       // Alcance de unidad: cursos propios MAS los generales de la fuerza.
       ...(alcance ? whereCursosVisiblesPorAlcance(alcance) : {}),
