@@ -554,15 +554,24 @@ export class CursosService {
       );
     }
 
-    // Borrar primero las participaciones del módulo (no hay cascade en esa FK).
-    await this.prisma.$transaction([
-      this.prisma.funcionarios_modulos_curso.deleteMany({
-        where: { modulo_id: BigInt(moduloId) },
-      }),
-      this.prisma.modulos_curso.delete({
-        where: { id: BigInt(moduloId) },
-      }),
-    ]);
+    await this.prisma.$transaction(async (tx) => {
+      const participaciones = await tx.funcionarios_modulos_curso.findMany({
+        where: { modulo_id: modulo.id },
+        include: { funcionarios_cursos: { select: { id: true, numero_orden: true, boletin: true } } },
+      });
+      // Si la inscripción no tiene orden ni boletín, se queda con los del módulo
+      for (const p of participaciones) {
+        const insc = p.funcionarios_cursos;
+        if (insc.numero_orden || insc.boletin || (!p.numero_orden && !p.boletin)) continue;
+        await tx.funcionarios_cursos.update({
+          where: { id: insc.id },
+          data: { numero_orden: p.numero_orden, boletin: p.boletin },
+        });
+      }
+      // Borrar primero las participaciones del módulo (no hay cascade en esa FK).
+      await tx.funcionarios_modulos_curso.deleteMany({ where: { modulo_id: modulo.id } });
+      await tx.modulos_curso.delete({ where: { id: modulo.id } });
+    });
 
     return {
       curso_id: cursoId.toString(),

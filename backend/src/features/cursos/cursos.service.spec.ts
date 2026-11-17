@@ -602,6 +602,7 @@ describe('CursosService', () => {
     it('elimina un módulo existente del curso', async () => {
       prisma.cursos.findUnique.mockResolvedValue(makeCurso());
       prisma.modulos_curso.findFirst.mockResolvedValue(makeModulo());
+      prisma.funcionarios_modulos_curso.findMany.mockResolvedValue([]);
       prisma.funcionarios_modulos_curso.deleteMany.mockResolvedValue({ count: 0 });
       prisma.modulos_curso.delete.mockResolvedValue(makeModulo());
 
@@ -610,6 +611,26 @@ describe('CursosService', () => {
       expect(result.eliminado).toBe(true);
       expect(result.modulo_id).toBe('1');
       expect(result.curso_id).toBe('1');
+    });
+
+    it('pasa la orden del módulo a la inscripción que no tiene orden ni boletín', async () => {
+      prisma.cursos.findUnique.mockResolvedValue(makeCurso());
+      prisma.modulos_curso.findFirst.mockResolvedValue(makeModulo());
+      prisma.funcionarios_modulos_curso.findMany.mockResolvedValue([
+        { numero_orden: 'O-1', boletin: null, funcionarios_cursos: { id: 5n, numero_orden: null, boletin: null } },
+        { numero_orden: 'O-2', boletin: null, funcionarios_cursos: { id: 6n, numero_orden: 'O-6', boletin: null } },
+      ]);
+      prisma.funcionarios_modulos_curso.deleteMany.mockResolvedValue({ count: 2 });
+      prisma.modulos_curso.delete.mockResolvedValue(makeModulo());
+
+      await service.removeModuloCurso(1, 1);
+
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledTimes(1);
+      expect(prisma.funcionarios_cursos.update).toHaveBeenCalledWith({
+        where: { id: 5n },
+        data: { numero_orden: 'O-1', boletin: null },
+      });
+      expect(prisma.modulos_curso.delete).toHaveBeenCalled();
     });
 
     it('lanza NotFoundException si el curso no existe', async () => {
