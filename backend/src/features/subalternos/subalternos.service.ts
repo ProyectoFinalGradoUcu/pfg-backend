@@ -117,6 +117,13 @@ export class SubalternosService {
     return { ...dto, sub_unidad_id: subUnidadId, unidad_id: Number(base.unidad_id) };
   }
 
+  private async idsUltimaRelacion(): Promise<bigint[]> {
+    const filas = await this.prisma.$queryRaw<{ id: bigint }[]>`
+      SELECT DISTINCT ON (persona_id) id FROM relaciones_laborales
+      ORDER BY persona_id, fecha_inicio DESC, id DESC`;
+    return filas.map((f) => f.id);
+  }
+
   async findAllPersonas(query: ListPersonasQueryDto, alcance?: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
@@ -129,9 +136,14 @@ export class SubalternosService {
     // `incluir_inactivos` lo trae de vuelta con relacion_estado = 'inactivo'.
     const soloAbiertas = query.incluir_inactivos !== true;
 
+    // Con retirados, estado y grado se filtran por la última relación
+    const filtraUltima = !soloAbiertas && !tieneFiltroDerechaNumor(query) && !!(query.estado?.length || query.rango);
+    const ultimas = filtraUltima ? await this.idsUltimaRelacion() : null;
+
     // Solo el personal en actividad tiene derecha y numor.
     const relacionWhere = {
       ...((soloAbiertas || tieneFiltroDerechaNumor(query)) && { fecha_fin: null }),
+      ...(ultimas && { id: { in: ultimas } }),
       ...(query.estado?.length && { situacion_id: enIds(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
       ...whereRelacionPorDerechaNumor(query),
@@ -179,7 +191,7 @@ export class SubalternosService {
       segundo_apellido: true,
       relaciones_laborales: {
         where: soloAbiertas ? { fecha_fin: null } : {},
-        orderBy: { fecha_inicio: 'desc' as const },
+        orderBy: [{ fecha_inicio: 'desc' as const }, { id: 'desc' as const }],
         take: 1,
         select: {
           estado: true,

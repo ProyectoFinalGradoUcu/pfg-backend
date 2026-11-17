@@ -201,6 +201,19 @@ describe('SubalternosService', () => {
 
       expect(relacionWhere()).not.toHaveProperty('situacion_id');
     });
+
+    it('con retirados incluidos filtra el estado sobre la última relación', async () => {
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 8n }, { id: 9n }]);
+      await service.findAllPersonas({ estado: [7], incluir_inactivos: true });
+
+      expect(relacionWhere()).toEqual(expect.objectContaining({ id: { in: [8n, 9n] }, situacion_id: { in: [7n] } }));
+    });
+
+    it('sin retirados no filtra por la última relación', async () => {
+      await service.findAllPersonas({ estado: [7] });
+
+      expect(relacionWhere()).not.toHaveProperty('id');
+    });
   });
 
   describe('findAllPersonas · varios destinos, grados y escalafones', () => {
