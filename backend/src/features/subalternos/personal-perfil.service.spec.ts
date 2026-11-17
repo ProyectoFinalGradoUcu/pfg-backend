@@ -682,6 +682,15 @@ describe('PersonalPerfilService', () => {
       expect(prisma.personas.update.mock.calls[0][0].data).not.toHaveProperty('unidad_id');
     });
 
+    it('toma el lock de la derecha aunque el cambio no toque la derecha', async () => {
+      await service.update(100, { observaciones_laborales: 'Pase a comisión' } as any, 7n);
+
+      expect(derecha.bloquearEnTransaccion).toHaveBeenCalledTimes(1);
+      expect(derecha.bloquearEnTransaccion.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.relaciones_laborales.update.mock.invocationCallOrder[0],
+      );
+    });
+
     it('una situación distinta no se edita en el lugar: se cambia con POST /personas/:id/situacion', async () => {
       await expect(service.update(100, { situacion_id: 3 } as any, 7n)).rejects.toThrow(
         UnprocessableEntityException,

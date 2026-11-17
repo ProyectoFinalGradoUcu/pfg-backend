@@ -779,12 +779,10 @@ export class PersonalPerfilService {
       );
     }
 
-    const tocaDerecha =
-      !!relacionActiva && (!!dto.grado_id || !!dto.escalafon_id || cambiaDerecha || cambiaNumor);
-
     // Datos personales, relación laboral y legajo se guardan juntos o no se guarda nada.
     await this.prisma.$transaction(async (tx) => {
-      if (tocaDerecha) await this.derecha.bloquearEnTransaccion(tx);
+      // Siempre que haya relación activa, para no chocar con la derecha en el COMMIT.
+      if (relacionActiva) await this.derecha.bloquearEnTransaccion(tx);
       await tx.personas.update({
         where: { id: BigInt(id) },
         data: {

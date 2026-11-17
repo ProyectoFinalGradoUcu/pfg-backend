@@ -636,6 +636,7 @@ export class RetirosService {
     };
 
     await this.prisma.$transaction(async (tx: any) => {
+      if (fechaNueva) await this.derecha.bloquearEnTransaccion(tx);
       await tx.retiros.update({ where: { id: BigInt(retiroId) }, data });
 
       if (fechaNueva) {
@@ -1580,18 +1581,21 @@ export class RetirosService {
       );
     }
 
-    await this.prisma.relaciones_laborales.update({
-      where: { id: relacion.id },
-      data: {
-        ...(dto.grado_reincorporacion_id != null && {
-          grado_reincorporacion_id: BigInt(dto.grado_reincorporacion_id),
-        }),
-        ...(dto.haber_retiro != null && {
-          haber_retiro: dto.haber_retiro,
-          porcentaje_progresivo: dto.porcentaje_progresivo,
-        }),
-        fecha_actualizacion: new Date(),
-      },
+    await this.prisma.$transaction(async (tx: any) => {
+      await this.derecha.bloquearEnTransaccion(tx);
+      await tx.relaciones_laborales.update({
+        where: { id: relacion.id },
+        data: {
+          ...(dto.grado_reincorporacion_id != null && {
+            grado_reincorporacion_id: BigInt(dto.grado_reincorporacion_id),
+          }),
+          ...(dto.haber_retiro != null && {
+            haber_retiro: dto.haber_retiro,
+            porcentaje_progresivo: dto.porcentaje_progresivo,
+          }),
+          fecha_actualizacion: new Date(),
+        },
+      });
     });
 
     return this.obtener(retiroId);

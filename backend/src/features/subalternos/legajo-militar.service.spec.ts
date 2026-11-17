@@ -34,6 +34,7 @@ const makePrismaMock = () => {
     legajo_militar: { findUnique: jest.fn(), upsert: jest.fn() },
     relaciones_laborales: { findFirst: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn(),
+    $executeRaw: jest.fn(),
   };
   // La transacción corre el callback contra el mismo mock.
   mock.$transaction.mockImplementation((cb: any) => cb(mock));

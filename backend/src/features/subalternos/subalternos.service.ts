@@ -747,6 +747,7 @@ export class SubalternosService {
     let archivosDestinos: bigint[] = [];
     try {
       await this.prisma.$transaction(async (tx) => {
+        await this.derecha.bloquearEnTransaccion(tx);
         // Padre primero: un destino nuevo necesita KEY SHARE sobre la persona y espera hasta el commit.
         await tx.$queryRaw`SELECT id FROM personas WHERE id = ${personaId} FOR UPDATE`;
         await tx.relaciones_laborales.deleteMany({ where: { persona_id: personaId } });
