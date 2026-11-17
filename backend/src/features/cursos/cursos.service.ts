@@ -341,6 +341,7 @@ export class CursosService {
             nombre_curso: true,
             institucion: true,
             es_obligatorio: true,
+            sub_unidad_id: true,
           },
         },
         modulos: {
@@ -379,6 +380,7 @@ export class CursosService {
         nombre_curso: r.cursos.nombre_curso,
         institucion: r.cursos.institucion,
         es_obligatorio: r.cursos.es_obligatorio,
+        sub_unidad_id: r.cursos.sub_unidad_id,
       },
       numero_orden: r.numero_orden,
       boletin: r.boletin,
