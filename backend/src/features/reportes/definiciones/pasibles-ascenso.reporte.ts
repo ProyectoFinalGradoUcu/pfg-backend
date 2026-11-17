@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { baseDeFiltros, basesDeAlcance } from '../alcance-reportes';
 import {
   ColumnaReporte,
@@ -69,7 +70,6 @@ export const pasiblesAscensoReporte: DefinicionReporte = {
           valor: e,
           etiqueta: ETIQUETA_ESTADO[e] ?? e,
         })),
-        { valor: ESTADOS_ELEGIBILIDAD.join(','), etiqueta: 'Todos' },
       ],
     },
     PARAMETRO_BASE,
@@ -94,10 +94,16 @@ export const pasiblesAscensoReporte: DefinicionReporte = {
     // Se reutiliza el motor de la pantalla para que no puedan contradecirse.
     const elegibilidad = new ElegibilidadService(prisma);
 
-    const estados = (filtros.estado ?? 'PASIBLE')
+    // Sin estado se listan todos
+    const estados = (filtros.estado ?? ESTADOS_ELEGIBILIDAD.join(','))
       .split(',')
       .map((e) => e.trim())
       .filter(Boolean);
+
+    const horizonte = filtros.horizonte_meses ? Number(filtros.horizonte_meses) : 6;
+    if (!Number.isInteger(horizonte) || horizonte < 1 || horizonte > 120) {
+      throw new BadRequestException('«Próximos en (meses)» tiene que ser un número entre 1 y 120');
+    }
 
     const bases = basesDeAlcance(filtros);
     const resultado = await elegibilidad.listarPasibles(
@@ -106,7 +112,7 @@ export const pasiblesAscensoReporte: DefinicionReporte = {
       sub_unidad_id: baseDeFiltros(filtros) !== undefined ? Number(baseDeFiltros(filtros)) : undefined,
       categoria: categoriaDeFiltros(filtros),
       fecha_referencia: filtros.fecha_referencia || undefined,
-      horizonte_meses: filtros.horizonte_meses ? Number(filtros.horizonte_meses) : 120,
+      horizonte_meses: horizonte,
       pageSize: 500,
       },
       bases
