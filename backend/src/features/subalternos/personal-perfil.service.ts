@@ -7,8 +7,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
-import { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
-import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
+import { AlcanceResuelto, subUnidadIdsDeAlcance } from '../../lib/alcance/alcance.types.js';
+import { assertPersonaEnAlcance, RELACION_ACTIVA } from '../../lib/alcance/alcance.where.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
 import {
@@ -271,6 +271,69 @@ export class PersonalPerfilService {
     }
   }
 
+  // ─── GET /personas/familiares/candidatos ──────────────────────────────────
+  /**
+   * Personas que se pueden vincular como familiar: militares en actividad y civiles.
+   * Respeta el mismo alcance que el listado: con alcance de unidad, solo los militares de sus
+   * bases; los civiles no tienen base, así que solo los ve quien tiene alcance global.
+   */
+  async buscarCandidatosFamiliar(search: string, excluirId?: number, alcance?: AlcanceResuelto) {
+    const bases = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+    const palabras = search.trim().split(/\s+/).filter(Boolean);
+
+    const militares = {
+      relaciones_laborales: {
+        some: { ...RELACION_ACTIVA, ...(bases !== null && { sub_unidad_id: { in: bases } }) },
+      },
+    };
+    const quienes = bases === null ? { OR: [militares, { es_civil: true }] } : militares;
+
+    const personas = await this.prisma.personas.findMany({
+      where: {
+        AND: [
+          quienes,
+          ...(excluirId ? [{ id: { not: BigInt(excluirId) } }] : []),
+          ...palabras.map((palabra) => {
+            const contiene = { contains: palabra, mode: 'insensitive' as const };
+            return {
+              OR: [
+                { cedula: contiene },
+                { primer_nombre: contiene },
+                { segundo_nombre: contiene },
+                { primer_apellido: contiene },
+                { segundo_apellido: contiene },
+              ],
+            };
+          }),
+        ],
+      },
+      orderBy: [{ primer_apellido: 'asc' }, { primer_nombre: 'asc' }],
+      take: 10,
+      select: {
+        id: true,
+        cedula: true,
+        primer_nombre: true,
+        segundo_nombre: true,
+        primer_apellido: true,
+        segundo_apellido: true,
+        es_civil: true,
+        relaciones_laborales: {
+          where: RELACION_ACTIVA,
+          take: 1,
+          select: { grados: { select: { denominacion: true } } },
+        },
+      },
+    });
+
+    return personas.map((p) => ({
+      id: String(p.id),
+      cedula: p.cedula,
+      nombre: [p.primer_nombre, p.segundo_nombre, p.primer_apellido, p.segundo_apellido].filter(Boolean).join(' '),
+      es_civil: !!p.es_civil,
+      grado: p.relaciones_laborales[0]?.grados?.denominacion ?? null,
+    }));
+  }
+
   // ─── POST /personas/:id/familiares ────────────────────────────────────────
   async addFamiliar(id: number, dto: FamiliarDto, alcance?: AlcanceResuelto) {
     await this.assertAlcance(id, alcance);
@@ -281,7 +344,6 @@ export class PersonalPerfilService {
       select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true, es_civil: true },
     });
     if (!familiar) throw new BadRequestException(`No existe ningún personal registrado con cédula ${dto.cedula}`);
-    if (familiar.es_civil) throw new BadRequestException(`El familiar con cédula ${dto.cedula} es civil. Debe ser un oficial o subalterno`);
     if (Number(familiar.id) === id) throw new BadRequestException('Una persona no puede ser familiar de sí misma');
 
     const yaVinculados = await this.prisma.relaciones_familiares.findFirst({
@@ -627,6 +689,8 @@ export class PersonalPerfilService {
       where: { id: BigInt(id) },
       select: {
         id: true,
+        cedula: true,
+        es_civil: true,
         fecha_nacimiento: true,
         relaciones_laborales: {
           where: { fecha_fin: null },
@@ -647,12 +711,40 @@ export class PersonalPerfilService {
     if (!persona) throw new NotFoundException(`No existe personal con id ${id}`);
 
     const relacionActiva = persona.relaciones_laborales[0];
-    const tipo = relacionActiva?.tipo_funcionario ?? null;
+
+    // La cédula identifica a la persona en todo el sistema: no puede repetirse.
+    const cambiaCedula = dto.cedula !== undefined && dto.cedula !== persona.cedula;
+    if (cambiaCedula) {
+      const otra = await this.prisma.personas.findFirst({
+        where: { cedula: dto.cedula, id: { not: BigInt(id) } },
+        select: { id: true },
+      });
+      if (otra) throw new ConflictException(`Ya existe otro personal con la cédula ${dto.cedula}`);
+    }
+
+    // El tipo de funcionario es de la relación vigente, y un civil no lo tiene.
+    const cambiaTipo =
+      dto.tipo_funcionario !== undefined && dto.tipo_funcionario !== relacionActiva?.tipo_funcionario;
+    if (cambiaTipo && (persona.es_civil || !relacionActiva)) {
+      throw new BadRequestException(
+        persona.es_civil
+          ? 'Un funcionario civil no tiene tipo de oficial o subalterno'
+          : 'Sin relación laboral vigente no hay tipo de funcionario que cambiar',
+      );
+    }
+    const tipo = (cambiaTipo ? dto.tipo_funcionario : relacionActiva?.tipo_funcionario) ?? null;
+
+    // Al cambiar de tipo, los datos del tipo anterior se borran en vez de rechazar el pedido.
+    if (cambiaTipo) {
+      if (tipo !== 'subalterno') dto.nivel_idoneidad = null;
+      if (tipo !== 'oficial') dto.codigos_legajo = null;
+    }
 
     assertCamposDelTipo(tipo, dto);
-    if (relacionActiva && dto.grado_id && BigInt(dto.grado_id) !== relacionActiva.grado_id) {
+    const cambiaGradoPedido = !!relacionActiva && !!dto.grado_id && BigInt(dto.grado_id) !== relacionActiva.grado_id;
+    if (relacionActiva && (cambiaGradoPedido || cambiaTipo)) {
       const grado = await this.prisma.grados.findUnique({
-        where: { id: BigInt(dto.grado_id) },
+        where: { id: dto.grado_id ? BigInt(dto.grado_id) : relacionActiva.grado_id },
         select: { denominacion: true, es_oficial: true, es_subalterno: true },
       });
       if (grado) assertGradoCoherenteConTipo(tipo, grado);
@@ -707,6 +799,7 @@ export class PersonalPerfilService {
       await tx.personas.update({
         where: { id: BigInt(id) },
         data: {
+          ...(cambiaCedula && { cedula: dto.cedula }),
           primer_nombre: dto.primer_nombre,
           segundo_nombre: dto.segundo_nombre,
           primer_apellido: dto.primer_apellido,
@@ -739,7 +832,7 @@ export class PersonalPerfilService {
         dto.programa_id || dto.escalafon_id ||
         dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined ||
         dto.observaciones_laborales !== undefined || dto.mutaciones !== undefined ||
-        dto.codigos_legajo !== undefined;
+        dto.codigos_legajo !== undefined || cambiaTipo;
 
       // La derecha se mueve antes de cambiar la relación: el servicio parte de su ubicación actual.
       const cambiaGrado = relacionActiva && dto.grado_id && BigInt(dto.grado_id) !== relacionActiva.grado_id;
@@ -773,6 +866,7 @@ export class PersonalPerfilService {
         await tx.relaciones_laborales.update({
           where: { id: relacionActiva.id },
           data: {
+            ...(cambiaTipo && { tipo_funcionario: dto.tipo_funcionario }),
             ...(dto.fecha_inicio && { fecha_inicio: new Date(dto.fecha_inicio) }),
             ...(dto.grado_id && { grado_id: BigInt(dto.grado_id) }),
             ...(dto.regimen_id && { regimen_id: BigInt(dto.regimen_id) }),

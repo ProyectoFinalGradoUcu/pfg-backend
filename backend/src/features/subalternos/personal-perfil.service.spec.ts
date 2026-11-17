@@ -61,7 +61,7 @@ const makeRelacion = (overrides: Partial<any> = {}) => ({
 });
 
 const makePrismaMock = () => ({
-  personas: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+  personas: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
   grados: { findUnique: jest.fn() },
   motivos_baja: { findFirst: jest.fn() },
   destinos: { findMany: jest.fn() },
@@ -319,6 +319,52 @@ describe('PersonalPerfilService', () => {
     });
   });
 
+  describe('buscarCandidatosFamiliar', () => {
+    const fila = (over: Record<string, unknown> = {}) => ({
+      id: 16n, cedula: '60000016', primer_nombre: 'Laura', segundo_nombre: null, primer_apellido: 'Acosta',
+      segundo_apellido: 'Ferreira', es_civil: false, relaciones_laborales: [{ grados: { denominacion: 'Sgto.' } }],
+      ...over,
+    });
+
+    it('con alcance global trae militares en actividad y civiles, sin la persona misma', async () => {
+      prisma.personas.findMany.mockResolvedValue([
+        fila(),
+        fila({ id: 17n, cedula: '50000017', primer_nombre: 'Ana', es_civil: true, relaciones_laborales: [] }),
+      ]);
+
+      const r = await service.buscarCandidatosFamiliar('acosta', 31);
+
+      const { where, take } = prisma.personas.findMany.mock.calls[0][0];
+      expect(take).toBe(10);
+      expect(where.AND[0]).toEqual({
+        OR: [{ relaciones_laborales: { some: expect.objectContaining({ fecha_fin: null }) } }, { es_civil: true }],
+      });
+      expect(where.AND[1]).toEqual({ id: { not: 31n } });
+      expect(r).toEqual([
+        { id: '16', cedula: '60000016', nombre: 'Laura Acosta Ferreira', es_civil: false, grado: 'Sgto.' },
+        { id: '17', cedula: '50000017', nombre: 'Ana Acosta Ferreira', es_civil: true, grado: null },
+      ]);
+    });
+
+    it('con alcance de unidad solo ofrece militares de sus bases, sin civiles', async () => {
+      prisma.personas.findMany.mockResolvedValue([]);
+
+      await service.buscarCandidatosFamiliar('acosta', undefined, {
+        tipo: 'unidad', subUnidadIds: ['3'], comandoIds: ['1'],
+      } as any);
+
+      const { where } = prisma.personas.findMany.mock.calls[0][0];
+      expect(where.AND[0]).not.toHaveProperty('OR');
+      expect(where.AND[0].relaciones_laborales.some.sub_unidad_id).toEqual({ in: [3n] });
+    });
+
+    it('cada palabra tiene que aparecer en algún campo', async () => {
+      prisma.personas.findMany.mockResolvedValue([]);
+      await service.buscarCandidatosFamiliar('laura acosta');
+      expect(prisma.personas.findMany.mock.calls[0][0].where.AND).toHaveLength(3);
+    });
+  });
+
   describe('addFamiliar', () => {
     const mockAncla = (familiar: any) => {
       prisma.personas.findUnique.mockImplementation(({ where }: any) =>
@@ -345,10 +391,15 @@ describe('PersonalPerfilService', () => {
       await expect(service.addFamiliar(31, { cedula: '00000000' })).rejects.toThrow(BadRequestException);
     });
 
-    it('rechaza si el familiar es civil', async () => {
+    it('acepta un familiar civil', async () => {
       mockAncla({ id: 16n, cedula: '60000016', primer_nombre: 'Laura', primer_apellido: 'Acosta', es_civil: true });
 
-      await expect(service.addFamiliar(31, { cedula: '60000016' })).rejects.toThrow(BadRequestException);
+      const r = await service.addFamiliar(31, { cedula: '60000016', tipo_relacion: 'Cónyuge' });
+
+      expect(prisma.relaciones_familiares.create).toHaveBeenCalledWith({
+        data: { persona_id: 31n, familiar_id: 16n, tipo_relacion: 'Cónyuge' },
+      });
+      expect(r).toMatchObject({ id: 16, cedula: '60000016' });
     });
 
     it('rechaza vincularse a sí mismo', async () => {
@@ -654,6 +705,81 @@ describe('PersonalPerfilService', () => {
       await expect(pipe.transform({ unidad_id: 9 }, meta)).rejects.toThrow(BadRequestException);
       await expect(pipe.transform({ sub_unidad_id: 30 }, meta)).rejects.toThrow(BadRequestException);
       await expect(pipe.transform({ telefono: '099' }, meta)).resolves.toBeDefined();
+    });
+  });
+
+  describe('update — cédula y tipo de funcionario', () => {
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n,
+        cedula: '12345678',
+        es_civil: false,
+        fecha_nacimiento: new Date('1980-01-01'),
+        relaciones_laborales: [
+          { id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, escalafon_id: 13n, tipo_funcionario: 'oficial' },
+        ],
+      });
+      prisma.personas.findFirst.mockResolvedValue(null);
+      prisma.personas.update.mockResolvedValue({ id: 100n });
+      prisma.relaciones_laborales.update.mockResolvedValue({ id: 45n });
+      prisma.relaciones_laborales.count.mockResolvedValue(0);
+    });
+
+    it('cambia la cédula si no la tiene otra persona', async () => {
+      await service.update(100, { cedula: '87654321' } as any, 7n);
+
+      expect(prisma.personas.findFirst).toHaveBeenCalledWith({
+        where: { cedula: '87654321', id: { not: 100n } },
+        select: { id: true },
+      });
+      expect(prisma.personas.update.mock.calls[0][0].data).toMatchObject({ cedula: '87654321' });
+    });
+
+    it('rechaza una cédula que ya tiene otra persona', async () => {
+      prisma.personas.findFirst.mockResolvedValue({ id: 200n });
+
+      await expect(service.update(100, { cedula: '87654321' } as any, 7n)).rejects.toThrow(ConflictException);
+      expect(prisma.personas.update).not.toHaveBeenCalled();
+    });
+
+    it('la misma cédula no se vuelve a escribir ni se busca', async () => {
+      await service.update(100, { cedula: '12345678', telefono: '099' } as any, 7n);
+
+      expect(prisma.personas.findFirst).not.toHaveBeenCalled();
+      expect(prisma.personas.update.mock.calls[0][0].data).not.toHaveProperty('cedula');
+    });
+
+    it('el DTO rechaza una cédula con puntos', async () => {
+      const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+      const meta = { type: 'body' as const, metatype: UpdatePersonalDto };
+      await expect(pipe.transform({ cedula: '1.234.567-8' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ tipo_funcionario: 'civil' }, meta)).rejects.toThrow(BadRequestException);
+    });
+
+    it('pasar de oficial a subalterno con un grado subalterno actualiza la relación y borra los códigos', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Sgto.', es_oficial: false, es_subalterno: true });
+
+      await service.update(100, { tipo_funcionario: 'subalterno', grado_id: 20, codigos_legajo: '-1-4-' } as any, 7n);
+
+      const { data } = prisma.relaciones_laborales.update.mock.calls[0][0];
+      expect(data).toMatchObject({ tipo_funcionario: 'subalterno', grado_id: 20n, codigos_legajo: null });
+    });
+
+    it('cambiar el tipo dejando un grado del tipo anterior se rechaza', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Cap.', es_oficial: true, es_subalterno: false });
+
+      await expect(service.update(100, { tipo_funcionario: 'subalterno' } as any, 7n)).rejects.toThrow(BadRequestException);
+      expect(prisma.grados.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 4n } }));
+      expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
+    });
+
+    it('a un civil no se le puede poner tipo de funcionario', async () => {
+      prisma.personas.findUnique.mockResolvedValue({
+        id: 100n, cedula: '12345678', es_civil: true, fecha_nacimiento: null,
+        relaciones_laborales: [{ id: 45n, fecha_inicio: new Date('2010-03-01'), grado_id: 4n, tipo_funcionario: null }],
+      });
+
+      await expect(service.update(100, { tipo_funcionario: 'oficial' } as any, 7n)).rejects.toThrow(BadRequestException);
     });
   });
 

@@ -289,7 +289,7 @@ export class CreatePersonalDto {
 
   @ApiPropertyOptional({
     type: [FamiliarDto],
-    description: 'Lista de familiares militares asociados. Requerido si es_civil = true (mínimo uno); opcional para oficiales/subalternos.',
+    description: 'Familiares ya registrados (civiles o militares). Requerido si es_civil = true, con al menos un militar entre ellos; opcional para oficiales/subalternos.',
   })
   @IsOptional()
   @IsArray()

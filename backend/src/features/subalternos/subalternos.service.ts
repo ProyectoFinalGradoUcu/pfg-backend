@@ -393,8 +393,8 @@ export class SubalternosService {
   }
 
   /**
-   * El familiar debe ser una persona ya registrada y militar (es_civil = false),
-   * sin importar si quien lo agrega es civil o militar.
+   * El familiar tiene que ser una persona ya registrada, civil o militar. Que un civil
+   * tenga al menos un familiar militar lo controla el alta del civil.
    */
   private async resolverFamiliares(familiares: FamiliarDto[]) {
     type PersonaFamiliar = { id: bigint; cedula: string; primer_nombre: string; primer_apellido: string; es_civil: boolean | null };
@@ -407,7 +407,6 @@ export class SubalternosService {
     for (const f of familiares) {
       const persona = porCedula.get(f.cedula);
       if (!persona) throw new BadRequestException(`No existe ningún personal registrado con cédula ${f.cedula}`);
-      if (persona.es_civil) throw new BadRequestException(`El familiar con cédula ${f.cedula} es civil. Debe ser un oficial o subalterno`);
     }
     return familiares.map((f) => ({ ...porCedula.get(f.cedula)!, tipo_relacion: f.tipo_relacion }));
   }
@@ -420,6 +419,12 @@ export class SubalternosService {
     }
 
     const familiaresResueltos = await this.resolverFamiliares(dto.familiares);
+    // Lo que justifica que un civil esté en el sistema es su vínculo con un militar.
+    if (!familiaresResueltos.some((f) => !f.es_civil)) {
+      throw new BadRequestException(
+        'El personal civil debe tener al menos un familiar militar (oficial o subalterno) entre sus familiares',
+      );
+    }
 
     try {
       return await this.prisma.$transaction(async (tx) => {
