@@ -152,6 +152,13 @@ export class DestinosService {
           'La fecha de cierre del destino anterior es previa a su fecha de inicio',
         );
       }
+      // Si el anterior cierra el mismo día o después del inicio del nuevo, los dos destinos
+      // quedan superpuestos y deshacer el pase ya no encuentra el anterior (SCRUM-183).
+      if (fechaCierre >= fechaInicio) {
+        throw new BadRequestException(
+          'La fecha de cierre del destino anterior debe ser previa al inicio del nuevo destino',
+        );
+      }
     }
 
     const creado = await this.prisma.$transaction(async (tx) => {
@@ -408,6 +415,24 @@ export class DestinosService {
       if (otroActivo) {
         throw new ConflictException(
           'El funcionario ya tiene otro destino activo; cerralo antes de reabrir este',
+        );
+      }
+    }
+
+    // Mover las fechas no puede dejarlo superpuesto con otro destino del funcionario (SCRUM-183).
+    const cambiaFechas = dto.fecha_inicio !== undefined || dto.fecha_fin !== undefined;
+    if (cambiaFechas && asignacion.persona_id && fechaInicio) {
+      const superpuesto = await this.prisma.destinos.findFirst({
+        where: {
+          persona_id: asignacion.persona_id,
+          id: { not: BigInt(destinoId) },
+          ...(fechaFin && { fecha_inicio: { lte: fechaFin } }),
+          OR: [{ fecha_fin: null }, { fecha_fin: { gte: fechaInicio } }],
+        },
+      });
+      if (superpuesto) {
+        throw new ConflictException(
+          'Las fechas se superponen con otro destino del funcionario',
         );
       }
     }

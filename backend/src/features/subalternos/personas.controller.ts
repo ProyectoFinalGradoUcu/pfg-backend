@@ -19,7 +19,6 @@ import { FamiliarDto } from './dto/familiar.dto.js';
 import { LegajoMilitarDto } from './dto/legajo-militar.dto.js';
 import { CambiarSituacionDto } from './dto/cambiar-situacion.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
-import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
 import type { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 import { archivoExcelPipe, enviarExcel } from '../../lib/carga-masiva/index.js';
@@ -221,10 +220,10 @@ export class PersonasController {
 
   @ApiOperation({ summary: 'Historial de destinos (tab Destinos)' })
   @ApiParam({ name: 'id', type: Number })
-  @RequirePermissions('personas.ver')
+  @RequireAlcance('personas.ver')
   @Get(':id/destinos')
-  findDestinos(@Param('id', ParseIntPipe) id: number) {
-    return this.perfilService.findDestinos(id);
+  findDestinos(@Param('id', ParseIntPipe) id: number, @Alcance() alcance: AlcanceResuelto) {
+    return this.perfilService.findDestinos(id, alcance);
   }
 
   @Get(':id/comisiones')

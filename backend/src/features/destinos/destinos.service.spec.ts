@@ -250,6 +250,27 @@ describe('DestinosService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('rechaza un cierre del anterior posterior al inicio del nuevo (SCRUM-183)', async () => {
+      prisma.destinos.findFirst.mockResolvedValue(
+        makeAsignacion({ id: 200n, unidad_id: 9n, sub_unidad_id: 19n, fecha_inicio: new Date('2020-03-01') }),
+      );
+
+      await expect(
+        service.crearDestino({ ...dtoBase, fecha_fin_anterior: '2026-09-10' }),
+      ).rejects.toThrow('La fecha de cierre del destino anterior debe ser previa al inicio del nuevo destino');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rechaza cerrar el anterior el mismo día que empieza el nuevo (SCRUM-183)', async () => {
+      prisma.destinos.findFirst.mockResolvedValue(
+        makeAsignacion({ id: 200n, unidad_id: 9n, sub_unidad_id: 19n, fecha_inicio: new Date('2020-03-01') }),
+      );
+
+      await expect(
+        service.crearDestino({ ...dtoBase, fecha_fin_anterior: '2026-09-01' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('no crea la asignación nueva si el cierre del anterior es inválido', async () => {
       prisma.destinos.findFirst.mockResolvedValue(
         makeAsignacion({ id: 200n, unidad_id: 9n, sub_unidad_id: 19n, fecha_inicio: new Date('2026-01-01') }),
@@ -513,6 +534,34 @@ describe('DestinosService', () => {
       expect(prisma.relaciones_laborales.updateMany).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ sub_unidad_id: null }) }),
       );
+    });
+
+    it('rechaza mover la fecha de fin si queda superpuesto con el destino siguiente (SCRUM-183)', async () => {
+      prisma.destinos.findUnique.mockResolvedValue(
+        makeAsignacion({ id: 200n, fecha_inicio: new Date('2020-03-01'), fecha_fin: new Date('2026-10-31') }),
+      );
+      prisma.destinos.findFirst.mockResolvedValue(
+        makeAsignacion({ id: 201n, fecha_inicio: new Date('2026-11-01'), fecha_fin: null }),
+      );
+
+      await expect(service.editarDestino(200, { fecha_fin: '2026-11-10' })).rejects.toThrow(
+        'Las fechas se superponen con otro destino del funcionario',
+      );
+      expect(prisma.destinos.findFirst).toHaveBeenCalledWith({
+        where: {
+          persona_id: 100n,
+          id: { not: 200n },
+          fecha_inicio: { lte: new Date('2026-11-10') },
+          OR: [{ fecha_fin: null }, { fecha_fin: { gte: new Date('2020-03-01') } }],
+        },
+      });
+      expect(prisma.destinos.update).not.toHaveBeenCalled();
+    });
+
+    it('no busca superposiciones si la edición no toca las fechas', async () => {
+      await service.editarDestino(200, { posicion_destino: 'Jefe de Sección' });
+
+      expect(prisma.destinos.findFirst).not.toHaveBeenCalled();
     });
 
     it('permite reabrir si no hay otro destino activo', async () => {

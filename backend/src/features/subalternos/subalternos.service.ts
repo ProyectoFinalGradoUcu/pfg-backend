@@ -18,6 +18,7 @@ import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import { assertCamposDelTipo, assertGradoCoherenteConTipo } from './coherencia-tipo-funcionario.js';
 import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
 import {
   describirBloqueos,
@@ -120,8 +121,8 @@ export class SubalternosService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
-    // Con alcance de unidad las bases se fuerzan y se IGNORA `query.destino`: el filtro no es
-    // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
+    // Con alcance de unidad el filtro por base no se puede desactivar (spec 002 §3): sin `destino`
+    // se ven todas las bases del usuario, y con `destino` solo las elegidas que sean suyas.
     const basesForzadas = alcance ? subUnidadIdsDeAlcance(alcance) : null;
 
     // Un retirado tiene fecha_fin, así que por defecto queda fuera del listado.
@@ -138,8 +139,11 @@ export class SubalternosService {
 
     // La base se toma de la relación laboral ACTIVA, el mismo criterio que la ficha
     // (`assertPersonaEnAlcance`): quien no tiene destino cargado igual aparece en su base.
-    // Con alcance de unidad se fuerzan las bases del usuario; sin alcance, `query.destino` es opcional.
-    const bases = basesForzadas ?? (query.destino?.length ? query.destino.map((id) => BigInt(id)) : null);
+    const elegidas = query.destino?.length ? query.destino.map((id) => BigInt(id)) : null;
+    // Una base elegida fuera del alcance se descarta; si no queda ninguna, el listado sale vacío.
+    const bases = basesForzadas
+      ? (elegidas?.filter((id) => basesForzadas.includes(id)) ?? basesForzadas)
+      : elegidas;
     // Cada palabra tiene que aparecer en algún campo, así "nombre apellido" encuentra a la persona.
     const palabras = query.search?.trim().split(/\s+/).filter(Boolean) ?? [];
     const and = [
@@ -379,6 +383,9 @@ export class SubalternosService {
       );
     }
 
+    // El civil no tiene tipo de funcionario: no lleva nivel de idoneidad ni códigos del legajo.
+    assertCamposDelTipo(dto.es_civil ? null : dto.tipo_funcionario, dto);
+
     if (dto.es_civil) {
       return this.createPersonalCivil(dto);
     }
@@ -501,6 +508,13 @@ export class SubalternosService {
     }
 
     assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
+
+    // Si el grado no existe, lo rechaza la FK al crear la relación.
+    const grado = await this.prisma.grados.findUnique({
+      where: { id: BigInt(dto.grado_id!) },
+      select: { denominacion: true, es_oficial: true, es_subalterno: true },
+    });
+    if (grado) assertGradoCoherenteConTipo(dto.tipo_funcionario, grado);
 
     const familiaresResueltos = dto.familiares && dto.familiares.length > 0
       ? await this.resolverFamiliares(dto.familiares)

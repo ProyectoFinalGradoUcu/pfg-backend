@@ -20,7 +20,7 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 'Casado' }) @IsOptional() @IsString() @MaxLength(50) estado_civil?: string;
   @ApiPropertyOptional({ example: 'Montevideo' }) @IsOptional() @IsString() @MaxLength(200) lugar_nacimiento?: string;
   @ApiPropertyOptional({ example: 'Mestizo' }) @IsOptional() @IsString() @MaxLength(50) etnia?: string;
-  @ApiPropertyOptional({ example: '11300' }) @IsOptional() @IsString() @MaxLength(20) codigo_postal?: string;
+  @ApiPropertyOptional({ example: '11300' }) @IsOptional() @IsString() @MaxLength(10) codigo_postal?: string;
   @ApiPropertyOptional({ example: 'Seccional 14' }) @IsOptional() @IsString() @MaxLength(100) seccional?: string;
   @ApiPropertyOptional({ example: 'CC 1.234.567', nullable: true }) @IsOptional() @IsString() @MaxLength(20) credencial_civica?: string | null;
   @ApiPropertyOptional({ example: 7, enum: [3, 5, 7, 9], nullable: true, description: 'Nivel de pericia/idoneidad del personal subalterno' }) @IsOptional() @IsInt() @IsIn([3, 5, 7, 9]) nivel_idoneidad?: number | null;

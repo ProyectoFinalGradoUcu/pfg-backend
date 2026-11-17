@@ -118,10 +118,9 @@ describe('UnidadesService', () => {
   // ─── findAll ────────────────────────────────────────────────────────────────
 
   describe('findAll', () => {
-    it('devuelve las bases con su comando y su cantidad de roles, usuarios y funcionarios', async () => {
+    it('devuelve las bases con su comando y su cantidad de roles y usuarios', async () => {
       prisma.sub_unidades.count.mockResolvedValue(1);
       prisma.sub_unidades.findMany.mockResolvedValue([makeBase()]);
-      prisma.relaciones_laborales.count.mockResolvedValue(230);
 
       const result = await service.findAll({});
 
@@ -134,12 +133,10 @@ describe('UnidadesService', () => {
         comando: { id: '2', codigo: 'CAO', denominacion: 'Comando Aéreo de Operaciones' },
         cantidadRoles: 1,
         cantidadUsuarios: 14,
-        cantidadFuncionarios: 230,
       });
       expect(sesiones.contarUsuariosDeSubUnidad).toHaveBeenCalledWith(1n);
-      expect(prisma.relaciones_laborales.count).toHaveBeenCalledWith({
-        where: { sub_unidad_id: 1n, fecha_fin: null },
-      });
+      // La cantidad de personal no se muestra: no coincidía con los destinos (SCRUM-189).
+      expect(prisma.relaciones_laborales.count).not.toHaveBeenCalled();
     });
 
     it('ordena por comando y después por denominación de la base', async () => {
