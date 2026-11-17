@@ -34,6 +34,11 @@ export function pertenenciaActiva(a: Pertenencia, hoy = hoyComisiones()): boolea
   return (!p.fecha_inicio || p.fecha_inicio <= hoy) && (!p.fecha_fin || p.fecha_fin >= hoy);
 }
 
+export function pertenenciaFutura(a: Pertenencia, hoy = hoyComisiones()): boolean {
+  const p = periodoPertenencia(a);
+  return !!p.fecha_inicio && p.fecha_inicio > hoy && (!p.fecha_fin || p.fecha_fin >= p.fecha_inicio);
+}
+
 export function periodosSolapados(a: Pertenencia, b: Pertenencia): boolean {
   const p = periodoPertenencia(a), q = periodoPertenencia(b);
   return (!p.fecha_fin || !q.fecha_inicio || p.fecha_fin >= q.fecha_inicio)
