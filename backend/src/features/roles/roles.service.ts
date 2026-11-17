@@ -114,7 +114,8 @@ export class RolesService {
 
     await this.prisma.roles.update({
       where: { id: rol.id },
-      data: { nombre: dto.nombre, descripcion: dto.descripcion },
+      // Si viene vacía se borra
+      data: { nombre: dto.nombre, descripcion: dto.descripcion === undefined ? undefined : dto.descripcion.trim() || null },
     });
 
     return this.findOne(id);
