@@ -36,6 +36,13 @@ export function whereCursosVisiblesPorAlcance(alcance: AlcanceResuelto) {
   return { OR: [{ sub_unidad_id: { in: subUnidadIds } }, CURSO_GENERAL] };
 }
 
+// Cursos que puede gestionar: solo los de sus bases
+export function whereCursosGestionablesPorAlcance(alcance: AlcanceResuelto) {
+  const subUnidadIds = subUnidadIdsDeAlcance(alcance);
+  if (subUnidadIds === null) return {};
+  return { sub_unidad_id: { in: subUnidadIds } };
+}
+
 /**
  * Valida que una persona esté dentro del alcance del usuario.
  *
