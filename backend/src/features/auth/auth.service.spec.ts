@@ -108,6 +108,18 @@ describe('AuthService', () => {
       expect(user.unidades).toEqual([]);
     });
 
+    it('busca el usuario sin distinguir mayúsculas en el email', async () => {
+      prisma.usuarios.findFirst.mockResolvedValue(
+        makeUsuario({ usuarios_roles: [makeRol('Usuario', ['personas.ver'])], usuarios_sub_unidades: [] }),
+      );
+
+      await login();
+
+      expect(prisma.usuarios.findFirst.mock.calls[0][0].where.username).toEqual(
+        expect.objectContaining({ mode: 'insensitive' }),
+      );
+    });
+
     it('un usuario sin bases asignadas no hereda nada', async () => {
       prisma.usuarios.findFirst.mockResolvedValue(
         makeUsuario({
@@ -350,7 +362,7 @@ describe('AuthService', () => {
 
       expect(prisma.usuarios.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { username: 'jperez', aplicacion: 'personal' },
+          where: { username: { equals: 'jperez', mode: 'insensitive' }, aplicacion: 'personal' },
         }),
       );
     });

@@ -32,6 +32,7 @@ import {
   SELECT_DOCUMENTO,
   documentosDe,
 } from '../archivos/documentos-de-registro.js';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 @Injectable()
 export class PersonalPerfilService {
@@ -279,7 +280,6 @@ export class PersonalPerfilService {
    */
   async buscarCandidatosFamiliar(search: string, excluirId?: number, alcance?: AlcanceResuelto) {
     const bases = alcance ? subUnidadIdsDeAlcance(alcance) : null;
-    const palabras = search.trim().split(/\s+/).filter(Boolean);
 
     const militares = {
       relaciones_laborales: {
@@ -293,18 +293,7 @@ export class PersonalPerfilService {
         AND: [
           quienes,
           ...(excluirId ? [{ id: { not: BigInt(excluirId) } }] : []),
-          ...palabras.map((palabra) => {
-            const contiene = { contains: palabra, mode: 'insensitive' as const };
-            return {
-              OR: [
-                { cedula: contiene },
-                { primer_nombre: contiene },
-                { segundo_nombre: contiene },
-                { primer_apellido: contiene },
-                { segundo_apellido: contiene },
-              ],
-            };
-          }),
+          ...(whereBusqueda(search, CAMPOS_PERSONA)?.AND ?? []),
         ],
       },
       orderBy: [{ primer_apellido: 'asc' }, { primer_nombre: 'asc' }],
@@ -790,12 +779,10 @@ export class PersonalPerfilService {
       );
     }
 
-    const tocaDerecha =
-      !!relacionActiva && (!!dto.grado_id || !!dto.escalafon_id || cambiaDerecha || cambiaNumor);
-
     // Datos personales, relación laboral y legajo se guardan juntos o no se guarda nada.
     await this.prisma.$transaction(async (tx) => {
-      if (tocaDerecha) await this.derecha.bloquearEnTransaccion(tx);
+      // Siempre que haya relación activa, para no chocar con la derecha en el COMMIT.
+      if (relacionActiva) await this.derecha.bloquearEnTransaccion(tx);
       await tx.personas.update({
         where: { id: BigInt(id) },
         data: {

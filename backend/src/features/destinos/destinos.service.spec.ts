@@ -7,6 +7,7 @@ import { PrismaService } from '../../lib/prisma.service';
 import { ArchivosService } from '../archivos/archivos.service';
 import { CreateDestinoDto } from './dto/create-destino.dto';
 import { UpdateDestinoDto } from './dto/update-destino.dto';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ const makePrismaMock = () => ({
     updateMany: jest.fn(),
   },
   $transaction: jest.fn(),
+  $executeRaw: jest.fn(),
 });
 
 describe('DestinosService', () => {
@@ -204,6 +206,15 @@ describe('DestinosService', () => {
       await service.crearDestino(dtoBase);
 
       expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it('toma el lock de la derecha antes de tocar la relación laboral', async () => {
+      await service.crearDestino(dtoBase);
+
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.relaciones_laborales.updateMany.mock.invocationCallOrder[0],
+      );
     });
 
     it('rechaza si la persona no existe', async () => {
@@ -370,13 +381,7 @@ describe('DestinosService', () => {
       expect(prisma.destinos.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            personas: {
-              OR: [
-                { cedula: { contains: 'perez', mode: 'insensitive' } },
-                { primer_nombre: { contains: 'perez', mode: 'insensitive' } },
-                { primer_apellido: { contains: 'perez', mode: 'insensitive' } },
-              ],
-            },
+            personas: whereBusqueda('perez', CAMPOS_PERSONA),
           }),
         }),
       );

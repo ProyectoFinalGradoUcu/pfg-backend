@@ -169,5 +169,22 @@ describe('Reportes · alcance por bases', () => {
 
       expect(listar.mock.calls[0][1]).toBeUndefined();
     });
+
+    it('pasibles de ascenso sin estado lista todos y usa 6 meses', async () => {
+      const listar = jest
+        .spyOn(ElegibilidadService.prototype, 'listarPasibles')
+        .mockResolvedValue(SIN_PASIBLES);
+
+      await pasiblesAscensoReporte.ejecutar({ prisma: prisma as any, filtros: {} });
+
+      expect(listar.mock.calls[0][0]!.estado).toEqual(expect.arrayContaining(['PASIBLE', 'PROXIMO', 'SIN_REGLA']));
+      expect(listar.mock.calls[0][0]!.horizonte_meses).toBe(6);
+    });
+
+    it('pasibles de ascenso rechaza un horizonte negativo', async () => {
+      await expect(
+        pasiblesAscensoReporte.ejecutar({ prisma: prisma as any, filtros: { horizonte_meses: '-5' } }),
+      ).rejects.toThrow(/entre 1 y 120/);
+    });
   });
 });

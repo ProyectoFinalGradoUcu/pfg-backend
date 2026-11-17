@@ -10,6 +10,7 @@ import { APLICACION } from '../../lib/aplicacion.const';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ListUnidadesQueryDto } from './dto/list-unidades-query.dto';
 import { unidadesDeUsuario } from './unidades-usuario';
+import { whereBusqueda } from '../../lib/query/busqueda';
 
 type RolConPermisos = {
   id: bigint;
@@ -42,17 +43,7 @@ export class UnidadesService {
     const where = {
       ...(query.vigente !== undefined && { vigente: query.vigente }),
       ...(query.unidad_id && { unidad_id: BigInt(query.unidad_id) }),
-      ...(query.search && {
-        OR: [
-          { codigo: { contains: query.search, mode: 'insensitive' as const } },
-          {
-            denominacion: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-        ],
-      }),
+      ...whereBusqueda(query.search, ['codigo', 'denominacion']),
     };
 
     const [total, bases] = await this.prisma.$transaction([

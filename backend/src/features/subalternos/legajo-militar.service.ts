@@ -10,6 +10,7 @@ import {
   esMutado,
 } from './legajo-militar.constants.js';
 import { assertEgresoEtaPosteriorAIngreso } from './validaciones-fechas.js';
+import { bloquearDerecha } from '../derecha/derecha-lock.js';
 
 type LegajoFila = {
   nivel_educativo: string | null;
@@ -138,6 +139,7 @@ export class LegajoMilitarService {
       dto.numero_orden_egreso_eta !== undefined;
 
     const { legajo, relacion } = await this.prisma.$transaction(async (tx) => {
+      if (dto.mutaciones !== undefined) await bloquearDerecha(tx);
       let legajoFila: LegajoFila = await tx.legajo_militar.findUnique({
         where: { persona_id: personaId },
         select: {

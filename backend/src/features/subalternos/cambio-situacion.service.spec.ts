@@ -263,6 +263,12 @@ describe('CambioSituacionService', () => {
       await expect(service.cambiar(100, dto(), 7n)).rejects.toThrow(/anterior al último movimiento/);
     });
 
+    it('rechaza una fecha anterior al inicio de la relación actual', async () => {
+      conActiva(makeRelacion());
+      prisma.movimientos_laborales.findFirst.mockResolvedValue(null);
+      await expect(service.cambiar(100, dto({ fecha: '2010-01-01' }), 7n)).rejects.toThrow(/anterior al inicio de la relación/);
+    });
+
     it('sin relación activa', async () => {
       prisma.relaciones_laborales.findMany.mockResolvedValueOnce([]);
       await expect(service.cambiar(100, dto(), 7n)).rejects.toThrow(/no tiene una relación laboral activa/);

@@ -18,7 +18,9 @@ import {
   documentosDe,
 } from '../archivos/documentos-de-registro';
 import { ArchivosService } from '../archivos/archivos.service';
+import { bloquearDerecha } from '../derecha/derecha-lock';
 import { CategoriaPersonal, wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 // Un destino está vigente mientras no tenga fecha de fin.
 const esActivo = (fechaFin: Date | null) => fechaFin == null;
@@ -52,16 +54,11 @@ export class DestinosService {
 
   /** Filtro de personas compartido por los listados (cédula, nombre o apellido). */
   private filtroPersona(texto?: string, categoria?: CategoriaPersonal) {
-    return {
-      ...(texto && {
-        OR: [
-          { cedula: { contains: texto, mode: 'insensitive' as const } },
-          { primer_nombre: { contains: texto, mode: 'insensitive' as const } },
-          { primer_apellido: { contains: texto, mode: 'insensitive' as const } },
-        ],
-      }),
-      ...(categoria && { AND: [wherePersonaPorCategoria(categoria)] }),
-    };
+    const and = [
+      ...(whereBusqueda(texto, CAMPOS_PERSONA)?.AND ?? []),
+      ...(categoria ? [wherePersonaPorCategoria(categoria)] : []),
+    ];
+    return and.length ? { AND: and } : {};
   }
 
   private mapDestino(a: any) {
@@ -162,6 +159,7 @@ export class DestinosService {
     }
 
     const creado = await this.prisma.$transaction(async (tx) => {
+      await bloquearDerecha(tx);
       if (activo) {
         await tx.destinos.update({
           where: { id: activo.id },
@@ -226,7 +224,7 @@ export class DestinosService {
         this.prisma.destinos.count({ where: { fecha_fin: null } }),
         this.prisma.destinos.findMany({
           where,
-          orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }],
+          orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }, { id: 'desc' }],
           skip: (page - 1) * pageSize,
           take: pageSize,
           include: this.includeDestino,
@@ -336,7 +334,7 @@ export class DestinosService {
       this.prisma.destinos.count({ where }),
       this.prisma.destinos.findMany({
         where,
-        orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }],
+        orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -441,9 +439,13 @@ export class DestinosService {
     // sub-unidad, como en un pase. Si no tiene base, no se toca.
     const reabre = fechaFin === null && asignacion.fecha_fin !== null;
     if (reabre && asignacion.persona_id && asignacion.unidad_id && asignacion.sub_unidad_id) {
-      await this.prisma.relaciones_laborales.updateMany({
-        where: { persona_id: asignacion.persona_id, fecha_fin: null },
-        data: { unidad_id: asignacion.unidad_id, sub_unidad_id: asignacion.sub_unidad_id },
+      const { persona_id, unidad_id, sub_unidad_id } = asignacion;
+      await this.prisma.$transaction(async (tx) => {
+        await bloquearDerecha(tx);
+        await tx.relaciones_laborales.updateMany({
+          where: { persona_id, fecha_fin: null },
+          data: { unidad_id, sub_unidad_id },
+        });
       });
     }
 
@@ -487,6 +489,7 @@ export class DestinosService {
 
     let borrado = asignacion;
     const resultado = await this.prisma.$transaction(async (tx) => {
+      await bloquearDerecha(tx);
       // Los archivos se toman de la fila borrada: un adjunto que entró tras la lectura no queda huérfano.
       borrado = await tx.destinos.delete({ where: { id: asignacion.id } });
 

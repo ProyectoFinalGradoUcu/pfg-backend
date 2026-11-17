@@ -1,4 +1,4 @@
-import { hoyComisiones, pertenenciaActiva, periodosSolapados, personaPuedeIntegrar } from './pertenencias';
+import { hoyComisiones, pertenenciaActiva, pertenenciaFutura, periodosSolapados, personaPuedeIntegrar } from './pertenencias';
 
 describe('Vigencia de pertenencias', () => {
   const hoy = new Date('2026-11-05');
@@ -9,6 +9,10 @@ describe('Vigencia de pertenencias', () => {
   });
   it('no cuenta una pertenencia con inicio futuro', () => {
     expect(pertenenciaActiva({ fecha_inicio: new Date('2026-11-06'), fecha_fin: null }, hoy)).toBe(false);
+  });
+  it('una pertenencia con inicio futuro queda como futura', () => {
+    expect(pertenenciaFutura({ fecha_inicio: new Date('2030-01-01'), fecha_fin: null }, hoy)).toBe(true);
+    expect(pertenenciaFutura({ fecha_inicio: new Date('2026-01-01'), fecha_fin: null }, hoy)).toBe(false);
   });
   it('una importada respeta los límites de su período laboral', () => {
     const a = { fecha_inicio: null, fecha_fin: null, relaciones_laborales: { fecha_inicio: new Date('2020-01-01'), fecha_fin: new Date('2025-12-31') } };

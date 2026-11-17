@@ -60,7 +60,7 @@ export class AuthService {
 
   async signIn(dto: SignInDto): Promise<SignInResult> {
     const usuario = await this.prisma.usuarios.findFirst({
-      where: { username: dto.username, aplicacion: APLICACION },
+      where: { username: { equals: dto.username, mode: 'insensitive' as const }, aplicacion: APLICACION },
       include: USUARIO_SESION_INCLUDE,
     });
 
@@ -268,7 +268,7 @@ export class AuthService {
 
   async solicitarResetPassword(dto: ForgotPasswordDto): Promise<{ ok: true }> {
     const usuario = await this.prisma.usuarios.findFirst({
-      where: { username: dto.username, aplicacion: APLICACION },
+      where: { username: { equals: dto.username, mode: 'insensitive' as const }, aplicacion: APLICACION },
       select: { id: true, username: true, estado: true, bloqueado_hasta: true },
     });
 

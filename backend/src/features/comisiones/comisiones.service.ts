@@ -4,7 +4,7 @@ import { PrismaService } from '../../lib/prisma.service';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 import { AlcanceResuelto } from '../../lib/alcance/alcance.types';
 import { wherePersonasPorAlcance } from '../../lib/alcance/alcance.where';
-import { hoyComisiones, pertenenciaActiva, personaPuedeIntegrar, periodoPertenencia, periodosSolapados, wherePertenenciaActiva } from './pertenencias';
+import { hoyComisiones, pertenenciaActiva, pertenenciaFutura, personaPuedeIntegrar, periodoPertenencia, periodosSolapados, wherePertenenciaActiva } from './pertenencias';
 import { CreateAsignacionComisionDto, CreateLoteAsignacionesComisionDto, CreateComisionDto, ListComisionesDto, UpdateAsignacionComisionDto, UpdateComisionDto } from './dto/comisiones.dto';
 
 const includeAsignacion = {
@@ -38,6 +38,7 @@ export class ComisionesService {
       id: a.id, persona, categoria: relacion?.tipo_funcionario ?? null, comision: a.comisiones, cargo: a.cargo,
       fecha_inicio: fecha(a.fecha_inicio), fecha_fin: fecha(a.fecha_fin), numero_orden: a.numero_orden, boletin: a.boletin,
       activo: pertenenciaActiva(a) && personaPuedeIntegrar(a.personas),
+      futura: pertenenciaFutura(a) && personaPuedeIntegrar(a.personas),
       importada: a.importada, texto_original: a.texto_original,
       periodo: periodo ? { fecha_inicio: fecha(periodo.fecha_inicio), fecha_fin: fecha(periodo.fecha_fin) } : null,
     };

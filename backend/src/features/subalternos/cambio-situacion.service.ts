@@ -89,6 +89,11 @@ export class CambioSituacionService {
         );
       }
       const actual = activas[0];
+      if (actual.fecha_inicio && fecha < actual.fecha_inicio) {
+        throw new UnprocessableEntityException(
+          `La fecha del cambio (${soloFecha(fecha)}) es anterior al inicio de la relación laboral actual (${soloFecha(actual.fecha_inicio)})`,
+        );
+      }
       const categoria = categoriaDe(actual.tipo_funcionario, actual.grados);
       if (!categoria) {
         throw new UnprocessableEntityException('El cambio de situación es solo para personal superior o subalterno');

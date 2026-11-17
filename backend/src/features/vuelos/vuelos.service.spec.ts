@@ -328,7 +328,7 @@ describe('VuelosService', () => {
       expect(where.personas.relaciones_laborales).toEqual({
         some: { fecha_fin: null, sub_unidad_id: { in: [4n] } },
       });
-      expect(where.personas.OR).toHaveLength(5);
+      expect(where.personas.AND).toHaveLength(1);
     });
 
     it('sin_unidad gana sobre unidad_vuelo_id', async () => {

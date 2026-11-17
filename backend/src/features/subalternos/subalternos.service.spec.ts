@@ -5,6 +5,7 @@ import { ArchivosService } from '../archivos/archivos.service';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto';
+import { sinTildes } from '../../lib/query/busqueda';
 
 describe('SubalternosService', () => {
   let service: SubalternosService;
@@ -201,6 +202,19 @@ describe('SubalternosService', () => {
 
       expect(relacionWhere()).not.toHaveProperty('situacion_id');
     });
+
+    it('con retirados incluidos filtra el estado sobre la última relación', async () => {
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 8n }, { id: 9n }]);
+      await service.findAllPersonas({ estado: [7], incluir_inactivos: true });
+
+      expect(relacionWhere()).toEqual(expect.objectContaining({ id: { in: [8n, 9n] }, situacion_id: { in: [7n] } }));
+    });
+
+    it('sin retirados no filtra por la última relación', async () => {
+      await service.findAllPersonas({ estado: [7] });
+
+      expect(relacionWhere()).not.toHaveProperty('id');
+    });
   });
 
   describe('findAllPersonas · varios destinos, grados y escalafones', () => {
@@ -387,7 +401,7 @@ describe('SubalternosService', () => {
   describe('findAllPersonas · búsqueda', () => {
     const CAMPOS = ['cedula', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido'];
     const coincideEnAlgunCampo = (palabra: string) => ({
-      OR: expect.arrayContaining(CAMPOS.map((campo) => ({ [campo]: { contains: palabra, mode: 'insensitive' } }))),
+      OR: expect.arrayContaining(CAMPOS.map((campo) => ({ [campo]: { contains: sinTildes(palabra.toLowerCase()), mode: 'insensitive' } }))),
     });
     const where = () => prisma.personas.count.mock.calls.at(-1)[0].where;
 

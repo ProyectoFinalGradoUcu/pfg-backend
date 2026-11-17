@@ -147,7 +147,7 @@ describe('InvitacionesService.crear', () => {
     await service.crear({ email: 'x@fau.mil.uy' }, ADMIN);
 
     expect(prisma.usuarios.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { username: 'x@fau.mil.uy', aplicacion: 'personal' } }),
+      expect.objectContaining({ where: { username: { equals: 'x@fau.mil.uy', mode: 'insensitive' }, aplicacion: 'personal' } }),
     );
   });
 

@@ -1148,12 +1148,7 @@ export class DerechaService {
     const { impacto, relaciones } = this.calcularImpacto(padron, guardados);
     if (relaciones.length === 0) return { ...impacto, lote_id: null };
 
-    for (const r of relaciones) {
-      await tx.relaciones_laborales.update({
-        where: { id: r.relacionId },
-        data: { derecha: r.derecha, numor: r.numor, escala_derecha: r.escala },
-      });
-    }
+    await this.escribirAsignaciones(tx, relaciones);
 
     const loteId = randomUUID();
     const registro = (tipo: 'DERECHA' | 'NUMOR') => (a: Afectado) => ({
@@ -1175,6 +1170,27 @@ export class DerechaService {
     });
 
     return { ...impacto, lote_id: loteId };
+  }
+
+  // Escribe todas las filas en un solo UPDATE.
+  private async escribirAsignaciones(
+    tx: Prisma.TransactionClient,
+    relaciones: Array<{ relacionId: bigint } & Asignacion>,
+  ) {
+    const actualizadas = await tx.$executeRaw`
+      UPDATE relaciones_laborales AS rl
+      SET derecha = v.derecha, numor = v.numor, escala_derecha = v.escala
+      FROM unnest(
+        ${relaciones.map((r) => r.relacionId.toString())}::text[]::bigint[],
+        ${relaciones.map((r) => r.derecha)}::int[],
+        ${relaciones.map((r) => r.numor)}::int[],
+        ${relaciones.map((r) => r.escala)}::varchar[]
+      ) AS v(id, derecha, numor, escala)
+      WHERE rl.id = v.id`;
+    // Si falta alguna relación, no se escribe nada.
+    if (actualizadas !== relaciones.length) {
+      throw new ConflictException('La derecha cambió mientras se calculaba: volvé a intentar');
+    }
   }
 
   /**

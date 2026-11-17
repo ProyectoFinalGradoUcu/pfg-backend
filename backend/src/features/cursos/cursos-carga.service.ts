@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
 import { AlcanceResuelto } from '../../lib/alcance/alcance.types';
-import { whereCursosVisiblesPorAlcance } from '../../lib/alcance/alcance.where';
+import { whereCursosGestionablesPorAlcance } from '../../lib/alcance/alcance.where';
 import {
   Catalogo,
   ColumnaPlantilla,
@@ -93,6 +93,13 @@ export class CursosCargaService {
             throw new Error('El período no coincide con la inscripción existente; no se puede sobrescribir con otra instancia del curso.');
           }
         }
+        const orden = datos.numero_orden ?? existente?.numero_orden;
+        const boletin = datos.boletin ?? existente?.boletin;
+        if (!orden?.trim() && !boletin?.trim()) throw new Error('Falta el N.º de orden o el boletín.');
+        const finVigente = datos.fecha_fin ?? existente?.fecha_fin;
+        if (aprobado !== null && finVigente && finVigente > new Date()) {
+          throw new Error('El curso todavía no terminó: solo se puede cargar "En curso".');
+        }
         const registro = existente
           ? await tx.funcionarios_cursos.update({ where: { id: existente.id }, data: datos })
           : await tx.funcionarios_cursos.create({ data: { persona_id: persona.id, curso_id: curso.id, ...datos } });
@@ -109,7 +116,7 @@ export class CursosCargaService {
 
   private async cargarCursos(alcance?: AlcanceResuelto): Promise<Catalogo<CursoCatalogo>> {
     const cursos = await this.prisma.cursos.findMany({
-      where: alcance ? whereCursosVisiblesPorAlcance(alcance) : {},
+      where: alcance ? whereCursosGestionablesPorAlcance(alcance) : {},
       orderBy: { nombre_curso: 'asc' },
       select: { id: true, nombre_curso: true },
     });
@@ -134,6 +141,8 @@ export class CursosCargaService {
         'Una fila por funcionario y curso. Si el funcionario ya tenía ese curso registrado, se actualizan sus datos.',
         'Los cursos se eligen del catálogo para que cuenten en los requisitos de ascenso. Un curso que no figura hay que crearlo antes en Cursos > Catálogo.',
         'El registro es a nivel de curso completo: los módulos no se cargan desde esta planilla.',
+        'Cada fila necesita el N.º de orden o el boletín, salvo que la inscripción ya los tenga.',
+        'Aprobado o Desaprobado solo para cursos que ya terminaron.',
       ],
       ejemplos: [
         {

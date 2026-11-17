@@ -131,6 +131,21 @@ const makePrismaMock = (filas = makeFilas()) => {
     },
   };
   mock.$transaction = jest.fn((cb: any) => cb(mock));
+  // Aplica el UPDATE de la derecha a la base en memoria.
+  mock.$executeRaw = jest.fn(async (sql: TemplateStringsArray, ...valores: any[]) => {
+    if (!sql.join('?').includes('UPDATE relaciones_laborales')) return 0;
+    const [ids, derechas, numores, escalas] = valores;
+    let n = 0;
+    for (let i = 0; i < ids.length; i++) {
+      if (!filas.some((x) => String(x.id) === ids[i])) continue;
+      await mock.relaciones_laborales.update({
+        where: { id: BigInt(ids[i]) },
+        data: { derecha: derechas[i], numor: numores[i], escala_derecha: escalas[i] },
+      });
+      n++;
+    }
+    return n;
+  });
   return mock;
 };
 
@@ -427,6 +442,26 @@ describe('DerechaService', () => {
 
       const actualizadas = prisma.relaciones_laborales.update.mock.calls.map((c: any) => c[0].where.id);
       expect(actualizadas.sort()).toEqual([2n, 3n]);
+    });
+
+    it('escribe todas las filas en un solo UPDATE', async () => {
+      await service.reordenarEnGrado(Number(GRADOS.BRIG), 3, 1);
+
+      const updates = prisma.$executeRaw.mock.calls.filter((c: any) => c[0].join('?').includes('UPDATE relaciones_laborales'));
+      expect(updates).toHaveLength(1);
+      const [, ids, derechas] = updates[0];
+      expect(ids).toEqual(expect.arrayContaining(['2', '3']));
+      expect(derechas[ids.indexOf('3')]).toBe(2);
+      expect(derechas[ids.indexOf('2')]).toBe(3);
+    });
+
+    it('si una relación ya no está, no escribe nada', async () => {
+      prisma.$executeRaw.mockImplementation(async (sql: TemplateStringsArray) =>
+        sql.join('?').includes('UPDATE relaciones_laborales') ? 1 : 0,
+      );
+
+      await expect(service.reordenarEnGrado(Number(GRADOS.BRIG), 3, 1)).rejects.toThrow(ConflictException);
+      expect(prisma.historial_derecha_numor.createMany).not.toHaveBeenCalled();
     });
 
     it('rechaza una posición fuera del bloque del grado', async () => {

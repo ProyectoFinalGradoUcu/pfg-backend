@@ -21,6 +21,7 @@ import {
 import type { CategoriaPersonal } from '../../lib/personal/categoria-personal';
 import { CreateUnidadVueloDto } from './dto/create-unidad-vuelo.dto';
 import { UpdateUnidadVueloDto } from './dto/update-unidad-vuelo.dto';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 type Tx = Prisma.TransactionClient;
 
@@ -350,15 +351,7 @@ export class VuelosService {
     const texto = filtros.query?.trim();
     const personas: Prisma.personasWhereInput = {
       ...wherePersonasPorAlcance(alcance),
-      ...(texto && {
-        OR: [
-          { cedula: { contains: texto, mode: 'insensitive' } },
-          { primer_nombre: { contains: texto, mode: 'insensitive' } },
-          { segundo_nombre: { contains: texto, mode: 'insensitive' } },
-          { primer_apellido: { contains: texto, mode: 'insensitive' } },
-          { segundo_apellido: { contains: texto, mode: 'insensitive' } },
-        ],
-      }),
+      ...whereBusqueda(texto, CAMPOS_PERSONA),
     };
 
     return {

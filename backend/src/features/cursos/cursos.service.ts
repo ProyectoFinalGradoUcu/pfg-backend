@@ -41,6 +41,7 @@ import {
   darDeBajaArchivos,
   documentosDe,
 } from '../archivos/documentos-de-registro';
+import { whereBusqueda } from '../../lib/query/busqueda';
 
 /** Base del curso con su comando, o `null` si es general. */
 function baseDelCurso(
@@ -128,9 +129,12 @@ export class CursosService {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
+    const busqueda = [
+      ...(whereBusqueda(query.nombre, ['nombre_curso'])?.AND ?? []),
+      ...(whereBusqueda(query.institucion, ['institucion'])?.AND ?? []),
+    ];
     const where = {
-      ...(query.institucion ? { institucion: { contains: query.institucion, mode: 'insensitive' as const } } : {}),
-      ...(query.nombre ? { nombre_curso: { contains: query.nombre, mode: 'insensitive' as const } } : {}),
+      ...(busqueda.length ? { AND: busqueda } : {}),
       ...(query.es_obligatorio !== undefined ? { es_obligatorio: query.es_obligatorio } : {}),
       // Alcance de unidad: cursos propios MAS los generales de la fuerza.
       ...(alcance ? whereCursosVisiblesPorAlcance(alcance) : {}),
@@ -341,6 +345,7 @@ export class CursosService {
             nombre_curso: true,
             institucion: true,
             es_obligatorio: true,
+            sub_unidad_id: true,
           },
         },
         modulos: {
@@ -379,6 +384,7 @@ export class CursosService {
         nombre_curso: r.cursos.nombre_curso,
         institucion: r.cursos.institucion,
         es_obligatorio: r.cursos.es_obligatorio,
+        sub_unidad_id: r.cursos.sub_unidad_id,
       },
       numero_orden: r.numero_orden,
       boletin: r.boletin,
@@ -554,15 +560,24 @@ export class CursosService {
       );
     }
 
-    // Borrar primero las participaciones del módulo (no hay cascade en esa FK).
-    await this.prisma.$transaction([
-      this.prisma.funcionarios_modulos_curso.deleteMany({
-        where: { modulo_id: BigInt(moduloId) },
-      }),
-      this.prisma.modulos_curso.delete({
-        where: { id: BigInt(moduloId) },
-      }),
-    ]);
+    await this.prisma.$transaction(async (tx) => {
+      const participaciones = await tx.funcionarios_modulos_curso.findMany({
+        where: { modulo_id: modulo.id },
+        include: { funcionarios_cursos: { select: { id: true, numero_orden: true, boletin: true } } },
+      });
+      // Si la inscripción no tiene orden ni boletín, se queda con los del módulo
+      for (const p of participaciones) {
+        const insc = p.funcionarios_cursos;
+        if (insc.numero_orden || insc.boletin || (!p.numero_orden && !p.boletin)) continue;
+        await tx.funcionarios_cursos.update({
+          where: { id: insc.id },
+          data: { numero_orden: p.numero_orden, boletin: p.boletin },
+        });
+      }
+      // Borrar primero las participaciones del módulo (no hay cascade en esa FK).
+      await tx.funcionarios_modulos_curso.deleteMany({ where: { modulo_id: modulo.id } });
+      await tx.modulos_curso.delete({ where: { id: modulo.id } });
+    });
 
     return {
       curso_id: cursoId.toString(),

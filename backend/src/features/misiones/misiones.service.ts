@@ -27,6 +27,7 @@ import {
   darDeBajaArchivos,
   documentosDe,
 } from '../archivos/documentos-de-registro';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 // Computed: una convocatoria está finalizada cuando tiene fecha de llegada y ya pasó
 const esFinalizada = (fechaLlegada: Date | null) =>
@@ -56,14 +57,11 @@ export class MisionesService {
     const pageSize = Math.min(query.pageSize ?? 10, 200);
     const now = new Date();
 
-    const where: any = {
-      ...(query.nombre
-        ? { nombre_mision: { contains: query.nombre, mode: 'insensitive' as const } }
-        : {}),
-      ...(query.pais
-        ? { pais: { contains: query.pais, mode: 'insensitive' as const } }
-        : {}),
-    };
+    const busqueda = [
+      ...(whereBusqueda(query.nombre, ['nombre_mision'])?.AND ?? []),
+      ...(whereBusqueda(query.pais, ['pais'])?.AND ?? []),
+    ];
+    const where: any = busqueda.length ? { AND: busqueda } : {};
 
     const [total, misiones, convocatoriasActivas, personalDesplegado] =
       await this.prisma.$transaction([
@@ -474,13 +472,7 @@ export class MisionesService {
 
     const where: any = { convocatoria_id: BigInt(convocatoriaId) };
     if (query.query) {
-      where.personas = {
-        OR: [
-          { cedula: { contains: query.query, mode: 'insensitive' } },
-          { primer_nombre: { contains: query.query, mode: 'insensitive' } },
-          { primer_apellido: { contains: query.query, mode: 'insensitive' } },
-        ],
-      };
+      where.personas = whereBusqueda(query.query, CAMPOS_PERSONA) ?? {};
     }
     if (query.categoria) {
       where.personas = { ...(where.personas ?? {}), AND: [wherePersonaPorCategoria(query.categoria)] };
@@ -689,16 +681,8 @@ export class MisionesService {
     if (query.categoria) {
       condiciones.push({ personas: wherePersonaPorCategoria(query.categoria) });
     }
-    for (const palabra of (query.query ?? '').trim().split(/\s+/).filter(Boolean)) {
-      condiciones.push({
-        personas: {
-          OR: [
-            { cedula: { contains: palabra, mode: 'insensitive' } },
-            { primer_nombre: { contains: palabra, mode: 'insensitive' } },
-            { primer_apellido: { contains: palabra, mode: 'insensitive' } },
-          ],
-        },
-      });
+    for (const palabra of whereBusqueda(query.query, CAMPOS_PERSONA)?.AND ?? []) {
+      condiciones.push({ personas: palabra });
     }
     if (query.misionIds?.length) {
       condiciones.push({ convocatorias: { mision_id: { in: query.misionIds.map((id) => BigInt(id)) } } });
