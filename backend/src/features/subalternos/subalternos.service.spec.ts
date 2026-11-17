@@ -564,7 +564,21 @@ describe('SubalternosService', () => {
       ]);
     });
 
-    it('Rechaza un familiar civil también para un militar (el familiar debe ser militar)', async () => {
+    it('Un militar puede tener un familiar civil', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([
+        { id: 50n, cedula: '99999999', primer_nombre: 'Ana', primer_apellido: 'Ruiz', es_civil: true },
+      ]);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      await service.createPersonal({ ...dtoMilitar, familiares: [{ cedula: '99999999' }] });
+
+      expect(prisma.relaciones_familiares.createMany).toHaveBeenCalledWith({
+        data: [{ persona_id: 1n, familiar_id: 50n, tipo_relacion: null }],
+      });
+    });
+
+    it('Un civil con solo familiares civiles se rechaza: necesita al menos un militar', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       prisma.personas.findMany = jest.fn().mockResolvedValue([
         { id: 50n, cedula: '99999999', primer_nombre: 'Ana', primer_apellido: 'Ruiz', es_civil: true },
@@ -573,11 +587,27 @@ describe('SubalternosService', () => {
 
       await expect(
         service.createPersonal({
-          ...dtoMilitar,
+          cedula: '12345678', primer_nombre: 'Eva', primer_apellido: 'Paz', es_civil: true,
           familiares: [{ cedula: '99999999' }],
-        }),
-      ).rejects.toThrow(BadRequestException);
+        } as any),
+      ).rejects.toThrow('al menos un familiar militar');
       expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('Un civil con un familiar militar y otro civil se crea con los dos vínculos', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([
+        { id: 50n, cedula: '99999999', primer_nombre: 'Ana', primer_apellido: 'Ruiz', es_civil: true },
+        { id: 51n, cedula: '88888888', primer_nombre: 'Juan', primer_apellido: 'Paz', es_civil: false },
+      ]);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      await service.createPersonal({
+        cedula: '12345678', primer_nombre: 'Eva', primer_apellido: 'Paz', es_civil: true,
+        familiares: [{ cedula: '99999999' }, { cedula: '88888888', tipo_relacion: 'Padre' }],
+      } as any);
+
+      expect(prisma.relaciones_familiares.createMany.mock.calls[0][0].data).toHaveLength(2);
     });
 
     it('Un militar sin familiares no intenta crear vínculos', async () => {

@@ -16,6 +16,7 @@ import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
+import { BuscarFamiliarQueryDto } from './dto/buscar-familiar-query.dto.js';
 import { LegajoMilitarDto } from './dto/legajo-militar.dto.js';
 import { CambiarSituacionDto } from './dto/cambiar-situacion.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
@@ -105,6 +106,16 @@ export class PersonasController {
     return this.perfilService.findFamiliaresPorCedula(cedula, alcance);
   }
 
+  @ApiOperation({ summary: 'Buscar personas para vincular como familiar (militares en actividad y civiles)' })
+  @RequireAlcance('personas.ver')
+  @Get('familiares/candidatos')
+  buscarCandidatosFamiliar(
+    @Query() query: BuscarFamiliarQueryDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.buscarCandidatosFamiliar(query.search, query.excluir, alcance);
+  }
+
   // ─── Detalle ──────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Datos personales + relación laboral activa (tab Datos Personales)' })
@@ -118,7 +129,7 @@ export class PersonasController {
     return this.perfilService.findOne(id, alcance);
   }
 
-  @ApiOperation({ summary: 'Familiares militares vinculados (tab Información Familiar)' })
+  @ApiOperation({ summary: 'Familiares vinculados (tab Información Familiar)' })
   @ApiParam({ name: 'id', type: Number })
   @RequireAlcance('personas.ver')
   @Get(':id/familiares')
@@ -129,7 +140,7 @@ export class PersonasController {
     return this.perfilService.findFamiliares(id, alcance);
   }
 
-  @ApiOperation({ summary: 'Vincular un familiar ya registrado (debe ser oficial o subalterno)' })
+  @ApiOperation({ summary: 'Vincular un familiar ya registrado (civil o militar)' })
   @ApiParam({ name: 'id', type: Number })
   @RequireAlcance('personas.editar')
   @Post(':id/familiares')

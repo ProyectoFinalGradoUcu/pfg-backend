@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsIn, IsNotEmpty, MaxLength, Min } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsIn, IsNotEmpty, Matches, MaxLength, Min } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 // Saca los espacios del principio y del final.
@@ -7,6 +7,18 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { NIVELES_EDUCATIVOS } from '../legajo-militar.constants.js';
 
 export class UpdatePersonalDto {
+  // Identificación
+  @ApiPropertyOptional({ example: '12345678', description: 'Entre 6 y 9 dígitos, sin puntos ni guión. No puede repetir la de otra persona.' })
+  @IsOptional() @Transform(trim) @IsString()
+  @Matches(/^\d{6,9}$/, { message: 'La cédula tiene que tener entre 6 y 9 dígitos, sin puntos ni guión' })
+  cedula?: string;
+  @ApiPropertyOptional({
+    example: 'subalterno', enum: ['oficial', 'subalterno'],
+    description: 'Va a la relación laboral vigente. El grado (el actual o el nuevo) tiene que corresponder al tipo.',
+  })
+  @IsOptional() @IsIn(['oficial', 'subalterno'], { message: 'El tipo de funcionario tiene que ser oficial o subalterno' })
+  tipo_funcionario?: 'oficial' | 'subalterno';
+
   // Datos personales
   @ApiPropertyOptional({ example: 'Juan' }) @IsOptional() @Transform(trim) @IsString() @IsNotEmpty({ message: 'El primer nombre no puede quedar vacío' }) @MaxLength(100) primer_nombre?: string;
   @ApiPropertyOptional({ example: 'Carlos' }) @IsOptional() @Transform(trim) @IsString() @MaxLength(100) segundo_nombre?: string;
