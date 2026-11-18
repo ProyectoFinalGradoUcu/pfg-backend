@@ -9,6 +9,7 @@ const CONFIG_CONVOCATORIA: ConfigDocumentos = {
   articulo: 'La',
   nombre: 'convocatoria',
   noEncontrado: 'Convocatoria no encontrada',
+  etiquetaBoletin: 'boletín',
 };
 
 const CONFIG_ASIGNACION: ConfigDocumentos = {
@@ -17,6 +18,7 @@ const CONFIG_ASIGNACION: ConfigDocumentos = {
   articulo: 'La',
   nombre: 'asignación',
   noEncontrado: 'Asignación no encontrada',
+  etiquetaBoletin: 'boletín',
 };
 
 @Injectable()

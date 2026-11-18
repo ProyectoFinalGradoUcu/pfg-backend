@@ -12,7 +12,7 @@ export const COLUMNAS_MISIONES: ColumnaReporte[] = [
   { clave: 'grado', etiqueta: 'Grado', tipo: 'texto' },
   { clave: 'pais', etiqueta: 'País', tipo: 'texto' },
   { clave: 'mision', etiqueta: 'Misión', tipo: 'texto' },
-  { clave: 'boletin', etiqueta: 'Resolución', tipo: 'texto' },
+  { clave: 'boletin', etiqueta: 'Boletín', tipo: 'texto' },
   { clave: 'fecha_boletin', etiqueta: 'Fecha boletín', tipo: 'fecha' },
   { clave: 'numero_resolucion', etiqueta: 'N.º Res.', tipo: 'texto' },
   { clave: 'fecha_resolucion', etiqueta: 'Fecha res.', tipo: 'fecha' },

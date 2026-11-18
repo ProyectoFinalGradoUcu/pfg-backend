@@ -316,7 +316,7 @@ export class MisionesService {
     if (!mision) throw new NotFoundException(`No existe misión con id ${misionId}`);
 
     if (!dto.numero_orden && !dto.boletin) {
-      throw new BadRequestException('Se requiere al menos número de orden o resolución');
+      throw new BadRequestException('Se requiere al menos número de orden o boletín');
     }
 
     const salida = aFecha(dto.fecha_salida);
@@ -385,7 +385,7 @@ export class MisionesService {
     const ordenFinal = dto.numero_orden !== undefined ? dto.numero_orden : conv.numero_orden;
     const boletinFinal = dto.boletin !== undefined ? dto.boletin : conv.boletin;
     if (!ordenFinal && !boletinFinal) {
-      throw new BadRequestException('La convocatoria debe conservar al menos número de orden o resolución');
+      throw new BadRequestException('La convocatoria debe conservar al menos número de orden o boletín');
     }
 
     const salida = dto.fecha_salida !== undefined ? aFecha(dto.fecha_salida) : conv.fecha_salida;
@@ -602,7 +602,7 @@ export class MisionesService {
     const ordenFinal = dto.numero_orden !== undefined ? dto.numero_orden : asignacion.numero_orden;
     const boletinFinal = dto.boletin !== undefined ? dto.boletin : asignacion.boletin;
     if (!ordenFinal && !boletinFinal) {
-      throw new BadRequestException('La asignación debe conservar al menos número de orden o resolución');
+      throw new BadRequestException('La asignación debe conservar al menos número de orden o boletín');
     }
 
     const actualizado = await this.prisma.funcionarios_convocatorias.update({
