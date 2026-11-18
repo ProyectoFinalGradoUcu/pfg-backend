@@ -9,6 +9,7 @@ const CONFIG: ConfigDocumentos = {
   articulo: 'El',
   nombre: 'destino',
   noEncontrado: 'Destino no encontrado',
+  etiquetaBoletin: 'boletín',
 };
 
 @Injectable()

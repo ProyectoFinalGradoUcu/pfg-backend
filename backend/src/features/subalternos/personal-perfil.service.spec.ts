@@ -912,6 +912,31 @@ describe('PersonalPerfilService', () => {
         expect.objectContaining({ id: true, archivo_orden: expect.anything(), archivo_boletin: expect.anything() }),
       );
     });
+
+    it('marca completado solo si el curso tiene resultado', async () => {
+      const inscripcion = (id: bigint, aprobado: boolean | null) => ({
+        id,
+        numero_orden: 'O-1',
+        boletin: null,
+        fecha_inicio: new Date('2026-11-01'),
+        fecha_fin: new Date('2027-06-30'),
+        aprobado,
+        calificacion: null,
+        observacion_calificacion: null,
+        archivo_orden: null,
+        archivo_boletin: null,
+        cursos: { id: 3n, nombre_curso: 'Supervivencia', institucion: 'EMA', es_obligatorio: false },
+      });
+      prisma.funcionarios_cursos.findMany.mockResolvedValue([
+        inscripcion(401n, null),
+        inscripcion(402n, true),
+        inscripcion(403n, false),
+      ]);
+
+      const result = await service.findCursos(100);
+
+      expect(result.map((c) => c.completado)).toEqual([false, true, true]);
+    });
   });
 
   describe('findMisiones', () => {

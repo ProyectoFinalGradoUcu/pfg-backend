@@ -43,7 +43,7 @@ describe('Carga de cursos: conservar inscripción y baja', () => {
   it('rechaza una inscripción nueva sin orden ni boletín', async () => {
     prisma.funcionarios_cursos.findUnique.mockResolvedValue(null);
     const resultado = await cargar();
-    expect(JSON.stringify(resultado)).toContain('Falta el N.º de orden o el boletín');
+    expect(JSON.stringify(resultado)).toContain('Falta el N.º de orden o la resolución');
     expect(prisma.funcionarios_cursos.create).not.toHaveBeenCalled();
   });
   it('no deja cargar Aprobado en un curso que no terminó', async () => {

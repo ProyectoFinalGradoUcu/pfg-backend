@@ -30,7 +30,7 @@ const COLUMNAS: ColumnaPlantilla[] = [
   { clave: 'calificacion', titulo: 'Calificación', ayuda: 'Nota o concepto, tal como figura en el acta.' },
   { clave: 'observacion', titulo: 'Observación de la calificación', ancho: 40 },
   { clave: 'numero_orden', titulo: 'N.º de orden' },
-  { clave: 'boletin', titulo: 'Boletín' },
+  { clave: 'boletin', titulo: 'Resolución', alias: ['Boletín'] },
 ];
 
 type CursoCatalogo = { id: bigint; nombre: string; codigo: null };
@@ -95,7 +95,7 @@ export class CursosCargaService {
         }
         const orden = datos.numero_orden ?? existente?.numero_orden;
         const boletin = datos.boletin ?? existente?.boletin;
-        if (!orden?.trim() && !boletin?.trim()) throw new Error('Falta el N.º de orden o el boletín.');
+        if (!orden?.trim() && !boletin?.trim()) throw new Error('Falta el N.º de orden o la resolución.');
         const finVigente = datos.fecha_fin ?? existente?.fecha_fin;
         if (aprobado !== null && finVigente && finVigente > new Date()) {
           throw new Error('El curso todavía no terminó: solo se puede cargar "En curso".');
@@ -141,7 +141,7 @@ export class CursosCargaService {
         'Una fila por funcionario y curso. Si el funcionario ya tenía ese curso registrado, se actualizan sus datos.',
         'Los cursos se eligen del catálogo para que cuenten en los requisitos de ascenso. Un curso que no figura hay que crearlo antes en Cursos > Catálogo.',
         'El registro es a nivel de curso completo: los módulos no se cargan desde esta planilla.',
-        'Cada fila necesita el N.º de orden o el boletín, salvo que la inscripción ya los tenga.',
+        'Cada fila necesita el N.º de orden o la resolución, salvo que la inscripción ya los tenga.',
         'Aprobado o Desaprobado solo para cursos que ya terminaron.',
       ],
       ejemplos: [

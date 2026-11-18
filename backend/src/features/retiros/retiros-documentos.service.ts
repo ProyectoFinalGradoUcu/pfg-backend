@@ -45,7 +45,7 @@ const COLUMNA: Record<SlotDocumentoRetiro, ColumnaDocumento> = {
 
 const ETIQUETA: Record<SlotDocumentoRetiro, string> = {
   orden: 'orden',
-  boletin: 'boletín',
+  boletin: 'resolución',
 };
 
 @Injectable()

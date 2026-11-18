@@ -285,7 +285,7 @@ async function tipoMovimiento(tx: Prisma.TransactionClient, nombre: string) {
 function textoMovimiento(dto: CambiarSituacionDto): string {
   return [
     dto.numero_orden && `Orden ${dto.numero_orden}`,
-    dto.boletin && `Boletín ${dto.boletin}`,
+    dto.boletin && `Resolución ${dto.boletin}`,
     dto.observaciones?.trim(),
   ]
     .filter(Boolean)

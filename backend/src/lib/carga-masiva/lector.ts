@@ -22,7 +22,9 @@ export async function leerHoja(buffer: Buffer, def: DefinicionPlantilla): Promis
     );
   }
 
-  const porTitulo = new Map(def.columnas.map((c) => [normalizarTitulo(c.titulo), c]));
+  const porTitulo = new Map(
+    def.columnas.flatMap((c) => [c.titulo, ...(c.alias ?? [])].map((t) => [normalizarTitulo(t), c] as const)),
+  );
   const columnaPorIndice = new Map<number, ColumnaPlantilla>();
   ws.getRow(1).eachCell((cell, col) => {
     const columna = porTitulo.get(normalizarTitulo(textoDe(cell.value)));

@@ -19,6 +19,8 @@ export type TipoColumna = 'texto' | 'fecha' | 'numero' | 'lista';
 export interface ColumnaPlantilla {
   clave: string;
   titulo: string;
+  /** Títulos anteriores que se siguen aceptando al importar. */
+  alias?: string[];
   requerida?: boolean;
   ayuda?: string;
   tipo?: TipoColumna;
