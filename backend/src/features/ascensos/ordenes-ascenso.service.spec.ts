@@ -101,9 +101,52 @@ const makePrismaMock = () => {
       update: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
     },
-    ascensos: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    ascensos: {
+      findUnique: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
+    // Por defecto cada funcionario pedido es militar, Cbo. 2.ª, en la base 50 del comando 5.
+    relaciones_laborales: {
+      findMany: jest.fn(({ where }: any) =>
+        Promise.resolve(
+          (where.persona_id.in as bigint[]).map((id) => ({
+            id: 500n + id,
+            persona_id: id,
+            unidad_id: 5n,
+            sub_unidad_id: 50n,
+            grados: { codigo: 'CBO_2DA', denominacion: 'Cbo. 2ª' },
+          })),
+        ),
+      ),
+    },
+    personas: {
+      findMany: jest.fn(({ where }: any) =>
+        Promise.resolve(
+          (where.id.in as bigint[]).map((id) => ({
+            id,
+            es_civil: false,
+            primer_nombre: 'José',
+            primer_apellido: `Pérez ${id}`,
+          })),
+        ),
+      ),
+    },
+    grados: {
+      findMany: jest.fn().mockResolvedValue([
+        { id: 3n, codigo: 'CBO_2DA', denominacion: 'Cbo. 2ª' },
+        { id: 4n, codigo: 'CBO_1RA', denominacion: 'Cbo. 1ª' },
+        { id: 5n, codigo: 'SGTO', denominacion: 'Sgto.' },
+        { id: 7n, codigo: 'ALF', denominacion: 'Alf.' },
+        { id: 15n, codigo: 'GRAL', denominacion: 'Gral. Del Aire' },
+      ]),
+    },
     $transaction: jest.fn(),
   };
+  // El detalle busca con findFirst (por el filtro de alcance); los tests configuran findUnique.
+  mock.ascensos_ordenes.findFirst = jest.fn((args: any) =>
+    mock.ascensos_ordenes.findUnique(args),
+  );
   mock.$transaction.mockImplementation((arg: any) =>
     typeof arg === 'function' ? arg(mock) : Promise.all(arg),
   );
@@ -116,6 +159,7 @@ describe('OrdenesAscensoService', () => {
   let registro: {
     registrarEnTransaccion: jest.Mock;
     anularEnTransaccion: jest.Mock;
+    bloquearPersonas: jest.Mock;
     anular: jest.Mock;
   };
   let elegibilidad: { evaluarVarios: jest.Mock };
@@ -125,6 +169,7 @@ describe('OrdenesAscensoService', () => {
     registro = {
       registrarEnTransaccion: jest.fn().mockResolvedValue({ ascenso: { id: 900n } }),
       anularEnTransaccion: jest.fn().mockResolvedValue({ id: 900n }),
+      bloquearPersonas: jest.fn().mockResolvedValue(undefined),
       anular: jest.fn().mockResolvedValue({ id: 900n, orden_ascenso_id: 70n }),
     };
     elegibilidad = {
@@ -159,6 +204,30 @@ describe('OrdenesAscensoService', () => {
       expect(params.orden_ascenso_id).toBe(70n);
       expect(params.numero_orden).toBe('O.C.G.F.A. N.º 12.345');
       expect(params.cumplia_requisitos).toBe(true);
+    });
+
+    it('pasa la posición en la derecha y el numor de cada funcionario', async () => {
+      await service.crear(
+        dtoBase({ funcionarios: [{ persona_id: 100, posicion_derecha: 2, posicion_numor: 1 }] }),
+        8n,
+        ['ascensos.registrar', 'derecha.gestionar'],
+      );
+
+      const params = registro.registrarEnTransaccion.mock.calls[0][1];
+      expect(params.posicion_derecha).toBe(2);
+      expect(params.posicion_numor).toBe(1);
+    });
+
+    it('elegir la posición en la derecha exige derecha.gestionar', async () => {
+      await expect(
+        service.crear(
+          dtoBase({ funcionarios: [{ persona_id: 100, posicion_derecha: 2 }] }),
+          8n,
+          ['ascensos.registrar'],
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
     });
 
     it('sin número de orden ni boletín no crea nada', async () => {
@@ -340,6 +409,119 @@ describe('OrdenesAscensoService', () => {
         estado: 'PASIBLE',
       });
     });
+
+    // ─── Concurrencia ─────────────────────────────────────────────────────────
+
+    it('toma los locks de todos los funcionarios antes de escribir y pasa la relación esperada', async () => {
+      elegibilidad.evaluarVarios.mockResolvedValue(
+        new Map([
+          ['100', makeEvaluacion()],
+          ['101', makeEvaluacion({ persona: { ...makeEvaluacion().persona, id: '101' } })],
+        ]),
+      );
+
+      await service.crear(
+        dtoBase({ funcionarios: [{ persona_id: 101 }, { persona_id: 100 }] }),
+        8n,
+        [],
+      );
+
+      expect(registro.bloquearPersonas.mock.calls[0][1]).toEqual([101n, 100n]);
+      expect(registro.bloquearPersonas.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.ascensos_ordenes.create.mock.invocationCallOrder[0],
+      );
+      expect(registro.registrarEnTransaccion.mock.calls[0][1].relacion_esperada_id).toBe(601n);
+    });
+
+    // ─── Escala ───────────────────────────────────────────────────────────────
+
+    it('un salto de grados sin motivo se rechaza aunque cumpla la regla', async () => {
+      await expect(
+        service.crear(dtoBase({ funcionarios: [{ persona_id: 100, grado_destino_id: 5 }] }), 8n, [
+          'ascensos.excepcion',
+        ]),
+      ).rejects.toThrow(/saltea grados.*motivo de excepción/);
+      expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
+    });
+
+    it('un cambio de escala necesita el permiso de excepción', async () => {
+      await expect(
+        service.crear(
+          dtoBase({
+            funcionarios: [{ persona_id: 100, grado_destino_id: 7, motivo_excepcion: 'Pasaje a oficial' }],
+          }),
+          8n,
+          [],
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('con motivo y permiso, el salto se registra como excepción', async () => {
+      await service.crear(
+        dtoBase({
+          funcionarios: [{ persona_id: 100, grado_destino_id: 15, motivo_excepcion: 'Designación' }],
+        }),
+        8n,
+        ['ascensos.excepcion'],
+      );
+
+      const params = registro.registrarEnTransaccion.mock.calls[0][1];
+      expect(params.cumplia_requisitos).toBe(false);
+      expect(params.motivo_excepcion).toBe('Designación');
+    });
+
+    // ─── Civiles y evaluación obligatoria ─────────────────────────────────────
+
+    it('rechaza a un funcionario civil', async () => {
+      prisma.personas.findMany.mockResolvedValue([
+        { id: 100n, es_civil: true, primer_nombre: 'Ana', primer_apellido: 'Gómez' },
+      ]);
+
+      await expect(service.crear(dtoBase(), 8n, ['ascensos.excepcion'])).rejects.toThrow(
+        /Ana Gómez es personal civil/,
+      );
+      expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza a quien no tiene evaluación de elegibilidad', async () => {
+      elegibilidad.evaluarVarios.mockResolvedValue(new Map());
+
+      await expect(
+        service.crear(
+          dtoBase({ funcionarios: [{ persona_id: 100, grado_destino_id: 4, motivo_excepcion: 'x' }] }),
+          8n,
+          ['ascensos.excepcion'],
+        ),
+      ).rejects.toThrow(/No se pudo evaluar la elegibilidad/);
+    });
+
+    it('responde 404 si el funcionario no existe', async () => {
+      prisma.personas.findMany.mockResolvedValue([]);
+
+      await expect(service.crear(dtoBase(), 8n, [])).rejects.toThrow(NotFoundException);
+    });
+
+    // ─── Alcance ──────────────────────────────────────────────────────────────
+
+    it('con alcance de unidad, un funcionario de otra base responde como inexistente', async () => {
+      await expect(
+        service.crear(dtoBase(), 8n, [], { tipo: 'unidad', subUnidadIds: ['60'], comandoIds: ['6'] }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
+    });
+
+    it('con alcance de unidad, un funcionario de otra base del mismo comando también queda afuera', async () => {
+      await expect(
+        service.crear(dtoBase(), 8n, [], { tipo: 'unidad', subUnidadIds: ['51'], comandoIds: ['5'] }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
+    });
+
+    it('con alcance de unidad, registra a los de su base', async () => {
+      await service.crear(dtoBase(), 8n, [], { tipo: 'unidad', subUnidadIds: ['50'], comandoIds: ['5'] });
+
+      expect(registro.registrarEnTransaccion).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ─── Consulta ───────────────────────────────────────────────────────────────
@@ -360,11 +542,34 @@ describe('OrdenesAscensoService', () => {
       });
     });
 
-    it('con alcance de unidad solo trae órdenes que tocan esas unidades', async () => {
-      await service.listar({}, { tipo: 'unidad', unidadIds: ['5'] });
+    it('el filtro por base usa la sub-unidad de la relación nueva del ascendido', async () => {
+      await service.listar({ sub_unidad_id: 7 });
 
-      const where = prisma.ascensos_ordenes.findMany.mock.calls[0][0].where;
-      expect(where.ascensos.some.relacion_laboral_nueva).toEqual({ unidad_id: { in: [5n] } });
+      const args = prisma.ascensos_ordenes.findMany.mock.calls[0][0];
+      expect(args.where.ascensos.some.relacion_laboral_nueva).toEqual({ sub_unidad_id: 7n });
+    });
+
+    it('con alcance de unidad solo trae órdenes que tocan esas bases', async () => {
+      await service.listar({}, { tipo: 'unidad', subUnidadIds: ['5'], comandoIds: [] });
+
+      const args = prisma.ascensos_ordenes.findMany.mock.calls[0][0];
+      const visibles = {
+        OR: [
+          { relacion_laboral_nueva: { sub_unidad_id: { in: [5n] } } },
+          { relacion_laboral_anterior: { sub_unidad_id: { in: [5n] } } },
+        ],
+      };
+      expect(args.where.ascensos.some.AND).toEqual([visibles]);
+      // Y de cada orden, solo los funcionarios de esas bases.
+      expect(args.include.ascensos.where).toEqual(visibles);
+    });
+
+    it('con alcance global no filtra los funcionarios de cada orden', async () => {
+      await service.listar({}, { tipo: 'global' });
+
+      const args = prisma.ascensos_ordenes.findMany.mock.calls[0][0];
+      expect(args.where.ascensos).toBeUndefined();
+      expect(args.include.ascensos.where).toBeUndefined();
     });
 
     it('cuenta ascensos, anulados y excepciones del período', async () => {
@@ -387,6 +592,26 @@ describe('OrdenesAscensoService', () => {
       expect(res.stats.ascensos).toBe(1);
       expect(res.stats.ascensos_anulados).toBe(1);
       expect(res.stats.por_excepcion).toBe(1);
+    });
+
+    it('con alcance de unidad, los totales cuentan solo lo de sus bases', async () => {
+      prisma.ascensos_ordenes.findMany.mockResolvedValue([]);
+
+      await service.listar({}, { tipo: 'unidad', subUnidadIds: ['6'], comandoIds: [] });
+
+      const stats = prisma.ascensos_ordenes.findMany.mock.calls[1][0];
+      expect(stats.where.ascensos.some.OR).toBeDefined();
+      expect(stats.select.ascensos.where.OR).toBeDefined();
+    });
+
+    it('con alcance global, los totales cuentan todo', async () => {
+      prisma.ascensos_ordenes.findMany.mockResolvedValue([]);
+
+      await service.listar({}, { tipo: 'global' });
+
+      const stats = prisma.ascensos_ordenes.findMany.mock.calls[1][0];
+      expect(stats.where.ascensos).toBeUndefined();
+      expect(stats.select.ascensos.where).toBeUndefined();
     });
 
     it('el listado no arrastra la foto de evaluación de cada ascenso', async () => {
@@ -413,6 +638,26 @@ describe('OrdenesAscensoService', () => {
 
       expect(res.ascensos[0]).toHaveProperty('evaluacion');
       expect(res.cantidad_funcionarios).toBe(1);
+    });
+
+    it('devuelve los documentos adjuntos de la orden', async () => {
+      const archivo = {
+        nombre_original: 'orden.pdf',
+        content_type: 'application/pdf',
+        tamanio_bytes: 8n,
+        subido_en: new Date('2027-02-03'),
+      };
+      prisma.ascensos_ordenes.findUnique.mockResolvedValue(
+        makeOrdenFila({ archivo_orden: archivo, archivo_boletin: null }),
+      );
+
+      const res = await service.obtener(70);
+
+      expect(res.documentos).toEqual({ orden: archivo, boletin: null });
+      expect(prisma.ascensos_ordenes.findFirst.mock.calls[0][0].include).toMatchObject({
+        archivo_orden: expect.anything(),
+        archivo_boletin: expect.anything(),
+      });
     });
 
     it('pagina los funcionarios de la orden', async () => {
@@ -450,6 +695,89 @@ describe('OrdenesAscensoService', () => {
       prisma.ascensos_ordenes.findUnique.mockResolvedValue(null);
 
       await expect(service.obtener(70)).rejects.toThrow(NotFoundException);
+    });
+
+    it('con alcance de unidad pide una orden con funcionarios de esas bases y solo los muestra a ellos', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValue(makeOrdenFila());
+
+      await service.obtener(70, {}, { tipo: 'unidad', subUnidadIds: ['6'], comandoIds: [] });
+
+      const visibles = {
+        OR: [
+          { relacion_laboral_nueva: { sub_unidad_id: { in: [6n] } } },
+          { relacion_laboral_anterior: { sub_unidad_id: { in: [6n] } } },
+        ],
+      };
+      const args = prisma.ascensos_ordenes.findFirst.mock.calls[0][0];
+      expect(args.where).toEqual({ id: 70n, ascensos: { some: visibles } });
+      expect(args.include.ascensos.where).toEqual(visibles);
+      expect(prisma.ascensos.findMany.mock.calls[0][0].where).toMatchObject(visibles);
+    });
+
+    it('una orden sin funcionarios de sus bases responde 404', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.obtener(70, {}, { tipo: 'unidad', subUnidadIds: ['6'], comandoIds: [] }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('verificarAlcanceOrden', () => {
+    const UNIDAD_6 = { tipo: 'unidad' as const, subUnidadIds: ['6'], comandoIds: [] };
+    const GLOBAL = { tipo: 'global' as const, subUnidadIds: [], comandoIds: [] };
+    const ordenDe = (n: number) => ({
+      id: 70n,
+      ascensos: Array.from({ length: n }, (_, i) => ({ id: 900n + BigInt(i) })),
+    });
+
+    it('con alcance global solo comprueba que la orden exista', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+
+      await expect(service.verificarAlcanceOrden(70, GLOBAL, 'gestionar')).resolves.toBeUndefined();
+      expect(prisma.ascensos.count).not.toHaveBeenCalled();
+    });
+
+    it('sin alcance solo comprueba que la orden exista', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+
+      await expect(service.verificarAlcanceOrden(70, undefined, 'ver')).resolves.toBeUndefined();
+    });
+
+    it('404 si la orden no existe', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(null);
+
+      await expect(service.verificarAlcanceOrden(70, GLOBAL, 'ver')).rejects.toThrow(NotFoundException);
+    });
+
+    it('con alcance de unidad y ningún funcionario visible, 404', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(0);
+
+      await expect(service.verificarAlcanceOrden(70, UNIDAD_6, 'ver')).rejects.toThrow(NotFoundException);
+    });
+
+    it('gestionar con funcionarios fuera del alcance, 403', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(1);
+
+      await expect(service.verificarAlcanceOrden(70, UNIDAD_6, 'gestionar')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('ver con algunos funcionarios visibles pasa', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(1);
+
+      await expect(service.verificarAlcanceOrden(70, UNIDAD_6, 'ver')).resolves.toBeUndefined();
+    });
+
+    it('gestionar con todos los funcionarios visibles pasa', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(2);
+
+      await expect(service.verificarAlcanceOrden(70, UNIDAD_6, 'gestionar')).resolves.toBeUndefined();
     });
   });
 
@@ -518,6 +846,57 @@ describe('OrdenesAscensoService', () => {
 
       await expect(service.anularOrden(70, 'motivo', 8n)).rejects.toThrow(ConflictException);
       expect(prisma.ascensos_ordenes.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('anulaciones con alcance de unidad', () => {
+    const UNIDAD_6 = { tipo: 'unidad' as const, subUnidadIds: ['6'], comandoIds: [] };
+    const ordenDe = (n: number) => ({
+      id: 70n,
+      numero_orden: 'X',
+      anulada_en: null,
+      ascensos: Array.from({ length: n }, (_, i) => ({ id: 900n + BigInt(i), anulado_en: null })),
+    });
+
+    it('una orden sin funcionarios de sus bases responde 404 y no anula nada', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(1));
+      prisma.ascensos.count.mockResolvedValue(0);
+
+      await expect(service.anularOrden(70, 'motivo', 8n, UNIDAD_6)).rejects.toThrow(NotFoundException);
+      expect(registro.anularEnTransaccion).not.toHaveBeenCalled();
+    });
+
+    it('una orden con funcionarios de otras bases no se puede anular entera', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos.count.mockResolvedValue(1);
+
+      await expect(service.anularOrden(70, 'motivo', 8n, UNIDAD_6)).rejects.toThrow(ForbiddenException);
+      expect(registro.anularEnTransaccion).not.toHaveBeenCalled();
+    });
+
+    it('una orden con todos sus funcionarios en sus bases se anula', async () => {
+      prisma.ascensos_ordenes.findUnique.mockResolvedValueOnce(ordenDe(2));
+      prisma.ascensos_ordenes.findUnique.mockResolvedValue(makeOrdenFila());
+      prisma.ascensos.count.mockResolvedValue(2);
+
+      await service.anularOrden(70, 'motivo', 8n, UNIDAD_6);
+
+      expect(registro.anularEnTransaccion).toHaveBeenCalledTimes(2);
+      expect(prisma.ascensos.count.mock.calls[0][0].where.OR).toBeDefined();
+    });
+
+    it('un ascenso de otra base responde 404 y no se anula', async () => {
+      prisma.ascensos.count.mockResolvedValue(0);
+
+      await expect(service.anularAscenso(900, 'motivo', 8n, UNIDAD_6)).rejects.toThrow(NotFoundException);
+      expect(registro.anular).not.toHaveBeenCalled();
+    });
+
+    it('con alcance global no consulta el alcance', async () => {
+      await service.anularAscenso(900, 'motivo', 8n, { tipo: 'global' });
+
+      expect(prisma.ascensos.count).not.toHaveBeenCalled();
+      expect(registro.anular).toHaveBeenCalled();
     });
   });
 

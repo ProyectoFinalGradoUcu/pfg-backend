@@ -19,6 +19,8 @@ import { AsignarRolUnidadDto } from './dto/asignar-rol-unidad.dto';
 import { AsignarUsuariosDto } from './dto/asignar-usuarios.dto';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
 
 @ApiTags('Unidades')
 @ApiCookieAuth('auth_token')
@@ -64,6 +66,8 @@ export class UnidadesController {
 
   @Post(':id/usuarios')
   @RequirePermissions('unidades.gestionar', 'usuarios.gestionar')
+  // El service registra un evento legible, con el estado anterior.
+  @Auditar({ contexto: 'Unidades', registroManual: true })
   @ApiOperation({
     summary: 'Asignar usuarios del sistema a la unidad',
     description:
@@ -72,24 +76,36 @@ export class UnidadesController {
   })
   @ApiResponse({ status: 201, description: 'Resumen de la asignación.' })
   @ApiResponse({ status: 409, description: 'La unidad no está vigente.' })
-  asignarUsuarios(@Param('id') id: string, @Body() dto: AsignarUsuariosDto) {
-    return this.unidadesService.asignarUsuarios(id, dto.usuarioIds);
+  asignarUsuarios(
+    @Param('id') id: string,
+    @Body() dto: AsignarUsuariosDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.unidadesService.asignarUsuarios(id, dto.usuarioIds, user.id);
   }
 
   @Delete(':id/usuarios/:usuarioId')
   @RequirePermissions('unidades.gestionar', 'usuarios.gestionar')
+  // El service registra un evento legible, con el estado anterior.
+  @Auditar({ contexto: 'Unidades', registroManual: true })
   @ApiOperation({
     summary: 'Quitar un usuario de la unidad',
     description: 'El usuario queda sin unidad y opera solo con sus permisos globales.',
   })
   @ApiResponse({ status: 200, description: 'Usuario quitado de la unidad.' })
   @ApiResponse({ status: 404, description: 'El usuario no pertenece a esta unidad.' })
-  quitarUsuario(@Param('id') id: string, @Param('usuarioId') usuarioId: string) {
-    return this.unidadesService.quitarUsuario(id, usuarioId);
+  quitarUsuario(
+    @Param('id') id: string,
+    @Param('usuarioId') usuarioId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.unidadesService.quitarUsuario(id, usuarioId, user.id);
   }
 
   @Post(':id/roles')
   @RequirePermissions('unidades.gestionar')
+  // El service registra un evento legible, con el estado anterior.
+  @Auditar({ contexto: 'Unidades', registroManual: true })
   @ApiOperation({
     summary: 'Asignar rol a una unidad',
     description:
@@ -98,12 +114,18 @@ export class UnidadesController {
   @ApiResponse({ status: 201, description: 'Rol asignado.' })
   @ApiResponse({ status: 404, description: 'Unidad o rol no encontrado.' })
   @ApiResponse({ status: 409, description: 'El rol ya estaba asignado.' })
-  asignarRol(@Param('id') id: string, @Body() dto: AsignarRolUnidadDto) {
-    return this.unidadesService.asignarRol(id, dto.rolId);
+  asignarRol(
+    @Param('id') id: string,
+    @Body() dto: AsignarRolUnidadDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.unidadesService.asignarRol(id, dto.rolId, user.id);
   }
 
   @Delete(':id/roles/:rolId')
   @RequirePermissions('unidades.gestionar')
+  // El service registra un evento legible, con el estado anterior.
+  @Auditar({ contexto: 'Unidades', registroManual: true })
   @ApiOperation({
     summary: 'Quitar rol de una unidad',
     description:
@@ -111,7 +133,11 @@ export class UnidadesController {
   })
   @ApiResponse({ status: 200, description: 'Rol quitado.' })
   @ApiResponse({ status: 404, description: 'Unidad no encontrada o rol no asignado.' })
-  quitarRol(@Param('id') id: string, @Param('rolId') rolId: string) {
-    return this.unidadesService.quitarRol(id, rolId);
+  quitarRol(
+    @Param('id') id: string,
+    @Param('rolId') rolId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.unidadesService.quitarRol(id, rolId, user.id);
   }
 }

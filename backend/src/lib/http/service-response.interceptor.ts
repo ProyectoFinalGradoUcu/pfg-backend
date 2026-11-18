@@ -4,9 +4,11 @@ import {
   Injectable,
   Logger,
   NestInterceptor,
+  StreamableFile,
 } from '@nestjs/common';
 import { map, Observable, tap } from 'rxjs';
 import type { Request, Response } from 'express';
+import { aJsonPlano, reemplazarBigInt } from './json';
 
 const DEFAULT_HTTP_MESSAGES: Record<number, string> = {
   200: 'OK',
@@ -47,41 +49,40 @@ export class ServiceResponseInterceptor implements NestInterceptor {
         this.logger.log(
           this.buildBox({
             title: `${this.statusColor(statusCode, 'RESPONSE')} status=${statusCode} duration=${duration}ms`,
-            lines: [`body   : ${this.prettyJson(responseBody)}`],
+            lines: [
+              `body   : ${
+                responseBody instanceof StreamableFile
+                  ? '[stream]'
+                  : this.prettyJson(responseBody)
+              }`,
+            ],
           }),
         );
       }),
-      map((data) => ({
-        service_response: {
-          service_status: {
-            http_status: String(res.statusCode),
-            http_message:
-              DEFAULT_HTTP_MESSAGES[res.statusCode] ?? 'Success',
+      map((data) => {
+        if (data instanceof StreamableFile) return data;
+
+        return {
+          service_response: {
+            service_status: {
+              http_status: String(res.statusCode),
+              http_message:
+                DEFAULT_HTTP_MESSAGES[res.statusCode] ?? 'Success',
+            },
+            service_data: this.normalizeJson(data),
           },
-          service_data: this.normalizeJson(data),
-        },
-      })),
+        };
+      }),
     );
   }
 
   private normalizeJson<T>(value: T): T {
     if (value === undefined) return null as T;
-    return JSON.parse(this.safeStringify(value)) as T;
-  }
-
-  private safeStringify(value: unknown): string {
-    return JSON.stringify(value, (_key, currentValue: unknown) =>
-      typeof currentValue === 'bigint' ? currentValue.toString() : currentValue,
-    );
+    return aJsonPlano(value);
   }
 
   private prettyJson(value: unknown): string {
-    const text = JSON.stringify(
-      value,
-      (_key, currentValue: unknown) =>
-        typeof currentValue === 'bigint' ? currentValue.toString() : currentValue,
-      2,
-    );
+    const text = JSON.stringify(value, reemplazarBigInt, 2);
     if (!text) {
       return 'null';
     }

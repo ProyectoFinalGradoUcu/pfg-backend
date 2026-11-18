@@ -33,11 +33,20 @@ export class JwtAuthGuard implements CanActivate {
     const token = request.cookies?.[COOKIE_NAME];
 
     if (!token) {
-      throw new UnauthorizedException('No autenticado');
+      // El frontend muestra este texto en el login cuando una sesión abierta se corta
+      // (la cookie venció con el token), así que va redactado para el usuario.
+      throw new UnauthorizedException('La sesión expiró. Volvé a iniciar sesión.');
     }
 
     const payload: AuthPayload = this.authService.verifyToken(token);
-    await this.authService.assertUsuarioActivo(payload.sub, payload.iat);
+    // Token firmado antes del cambio a bases (no trae el comando): que vuelva a entrar.
+    if (payload.unidades?.some((u) => !u.comando)) {
+      throw new UnauthorizedException('La sesión expiró. Volvé a iniciar sesión.');
+    }
+    await this.authService.assertUsuarioActivo(payload.sub, {
+      iat: payload.iat,
+      iatMs: payload.iatMs,
+    });
 
     request.user = {
       id: payload.sub,

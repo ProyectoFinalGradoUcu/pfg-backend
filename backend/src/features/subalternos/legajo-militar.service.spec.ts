@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import {
@@ -34,6 +34,7 @@ const makePrismaMock = () => {
     legajo_militar: { findUnique: jest.fn(), upsert: jest.fn() },
     relaciones_laborales: { findFirst: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn(),
+    $executeRaw: jest.fn(),
   };
   // La transacción corre el callback contra el mismo mock.
   mock.$transaction.mockImplementation((cb: any) => cb(mock));
@@ -165,13 +166,35 @@ describe('LegajoMilitarService', () => {
     });
 
     it('hace upsert con las fechas convertidas a Date', async () => {
-      const tx: any = { legajo_militar: { upsert: jest.fn() } };
+      const tx: any = { legajo_militar: { upsert: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) } };
 
       await guardarLegajoEnTransaccion(tx, 1n, { fecha_egreso_eta: '2020-12-15' });
 
       const args = tx.legajo_militar.upsert.mock.calls[0][0];
       expect(args.where).toEqual({ persona_id: 1n });
       expect(args.create.fecha_egreso_eta).toEqual(new Date('2020-12-15'));
+    });
+
+    it('400 si el egreso de la ETA es anterior al ingreso', async () => {
+      const tx: any = { legajo_militar: { upsert: jest.fn(), findUnique: jest.fn() } };
+
+      await expect(
+        guardarLegajoEnTransaccion(tx, 1n, { fecha_ingreso_eta: '2014-03-01', fecha_egreso_eta: '2013-12-01' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(tx.legajo_militar.upsert).not.toHaveBeenCalled();
+    });
+
+    it('si llega solo el egreso, lo compara contra el ingreso guardado', async () => {
+      const tx: any = {
+        legajo_militar: {
+          upsert: jest.fn(),
+          findUnique: jest.fn().mockResolvedValue({ fecha_ingreso_eta: new Date('2014-03-01'), fecha_egreso_eta: null }),
+        },
+      };
+
+      await expect(guardarLegajoEnTransaccion(tx, 1n, { fecha_egreso_eta: '2013-12-01' })).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 

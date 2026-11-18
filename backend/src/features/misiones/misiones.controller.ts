@@ -10,9 +10,17 @@ import {
   ParseIntPipe,
   HttpCode,
   HttpStatus,
+  Res,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiCookieAuth } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiCookieAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { MisionesService } from './misiones.service';
+import { MisionesCargaService } from './misiones-carga.service';
+import { archivoExcelPipe, enviarExcel } from '../../lib/carga-masiva';
+import type { ArchivoSubido } from '../../lib/carga-masiva';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 import { CreateMisionDto } from './dto/create-mision.dto';
@@ -31,7 +39,30 @@ import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto
 @Auditar({ contexto: 'Misiones', entidad: 'Misión' })
 @Controller('misiones')
 export class MisionesController {
-  constructor(private readonly misionesService: MisionesService) {}
+  constructor(
+    private readonly misionesService: MisionesService,
+    private readonly cargaService: MisionesCargaService,
+  ) {}
+
+  // ─── Carga masiva (antes de /:misionId) ───────────────────────────────────
+
+  @Get('carga-masiva/plantilla')
+  @ApiOperation({ summary: 'Descargar plantilla Excel de misiones y participantes' })
+  @RequirePermissions('misiones.gestionar')
+  async descargarPlantilla(@Res() res: Response) {
+    enviarExcel(res, await this.cargaService.generarPlantilla(), 'plantilla_misiones.xlsx');
+  }
+
+  @Post('carga-masiva')
+  @ApiOperation({ summary: 'Carga masiva de misiones, convocatorias y participantes desde Excel' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { archivo: { type: 'string', format: 'binary' } } } })
+  @RequirePermissions('misiones.gestionar')
+  @Auditar({ contexto: 'Misiones', entidad: 'Carga masiva de misiones', incluirRespuesta: true })
+  @UseInterceptors(FileInterceptor('archivo'))
+  cargaMasiva(@UploadedFile(archivoExcelPipe()) archivo: ArchivoSubido) {
+    return this.cargaService.procesarCarga(archivo.buffer);
+  }
 
   // ─── Personal en misión (listado global plano) ─────────────────────────────
   // DEBE ir antes de /:misionId para que Express no lo confunda con un parámetro.

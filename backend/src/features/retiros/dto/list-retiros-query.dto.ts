@@ -1,6 +1,8 @@
 import { IsOptional, IsString, IsInt, IsBoolean, IsDateString, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal';
+import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal';
 
 const aBooleano = ({ value }: { value: unknown }) => {
   if (value === 'true') return true;
@@ -29,11 +31,11 @@ export class ListRetirosQueryDto {
   @IsString()
   query?: string;
 
-  @ApiPropertyOptional({ example: 5, description: 'Unidad de la relación laboral cerrada' })
+  @ApiPropertyOptional({ example: 3, description: 'Base (sub-unidad) de la relación laboral cerrada' })
   @IsOptional()
   @Transform(({ value }) => Number(value))
   @IsInt()
-  unidad_id?: number;
+  sub_unidad_id?: number;
 
   @ApiPropertyOptional({ example: 1, description: 'Motivo de baja' })
   @IsOptional()
@@ -66,4 +68,7 @@ export class ListRetirosQueryDto {
   @Transform(aBooleano)
   @IsBoolean()
   incluir_anulados?: boolean;
+
+  @FiltroCategoriaPersonal()
+  categoria?: CategoriaPersonal;
 }

@@ -9,6 +9,8 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal';
+import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal';
 
 export const ESTADOS_ELEGIBILIDAD = [
   'PASIBLE',
@@ -65,11 +67,11 @@ export class ListPasiblesQueryDto {
   @IsInt()
   grado_id?: number;
 
-  @ApiPropertyOptional({ example: 5 })
+  @ApiPropertyOptional({ example: 3, description: 'Base (sub-unidad) de la relación laboral activa' })
   @IsOptional()
   @Transform(aNumero)
   @IsInt()
-  unidad_id?: number;
+  sub_unidad_id?: number;
 
   @ApiPropertyOptional({ example: '12345678', description: 'Cédula, nombre o apellido (parcial)' })
   @IsOptional()
@@ -96,4 +98,7 @@ export class ListPasiblesQueryDto {
   @Min(1)
   @Max(120)
   horizonte_meses?: number;
+
+  @FiltroCategoriaPersonal()
+  categoria?: CategoriaPersonal;
 }

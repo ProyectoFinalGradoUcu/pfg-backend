@@ -1,18 +1,21 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
-import {
-  AlcanceResuelto,
-  unidadIdDeAlcance,
-} from '../../lib/alcance/alcance.types.js';
-import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
+import { AlcanceResuelto, subUnidadIdsDeAlcance } from '../../lib/alcance/alcance.types.js';
+import { assertPersonaEnAlcance, RELACION_ACTIVA } from '../../lib/alcance/alcance.where.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
-import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import {
+  assertFechaFallecimientoValida,
+  assertFechaInicioPosteriorANacimiento,
+} from './validaciones-fechas.js';
+import { assertCamposDelTipo, assertGradoCoherenteConTipo } from './coherencia-tipo-funcionario.js';
 import {
   guardarLegajoEnTransaccion,
 } from './legajo-militar.service.js';
@@ -22,12 +25,21 @@ import {
   esMutado,
 } from './legajo-militar.constants.js';
 import { CierreCarreraService } from '../retiros/cierre-carrera.service.js';
+import { DerechaService } from '../derecha/derecha.service.js';
+import { pertenenciaActiva, personaPuedeIntegrar } from '../comisiones/pertenencias.js';
+import {
+  INCLUDE_DOCUMENTOS,
+  SELECT_DOCUMENTO,
+  documentosDe,
+} from '../archivos/documentos-de-registro.js';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 @Injectable()
 export class PersonalPerfilService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cierre: CierreCarreraService,
+    private readonly derecha: DerechaService,
   ) {}
 
   // ─── GET /personas/:id ────────────────────────────────────────────────────
@@ -53,6 +65,9 @@ export class PersonalPerfilService {
         etnia: true,
         codigo_postal: true,
         seccional: true,
+        foto_archivo_id: true,
+        credencial_civica: true,
+        nivel_idoneidad: true,
         es_civil: true,
         legajo_militar: {
           select: {
@@ -73,11 +88,15 @@ export class PersonalPerfilService {
             fecha_ascenso_oficial: true,
             mutaciones: true,
             estado: true,
+            derecha: true,
+            numor: true,
+            escala_derecha: true,
             tipo_funcionario: true,
             prima_tecnica: true,
             prima_solidaria_familiar: true,
             tiene_mando: true,
             observaciones: true,
+            codigos_legajo: true,
             grados: { select: { id: true, denominacion: true, codigo: true } },
             unidades: { select: { id: true, denominacion: true, codigo: true } },
             situaciones: { select: { id: true, denominacion: true, codigo: true } },
@@ -105,6 +124,7 @@ export class PersonalPerfilService {
       segundo_apellido: persona.segundo_apellido,
       nombre_completo: [persona.primer_nombre, persona.segundo_nombre, persona.primer_apellido, persona.segundo_apellido]
         .filter(Boolean).join(' '),
+      foto_id: persona.foto_archivo_id,
       fecha_nacimiento: persona.fecha_nacimiento,
       email: persona.email,
       telefono: persona.telefono,
@@ -115,6 +135,8 @@ export class PersonalPerfilService {
       etnia: persona.etnia,
       codigo_postal: persona.codigo_postal,
       seccional: persona.seccional,
+      credencial_civica: persona.credencial_civica,
+      nivel_idoneidad: persona.nivel_idoneidad,
       es_civil: persona.es_civil,
       legajo_militar: {
         nivel_educativo: nivelEducativo,
@@ -135,11 +157,15 @@ export class PersonalPerfilService {
         fecha_ascenso_oficial: rel.fecha_ascenso_oficial,
         mutaciones: rel.mutaciones,
         estado: rel.estado,
+        derecha: rel.derecha,
+        numor: rel.numor,
+        escala_derecha: rel.escala_derecha,
         tipo_funcionario: rel.tipo_funcionario,
         prima_tecnica: rel.prima_tecnica,
         prima_solidaria_familiar: rel.prima_solidaria_familiar,
         tiene_mando: rel.tiene_mando,
         observaciones: rel.observaciones,
+        codigos_legajo: rel.codigos_legajo,
         grado: rel.grados ? { id: Number(rel.grados.id), denominacion: rel.grados.denominacion, codigo: rel.grados.codigo } : null,
         unidad: rel.unidades ? { id: Number(rel.unidades.id), denominacion: rel.unidades.denominacion, codigo: rel.unidades.codigo } : null,
         situacion: rel.situaciones ? { id: Number(rel.situaciones.id), denominacion: rel.situaciones.denominacion, codigo: rel.situaciones.codigo } : null,
@@ -182,6 +208,7 @@ export class PersonalPerfilService {
         select: {
           grados: { select: { denominacion: true } },
           unidades: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
         },
       },
     };
@@ -216,6 +243,7 @@ export class PersonalPerfilService {
         tipo_relacion: tipoRelacion,
         grado: rel?.grados?.denominacion ?? null,
         unidad: rel?.unidades?.denominacion ?? null,
+        sub_unidad: rel?.sub_unidades?.denominacion ?? null,
       };
     });
   }
@@ -244,6 +272,57 @@ export class PersonalPerfilService {
     }
   }
 
+  // ─── GET /personas/familiares/candidatos ──────────────────────────────────
+  /**
+   * Personas que se pueden vincular como familiar: militares en actividad y civiles.
+   * Respeta el mismo alcance que el listado: con alcance de unidad, solo los militares de sus
+   * bases; los civiles no tienen base, así que solo los ve quien tiene alcance global.
+   */
+  async buscarCandidatosFamiliar(search: string, excluirId?: number, alcance?: AlcanceResuelto) {
+    const bases = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+
+    const militares = {
+      relaciones_laborales: {
+        some: { ...RELACION_ACTIVA, ...(bases !== null && { sub_unidad_id: { in: bases } }) },
+      },
+    };
+    const quienes = bases === null ? { OR: [militares, { es_civil: true }] } : militares;
+
+    const personas = await this.prisma.personas.findMany({
+      where: {
+        AND: [
+          quienes,
+          ...(excluirId ? [{ id: { not: BigInt(excluirId) } }] : []),
+          ...(whereBusqueda(search, CAMPOS_PERSONA)?.AND ?? []),
+        ],
+      },
+      orderBy: [{ primer_apellido: 'asc' }, { primer_nombre: 'asc' }],
+      take: 10,
+      select: {
+        id: true,
+        cedula: true,
+        primer_nombre: true,
+        segundo_nombre: true,
+        primer_apellido: true,
+        segundo_apellido: true,
+        es_civil: true,
+        relaciones_laborales: {
+          where: RELACION_ACTIVA,
+          take: 1,
+          select: { grados: { select: { denominacion: true } } },
+        },
+      },
+    });
+
+    return personas.map((p) => ({
+      id: String(p.id),
+      cedula: p.cedula,
+      nombre: [p.primer_nombre, p.segundo_nombre, p.primer_apellido, p.segundo_apellido].filter(Boolean).join(' '),
+      es_civil: !!p.es_civil,
+      grado: p.relaciones_laborales[0]?.grados?.denominacion ?? null,
+    }));
+  }
+
   // ─── POST /personas/:id/familiares ────────────────────────────────────────
   async addFamiliar(id: number, dto: FamiliarDto, alcance?: AlcanceResuelto) {
     await this.assertAlcance(id, alcance);
@@ -254,7 +333,6 @@ export class PersonalPerfilService {
       select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true, es_civil: true },
     });
     if (!familiar) throw new BadRequestException(`No existe ningún personal registrado con cédula ${dto.cedula}`);
-    if (familiar.es_civil) throw new BadRequestException(`El familiar con cédula ${dto.cedula} es civil. Debe ser un oficial o subalterno`);
     if (Number(familiar.id) === id) throw new BadRequestException('Una persona no puede ser familiar de sí misma');
 
     const yaVinculados = await this.prisma.relaciones_familiares.findFirst({
@@ -438,6 +516,7 @@ export class PersonalPerfilService {
       where: { persona_id: BigInt(id) },
       orderBy: { fecha_inicio: 'desc' },
       select: {
+        id: true,
         numero_orden: true,
         boletin: true,
         fecha_inicio: true,
@@ -453,10 +532,13 @@ export class PersonalPerfilService {
             es_obligatorio: true,
           },
         },
+        archivo_orden: { select: SELECT_DOCUMENTO },
+        archivo_boletin: { select: SELECT_DOCUMENTO },
       },
     });
 
     return registros.map((r) => ({
+      id: r.id.toString(),
       curso_id: Number(r.cursos.id),
       nombre_curso: r.cursos.nombre_curso,
       institucion: r.cursos.institucion,
@@ -470,6 +552,7 @@ export class PersonalPerfilService {
       calificacion: r.calificacion,
       observacion: r.observacion_calificacion,
       completado: r.fecha_fin != null,
+      documentos: documentosDe(r),
     }));
   }
 
@@ -487,13 +570,16 @@ export class PersonalPerfilService {
             misiones: {
               select: { id: true, nombre_mision: true, pais: true },
             },
+            ...INCLUDE_DOCUMENTOS,
           },
         },
+        ...INCLUDE_DOCUMENTOS,
       },
       orderBy: { convocatorias: { fecha_salida: 'desc' } },
     });
 
     return registros.map((r) => ({
+      id: r.id.toString(),
       mision_id: r.convocatorias.misiones.id.toString(),
       convocatoria_id: r.convocatoria_id.toString(),
       nombre_mision: r.convocatorias.misiones.nombre_mision,
@@ -509,27 +595,36 @@ export class PersonalPerfilService {
       finalizada:
         r.convocatorias.fecha_llegada !== null &&
         r.convocatorias.fecha_llegada <= new Date(),
+      documentos: documentosDe(r),
+      documentos_convocatoria: documentosDe(r.convocatorias),
     }));
   }
 
   // ─── GET /personas/:id/destinos ───────────────────────────────────────────
-  async findDestinos(id: number) {
+  async findDestinos(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
     await this.assertExiste(id);
 
     const asignaciones = await this.prisma.destinos.findMany({
       where: { persona_id: BigInt(id) },
       include: {
-        unidades: { select: { id: true, codigo: true, denominacion: true, tipo: true } },
+        unidades: { select: { id: true, codigo: true, denominacion: true } },
+        sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
+        ...INCLUDE_DOCUMENTOS,
       },
       orderBy: { fecha_inicio: 'desc' },
     });
 
+    // `unidad` es el comando; el destino propiamente dicho es la sub-unidad (null en
+    // históricos cargados antes de que el destino la guardara).
     return asignaciones.map((a) => ({
       id: a.id.toString(),
       unidad_id: a.unidad_id ? a.unidad_id.toString() : null,
       unidad: a.unidades?.denominacion ?? null,
       codigo_unidad: a.unidades?.codigo ?? null,
-      tipo_unidad: a.unidades?.tipo ?? null,
+      sub_unidad_id: a.sub_unidad_id ? a.sub_unidad_id.toString() : null,
+      sub_unidad: a.sub_unidades?.denominacion ?? null,
+      codigo_sub_unidad: a.sub_unidades?.codigo ?? null,
       posicion_destino: a.posicion_destino,
       fecha_inicio: a.fecha_inicio ? a.fecha_inicio.toISOString().split('T')[0] : null,
       fecha_fin: a.fecha_fin ? a.fecha_fin.toISOString().split('T')[0] : null,
@@ -537,6 +632,35 @@ export class PersonalPerfilService {
       boletin: a.boletin,
       observaciones: a.observaciones,
       activo: a.fecha_fin == null,
+      documentos: documentosDe(a),
+    }));
+  }
+
+  async findComisiones(id: number, alcance?: AlcanceResuelto) {
+    await this.assertAlcance(id, alcance);
+    await this.assertExiste(id);
+    const asignaciones = await this.prisma.asignaciones_comision.findMany({
+      where: { persona_id: BigInt(id) },
+      include: {
+        comisiones: { select: { denominacion: true } },
+        relaciones_laborales: { select: { fecha_inicio: true, fecha_fin: true } },
+        personas: { select: { retiros: { select: { anulado: true } }, relaciones_laborales: { select: { fecha_fin: true } } } },
+      },
+      orderBy: [{ fecha_inicio: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }],
+    });
+    const fecha = (d: Date | null | undefined) => d?.toISOString().slice(0, 10) ?? null;
+    return asignaciones.map(a => ({
+      id: a.id, comision_id: a.comision_id, comision: a.comisiones.denominacion,
+      cargo: a.cargo,
+      fecha_inicio: fecha(a.fecha_inicio),
+      fecha_fin: fecha(a.fecha_fin),
+      numero_orden: a.numero_orden, boletin: a.boletin,
+      // Una importada sin fecha de fin sigue abierta solo mientras siga abierto su período.
+      activo: pertenenciaActiva(a) && personaPuedeIntegrar(a.personas),
+      importada: a.importada, texto_original: a.texto_original,
+      periodo: a.relaciones_laborales
+        ? { fecha_inicio: fecha(a.relaciones_laborales.fecha_inicio), fecha_fin: fecha(a.relaciones_laborales.fecha_fin) }
+        : null,
     }));
   }
 
@@ -546,6 +670,7 @@ export class PersonalPerfilService {
     dto: UpdatePersonalDto,
     autorId: bigint,
     alcance?: AlcanceResuelto,
+    permisos: string[] = [],
   ) {
     await this.assertAlcance(id, alcance);
 
@@ -553,23 +678,78 @@ export class PersonalPerfilService {
       where: { id: BigInt(id) },
       select: {
         id: true,
+        cedula: true,
+        es_civil: true,
         fecha_nacimiento: true,
-        relaciones_laborales: { where: { fecha_fin: null }, take: 1, select: { id: true, fecha_inicio: true } },
+        relaciones_laborales: {
+          where: { fecha_fin: null },
+          take: 1,
+          select: {
+            id: true,
+            fecha_inicio: true,
+            grado_id: true,
+            escalafon_id: true,
+            situacion_id: true,
+            derecha: true,
+            numor: true,
+            tipo_funcionario: true,
+          },
+        },
       },
     });
     if (!persona) throw new NotFoundException(`No existe personal con id ${id}`);
 
     const relacionActiva = persona.relaciones_laborales[0];
 
-    // Con alcance de unidad no se puede mover personal fuera de la propia unidad: seria una via
-    // para sacarse gente de encima o para apropiarse de personal ajeno.
-    if (alcance && dto.unidad_id) {
-      const unidadPropia = unidadIdDeAlcance(alcance);
-      if (unidadPropia !== null && dto.unidad_id.toString() !== unidadPropia.toString()) {
-        throw new BadRequestException(
-          'No podes cambiar el destino de un funcionario a otra unidad',
-        );
-      }
+    // La cédula identifica a la persona en todo el sistema: no puede repetirse.
+    const cambiaCedula = dto.cedula !== undefined && dto.cedula !== persona.cedula;
+    if (cambiaCedula) {
+      const otra = await this.prisma.personas.findFirst({
+        where: { cedula: dto.cedula, id: { not: BigInt(id) } },
+        select: { id: true },
+      });
+      if (otra) throw new ConflictException(`Ya existe otro personal con la cédula ${dto.cedula}`);
+    }
+
+    // El tipo de funcionario es de la relación vigente, y un civil no lo tiene.
+    const cambiaTipo =
+      dto.tipo_funcionario !== undefined && dto.tipo_funcionario !== relacionActiva?.tipo_funcionario;
+    if (cambiaTipo && (persona.es_civil || !relacionActiva)) {
+      throw new BadRequestException(
+        persona.es_civil
+          ? 'Un funcionario civil no tiene tipo de oficial o subalterno'
+          : 'Sin relación laboral vigente no hay tipo de funcionario que cambiar',
+      );
+    }
+    const tipo = (cambiaTipo ? dto.tipo_funcionario : relacionActiva?.tipo_funcionario) ?? null;
+
+    // Al cambiar de tipo, los datos del tipo anterior se borran en vez de rechazar el pedido.
+    if (cambiaTipo) {
+      if (tipo !== 'subalterno') dto.nivel_idoneidad = null;
+      if (tipo !== 'oficial') dto.codigos_legajo = null;
+    }
+
+    assertCamposDelTipo(tipo, dto);
+    const cambiaGradoPedido = !!relacionActiva && !!dto.grado_id && BigInt(dto.grado_id) !== relacionActiva.grado_id;
+    if (relacionActiva && (cambiaGradoPedido || cambiaTipo)) {
+      const grado = await this.prisma.grados.findUnique({
+        where: { id: dto.grado_id ? BigInt(dto.grado_id) : relacionActiva.grado_id },
+        select: { denominacion: true, es_oficial: true, es_subalterno: true },
+      });
+      if (grado) assertGradoCoherenteConTipo(tipo, grado);
+    }
+
+    // Editarla en el lugar no es lo que hace liquidación: cierra la relación y abre otra.
+    if (dto.situacion_id && BigInt(dto.situacion_id) !== relacionActiva?.situacion_id) {
+      throw new UnprocessableEntityException(
+        'La situación no se edita desde el perfil: usá "Cambiar situación", que pide la fecha y la orden',
+      );
+    }
+
+    const cambiaDerecha = dto.derecha !== undefined && dto.derecha !== relacionActiva?.derecha;
+    const cambiaNumor = dto.numor !== undefined && dto.numor !== relacionActiva?.numor;
+    if ((cambiaDerecha || cambiaNumor) && !permisos.includes('derecha.gestionar')) {
+      throw new ForbiddenException('No tenés el permiso para modificar la derecha ni el numor');
     }
 
     if (dto.fecha_nacimiento || dto.fecha_inicio) {
@@ -591,11 +771,22 @@ export class PersonalPerfilService {
       );
     }
 
+    if (dto.fecha_fallecimiento) {
+      assertFechaFallecimientoValida(
+        dto.fecha_fallecimiento,
+        dto.fecha_nacimiento ?? persona.fecha_nacimiento,
+        relacionActiva?.fecha_inicio,
+      );
+    }
+
     // Datos personales, relación laboral y legajo se guardan juntos o no se guarda nada.
     await this.prisma.$transaction(async (tx) => {
+      // Siempre que haya relación activa, para no chocar con la derecha en el COMMIT.
+      if (relacionActiva) await this.derecha.bloquearEnTransaccion(tx);
       await tx.personas.update({
         where: { id: BigInt(id) },
         data: {
+          ...(cambiaCedula && { cedula: dto.cedula }),
           primer_nombre: dto.primer_nombre,
           segundo_nombre: dto.segundo_nombre,
           primer_apellido: dto.primer_apellido,
@@ -610,36 +801,83 @@ export class PersonalPerfilService {
           etnia: dto.etnia,
           codigo_postal: dto.codigo_postal,
           seccional: dto.seccional,
+          ...(dto.credencial_civica !== undefined && {
+            credencial_civica: dto.credencial_civica ?? null,
+          }),
+          ...(dto.nivel_idoneidad !== undefined && {
+            nivel_idoneidad: dto.nivel_idoneidad ?? null,
+          }),
           ...(dto.fecha_fallecimiento !== undefined && {
-            fecha_fallecimiento: new Date(dto.fecha_fallecimiento),
+            // null borra la fecha (new Date(null) daba 1970-01-01).
+            fecha_fallecimiento: dto.fecha_fallecimiento ? new Date(dto.fecha_fallecimiento) : null,
           }),
         },
       });
 
       const tocaRelacion =
-        dto.fecha_inicio || dto.grado_id || dto.unidad_id || dto.situacion_id || dto.regimen_id ||
-        dto.programa_id || dto.escalafon_id || dto.sub_unidad_id !== undefined ||
+        dto.fecha_inicio || dto.grado_id || dto.situacion_id || dto.regimen_id ||
+        dto.programa_id || dto.escalafon_id ||
         dto.prima_tecnica !== undefined || dto.tiene_mando !== undefined ||
-        dto.observaciones_laborales !== undefined || dto.mutaciones !== undefined;
+        dto.observaciones_laborales !== undefined || dto.mutaciones !== undefined ||
+        dto.codigos_legajo !== undefined || cambiaTipo;
+
+      // La derecha se mueve antes de cambiar la relación: el servicio parte de su ubicación actual.
+      const cambiaGrado = relacionActiva && dto.grado_id && BigInt(dto.grado_id) !== relacionActiva.grado_id;
+      const cambiaEscalafon =
+        relacionActiva && dto.escalafon_id && BigInt(dto.escalafon_id) !== relacionActiva.escalafon_id;
+      const ctxDerecha = { motivo: 'Edición del legajo', usuarioId: autorId };
+      if (cambiaGrado) {
+        await this.derecha.ascenderEnTransaccion(
+          tx,
+          BigInt(id),
+          BigInt(dto.grado_id!),
+          { escalafonDestinoId: cambiaEscalafon ? BigInt(dto.escalafon_id!) : null },
+          ctxDerecha,
+        );
+      } else if (cambiaEscalafon) {
+        const conDerecha = await tx.relaciones_laborales.count({
+          where: { id: relacionActiva!.id, derecha: { not: null } },
+        });
+        if (conDerecha > 0) {
+          await this.derecha.cambiarEscalafonEnTransaccion(
+            tx,
+            BigInt(id),
+            BigInt(dto.escalafon_id!),
+            null,
+            ctxDerecha,
+          );
+        }
+      }
 
       if (relacionActiva && tocaRelacion) {
         await tx.relaciones_laborales.update({
           where: { id: relacionActiva.id },
           data: {
+            ...(cambiaTipo && { tipo_funcionario: dto.tipo_funcionario }),
             ...(dto.fecha_inicio && { fecha_inicio: new Date(dto.fecha_inicio) }),
             ...(dto.grado_id && { grado_id: BigInt(dto.grado_id) }),
-            ...(dto.unidad_id && { unidad_id: BigInt(dto.unidad_id) }),
-            ...(dto.situacion_id && { situacion_id: BigInt(dto.situacion_id) }),
             ...(dto.regimen_id && { regimen_id: BigInt(dto.regimen_id) }),
             ...(dto.programa_id && { programa_id: BigInt(dto.programa_id) }),
             ...(dto.escalafon_id && { escalafon_id: BigInt(dto.escalafon_id) }),
-            ...(dto.sub_unidad_id !== undefined && { sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : null }),
             ...(dto.prima_tecnica !== undefined && { prima_tecnica: dto.prima_tecnica }),
             ...(dto.tiene_mando !== undefined && { tiene_mando: dto.tiene_mando }),
             ...(dto.observaciones_laborales !== undefined && { observaciones: dto.observaciones_laborales }),
             ...(dto.mutaciones !== undefined && { mutaciones: dto.mutaciones ?? null }),
+            ...(dto.codigos_legajo !== undefined && { codigos_legajo: dto.codigos_legajo ?? null }),
           },
         });
+      }
+
+      if (cambiaDerecha || cambiaNumor) {
+        await this.derecha.moverAValoresEnTransaccion(
+          tx,
+          BigInt(id),
+          {
+            derecha: cambiaDerecha ? dto.derecha : null,
+            numor: cambiaNumor ? dto.numor : null,
+          },
+          { motivo: dto.motivo_derecha, usuarioId: autorId },
+        );
       }
 
       await guardarLegajoEnTransaccion(tx, BigInt(id), dto);

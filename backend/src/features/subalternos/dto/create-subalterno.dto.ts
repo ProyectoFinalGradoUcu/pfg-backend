@@ -80,9 +80,13 @@ export class CreateSubalternoDto {
   @IsInt()
   regimen_id: number;
 
-  @ApiProperty({ example: 1 })
+  @ApiPropertyOptional({
+    example: 1,
+    description: 'Comando. Se toma de la base; si se manda, tiene que coincidir.',
+  })
+  @IsOptional()
   @IsInt()
-  unidad_id: number;
+  unidad_id?: number;
 
   @ApiProperty({ example: 1 })
   @IsInt()
@@ -104,10 +108,9 @@ export class CreateSubalternoDto {
   @IsDateString()
   fecha_inicio: string;
 
-  @ApiPropertyOptional({ example: 2 })
-  @IsOptional()
+  @ApiProperty({ example: 2, description: 'Base (sub-unidad) del funcionario.' })
   @IsInt()
-  sub_unidad_id?: number;
+  sub_unidad_id: number;
 
   @ApiPropertyOptional({ example: 'Sin observaciones' })
   @IsOptional()

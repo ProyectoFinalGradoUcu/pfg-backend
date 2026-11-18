@@ -18,6 +18,12 @@ export interface AuditarOptions {
    * catálogo y la respuesta ya trae los datos.
    */
   incluirRespuesta?: boolean;
+  /**
+   * El service registra el evento a mano con `AuditoriaService.registrar` y el
+   * interceptor no hace nada. Para cuando el evento necesita el estado anterior
+   * o va un registro por afectado, cosas que el interceptor no ve.
+   */
+  registroManual?: boolean;
 }
 
 /**

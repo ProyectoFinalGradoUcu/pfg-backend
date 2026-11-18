@@ -79,6 +79,42 @@ model aguinaldos {
   @@unique([persona_id, anio, semestre])
 }
 
+/// Registro central de los objetos guardados en MinIO. Tabla NUESTRA: la crea
+/// migration_archivos.sql. `documentos` (de liquidación) guarda rutas de disco y
+/// queda sin tocar.
+model archivos {
+  id                                        BigInt     @id @default(autoincrement())
+  bucket                                    String     @db.VarChar(63)
+  object_key                                String     @db.VarChar(500)
+  nombre_original                           String     @db.VarChar(255)
+  content_type                              String     @db.VarChar(100)
+  tamanio_bytes                             BigInt
+  sha256                                    String     @db.Char(64)
+  subido_por                                BigInt?
+  subido_en                                 DateTime   @default(now()) @db.Timestamp(6)
+  eliminado_en                              DateTime?  @db.Timestamp(6)
+  eliminado_por                             BigInt?
+  usuarios_archivos_subido_porTousuarios    usuarios?  @relation("archivos_subido_porTousuarios", fields: [subido_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_archivos_eliminado_porTousuarios usuarios?  @relation("archivos_eliminado_porTousuarios", fields: [eliminado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destinos_orden   destinos[] @relation("destinos_archivo_orden")
+  destinos_boletin destinos[] @relation("destinos_archivo_boletin")
+  convocatorias_orden   convocatorias[] @relation("convocatorias_archivo_orden")
+  convocatorias_boletin convocatorias[] @relation("convocatorias_archivo_boletin")
+  funcionarios_convocatorias_orden   funcionarios_convocatorias[] @relation("funcionarios_convocatorias_archivo_orden")
+  funcionarios_convocatorias_boletin funcionarios_convocatorias[] @relation("funcionarios_convocatorias_archivo_boletin")
+  ascensos_ordenes_orden   ascensos_ordenes[] @relation("ascensos_ordenes_archivo_orden")
+  ascensos_ordenes_boletin ascensos_ordenes[] @relation("ascensos_ordenes_archivo_boletin")
+  funcionarios_cursos_orden   funcionarios_cursos[] @relation("funcionarios_cursos_archivo_orden")
+  funcionarios_cursos_boletin funcionarios_cursos[] @relation("funcionarios_cursos_archivo_boletin")
+  personas_documentos                       personas_documentos?
+  retiros_orden                             retiros[]  @relation("retiros_archivo_orden")
+  retiros_boletin                           retiros[]  @relation("retiros_archivo_boletin")
+  personas_foto                             personas[]  @relation("personas_foto_archivo")
+
+  @@unique([bucket, object_key], map: "ux_archivos_object_key")
+  @@index([sha256], map: "ix_archivos_sha256")
+}
+
 /// Historial de ascensos. Tabla NUESTRA: liquidación no la lee.
 /// Las columnas a partir de `orden_ascenso_id` las agrega migration_ascensos.sql.
 model ascensos {
@@ -132,6 +168,10 @@ model ascensos_ordenes {
   ascensos          ascensos[]
   usuario_creacion  usuarios?  @relation("ascensos_ordenes_creada_por", fields: [creada_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuario_anulacion usuarios?  @relation("ascensos_ordenes_anulada_por", fields: [anulada_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("ascensos_ordenes_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("ascensos_ordenes_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([fecha_orden(sort: Desc)], map: "idx_ascensos_ordenes_fecha")
   @@index([numero_orden], map: "idx_ascensos_ordenes_numero")
@@ -210,16 +250,57 @@ model destinos {
   id               BigInt    @id @default(autoincrement())
   persona_id       BigInt?
   unidad_id        BigInt?
+  /// Dónde revista (B.A.I., E.M.A., ...). `unidad_id` es su comando. Ver migration_destinos_sub_unidad.sql.
+  sub_unidad_id    BigInt?
   fecha_inicio     DateTime? @db.Date
   fecha_fin        DateTime? @db.Date
   posicion_destino String?   @db.VarChar(200)
   numero_orden     String?   @db.VarChar(50)
   boletin          String?   @db.VarChar(50)
+  numero_destino   String?   @db.VarChar(20)
+  fecha_orden      DateTime? @db.Date
+  fecha_boletin    DateTime? @db.Date
+  numero_resolucion String?  @db.VarChar(50)
+  fecha_resolucion DateTime? @db.Date
   observaciones    String?
   unidades         unidades? @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades     sub_unidades? @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   personas         personas? @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("destinos_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("destinos_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([unidad_id], map: "idx_destinos_unidad")
+  @@index([sub_unidad_id], map: "idx_destinos_sub_unidad")
+}
+
+model comisiones {
+  id BigInt @id @default(autoincrement())
+  denominacion String @db.VarChar(200)
+  vigente Boolean @default(true)
+  asignaciones_comision asignaciones_comision[]
+}
+
+model asignaciones_comision {
+  id BigInt @id @default(autoincrement())
+  cargo String? @db.VarChar(200)
+  persona_id BigInt
+  comision_id BigInt
+  fecha_inicio DateTime? @db.Date
+  fecha_fin DateTime? @db.Date
+  numero_orden String? @db.VarChar(50)
+  boletin String? @db.VarChar(50)
+  importada Boolean @default(false)
+  relacion_laboral_id BigInt?
+  texto_original String?
+  personas personas @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  comisiones comisiones @relation(fields: [comision_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  relaciones_laborales relaciones_laborales? @relation(fields: [relacion_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id], map: "idx_asignaciones_comision_persona")
+  @@index([comision_id], map: "idx_asignaciones_comision_comision")
+  @@index([relacion_laboral_id], map: "idx_asignaciones_comision_relacion")
 }
 
 model bancos {
@@ -323,8 +404,12 @@ model sub_unidades {
   codigo               String                 @db.VarChar(30)
   denominacion         String                 @db.VarChar(150)
   vigente              Boolean                @default(true)
-  relaciones_laborales relaciones_laborales[]
-  unidades             unidades               @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  relaciones_laborales  relaciones_laborales[]
+  destinos              destinos[]
+  cursos                cursos[]
+  sub_unidades_roles    sub_unidades_roles[]
+  usuarios_sub_unidades usuarios_sub_unidades[]
+  unidades              unidades                @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([unidad_id, codigo])
 }
@@ -395,12 +480,15 @@ model cursos {
   institucion         String?               @db.VarChar(200)
   es_obligatorio      Boolean               @default(true)
   unidad_id           BigInt?
+  sub_unidad_id       BigInt?
   unidades            unidades?             @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades        sub_unidades?         @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   funcionarios_cursos funcionarios_cursos[]
   modulos_curso       modulos_curso[]
   requisitos_ascenso  ascensos_reglas_requisito_cursos[]
 
   @@index([unidad_id], map: "idx_cursos_unidad")
+  @@index([sub_unidad_id], map: "idx_cursos_sub_unidad")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -455,6 +543,7 @@ model escalafones {
   grados                grados[]
   relaciones_laborales  relaciones_laborales[]
   tabla_permanencia     tabla_permanencia[]
+  registros_vuelo       registros_vuelo[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -516,6 +605,10 @@ model funcionarios_cursos {
   usuarios                 usuarios?                    @relation(fields: [dado_de_baja_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   personas                 personas                     @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   modulos                  funcionarios_modulos_curso[]
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("funcionarios_cursos_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("funcionarios_cursos_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([persona_id, curso_id])
 }
@@ -582,6 +675,40 @@ model grados {
   relaciones_laborales_relaciones_laborales_grado_reincorporacion_idTogrados                 relaciones_laborales[]              @relation("relaciones_laborales_grado_reincorporacion_idTogrados")
   remuneraciones_grado                                                                       remuneraciones_grado[]
   tabla_permanencia                                                                          tabla_permanencia[]
+  derecha_jerarquia                                                                          derecha_jerarquia_grados?
+  registros_vuelo                                                                            registros_vuelo[]
+}
+
+/// Jerarquía de grados para la derecha. Tabla NUESTRA: `grados.orden` no sirve
+/// como jerarquía y el catálogo es de liquidación. Posición 1 = mayor grado de la escala.
+model derecha_jerarquia_grados {
+  grado_id BigInt @id
+  escala   String @db.VarChar(20)
+  posicion Int    @db.SmallInt
+
+  grados grados @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([escala, posicion], map: "uq_derecha_jerarquia_escala_posicion")
+}
+
+/// Auditoría de cada cambio de derecha o numor. `lote_id` agrupa los cambios de una operación.
+model historial_derecha_numor {
+  id             BigInt   @id @default(autoincrement())
+  persona_id     BigInt
+  tipo           String   @db.VarChar(10)
+  valor_anterior Int?
+  valor_nuevo    Int?
+  operacion      String   @db.VarChar(20)
+  motivo         String?
+  usuario_id     BigInt?
+  fecha          DateTime @default(now()) @db.Timestamp(6)
+  lote_id        String   @db.Uuid
+
+  personas personas  @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios usuarios? @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id, fecha(sort: Desc)], map: "ix_historial_derecha_numor_persona")
+  @@index([lote_id], map: "ix_historial_derecha_numor_lote")
 }
 
 model historico_liquidaciones {
@@ -748,6 +875,11 @@ model misiones {
   fecha_llegada         DateTime?               @db.Date
   numero_orden          String?                 @db.VarChar(50)
   boletin               String?                 @db.VarChar(50)
+  fecha_orden           DateTime?               @db.Date
+  fecha_boletin         DateTime?               @db.Date
+  numero_resolucion     String?                 @db.VarChar(50)
+  fecha_resolucion      DateTime?               @db.Date
+  resolucion_cje        String?                 @db.VarChar(50)
   observaciones         String?
   comando_responsable   String?                 @db.VarChar(200)
   funcionarios_misiones funcionarios_misiones[]
@@ -764,6 +896,10 @@ model convocatorias {
   observaciones   String?
   misiones        misiones                     @relation(fields: [mision_id], references: [id], onDelete: Cascade)
   funcionarios    funcionarios_convocatorias[]
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("convocatorias_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("convocatorias_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model funcionarios_convocatorias {
@@ -775,6 +911,10 @@ model funcionarios_convocatorias {
   observaciones   String?
   convocatorias   convocatorias @relation(fields: [convocatoria_id], references: [id], onDelete: Cascade)
   personas        personas      @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_orden_id   BigInt?
+  archivo_boletin_id BigInt?
+  archivo_orden      archivos? @relation("funcionarios_convocatorias_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin    archivos? @relation("funcionarios_convocatorias_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([convocatoria_id, persona_id])
 }
@@ -871,13 +1011,18 @@ model personas {
   etnia                                                             String?                             @db.VarChar(50)
   estado_civil                                                      String?                             @db.VarChar(50)
   seccional                                                         String?                             @db.VarChar(100)
+  credencial_civica                                                 String?                             @db.VarChar(20)
+  nivel_idoneidad                                                   Int?                                @db.SmallInt
   foto                                                              Bytes?
+  /// migration_personas_foto.sql. La foto vive en `archivos` (MinIO); `foto` (BYTEA) no se usa.
+  foto_archivo_id                                                   BigInt?
   fecha_fallecimiento                                               DateTime?                           @db.Date
   es_civil                                                          Boolean?                            @default(false)
   aguinaldo_baja                                                    aguinaldo_baja[]
   aguinaldos                                                        aguinaldos[]
   ascensos                                                          ascensos[]
   destinos                                                          destinos[]
+  asignaciones_comision                                             asignaciones_comision[]
   beneficios_sociales                                               beneficios_sociales[]
   compensaciones_diferencia_ascenso                                 compensaciones_diferencia_ascenso[]
   comp_personal_048018                                              comp_personal_048018[]
@@ -898,6 +1043,7 @@ model personas {
   items_lote_compensacion                                           items_lote_compensacion[]
   novedades_periodo                                                 novedades_periodo[]
   ocupaciones_vivienda                                              ocupaciones_vivienda[]
+  personas_documentos                                               personas_documentos[]
   relaciones_familiares_relaciones_familiares_familiar_idTopersonas relaciones_familiares[]             @relation("relaciones_familiares_familiar_idTopersonas")
   relaciones_familiares_relaciones_familiares_persona_idTopersonas  relaciones_familiares[]             @relation("relaciones_familiares_persona_idTopersonas")
   relaciones_laborales                                              relaciones_laborales[]
@@ -906,6 +1052,23 @@ model personas {
   retroactividades                                                  retroactividades[]
   invitaciones                                                      invitaciones[]
   usuarios                                                          usuarios[]
+  historial_derecha_numor                                           historial_derecha_numor[]
+  registros_vuelo                                                   registros_vuelo[]
+  historial_unidad_vuelo                                            historial_unidad_vuelo[]
+  foto_archivo                                                      archivos?                           @relation("personas_foto_archivo", fields: [foto_archivo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// Documentación libre de un funcionario (cédula, escaneos). Tabla NUESTRA: la crea
+/// migration_archivos.sql. Activo = su archivo no tiene `eliminado_en`.
+model personas_documentos {
+  id          BigInt   @id @default(autoincrement())
+  persona_id  BigInt
+  archivo_id  BigInt   @unique
+  descripcion String?  @db.VarChar(200)
+  personas    personas @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivos    archivos @relation(fields: [archivo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id], map: "ix_personas_documentos_persona")
 }
 
 model programas {
@@ -984,11 +1147,16 @@ model relaciones_laborales {
   anios_servicio_anterior                                      Int                                 @default(0) @db.SmallInt
   categoria_viatico                                            Int                                 @default(0) @db.SmallInt
   usa_fonasa                                                   Boolean                             @default(false)
+  derecha                                                      Int?
+  numor                                                        Int?
+  escala_derecha                                               String?                             @db.VarChar(20)
+  codigos_legajo                                               String?                             @db.VarChar(20)
   compensaciones_diferencia_ascenso                            compensaciones_diferencia_ascenso[]
   ascensos_como_relacion_anterior                              ascensos[]                          @relation("ascensos_relacion_anterior")
   ascensos_como_relacion_nueva                                 ascensos[]                          @relation("ascensos_relacion_nueva")
   items_liquidacion                                            items_liquidacion[]
   movimientos_laborales                                        movimientos_laborales[]
+  asignaciones_comision                                        asignaciones_comision[]
   escalafones                                                  escalafones                         @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   grados                                                       grados                              @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   grados_relaciones_laborales_grado_reincorporacion_idTogrados grados?                             @relation("relaciones_laborales_grado_reincorporacion_idTogrados", fields: [grado_reincorporacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1043,12 +1211,16 @@ model retiros {
   motivo_anulacion      String?
   fecha_anulacion       DateTime?              @db.Timestamptz(6)
   anulado_por           BigInt?
+  archivo_orden_id      BigInt?
+  archivo_boletin_id    BigInt?
   personas              personas               @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   relaciones_laborales  relaciones_laborales   @relation(fields: [relacion_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   motivos_baja          motivos_baja           @relation(fields: [motivo_baja_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   movimientos_laborales movimientos_laborales? @relation(fields: [movimiento_laboral_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_registro     usuarios?              @relation("retiros_registrado_por", fields: [registrado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_anulacion    usuarios?              @relation("retiros_anulado_por", fields: [anulado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_orden         archivos?              @relation("retiros_archivo_orden", fields: [archivo_orden_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  archivo_boletin       archivos?              @relation("retiros_archivo_boletin", fields: [archivo_boletin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([persona_id], map: "idx_retiros_persona")
   @@index([fecha_retiro], map: "idx_retiros_fecha")
@@ -1085,9 +1257,9 @@ model roles {
   nombre         String           @db.VarChar(60)
   descripcion    String?          @db.VarChar(200)
   aplicacion     String           @default("liquidacion") @db.VarChar(20)
-  roles_permisos roles_permisos[]
-  unidades_roles unidades_roles[]
-  usuarios_roles usuarios_roles[]
+  roles_permisos     roles_permisos[]
+  sub_unidades_roles sub_unidades_roles[]
+  usuarios_roles     usuarios_roles[]
 
   @@unique([nombre, aplicacion])
 }
@@ -1196,6 +1368,7 @@ model tipos_movimiento {
   id                    BigInt                  @id @default(autoincrement())
   nombre                String                  @unique(map: "uq_tipos_movimiento_nombre") @db.VarChar(100)
   es_alta               Boolean
+  marca                 String?                 @db.VarChar(10)
   movimientos_laborales movimientos_laborales[]
 }
 
@@ -1210,28 +1383,26 @@ model unidades {
   items_lote_compensacion items_lote_compensacion[]
   relaciones_laborales    relaciones_laborales[]
   sub_unidades            sub_unidades[]
-  unidades_roles          unidades_roles[]
-  usuarios_unidades       usuarios_unidades[]
 }
 
-model unidades_roles {
-  unidad_id BigInt
-  rol_id    BigInt
-  roles     roles    @relation(fields: [rol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  unidades  unidades @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+model sub_unidades_roles {
+  sub_unidad_id BigInt
+  rol_id        BigInt
+  roles         roles        @relation(fields: [rol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades  sub_unidades @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@id([unidad_id, rol_id])
-  @@index([rol_id], map: "idx_unidades_roles_rol")
+  @@id([sub_unidad_id, rol_id])
+  @@index([rol_id], map: "idx_sub_unidades_roles_rol")
 }
 
-model usuarios_unidades {
-  usuario_id BigInt
-  unidad_id  BigInt
-  usuarios   usuarios @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  unidades   unidades @relation(fields: [unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+model usuarios_sub_unidades {
+  usuario_id    BigInt
+  sub_unidad_id BigInt
+  usuarios      usuarios     @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_unidades  sub_unidades @relation(fields: [sub_unidad_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@id([usuario_id, unidad_id])
-  @@index([unidad_id], map: "idx_usuarios_unidades_unidad")
+  @@id([usuario_id, sub_unidad_id])
+  @@index([sub_unidad_id], map: "idx_usuarios_sub_unidades_sub_unidad")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1246,6 +1417,8 @@ model usuarios {
   fecha_actualizacion                                                        DateTime                         @default(now()) @db.Timestamp(6)
   aplicacion                                                                 String                           @default("liquidacion") @db.VarChar(20)
   sesiones_invalidas_desde                                                   DateTime?                        @db.Timestamp(6)
+  archivos_archivos_subido_porTousuarios                                     archivos[]                       @relation("archivos_subido_porTousuarios")
+  archivos_archivos_eliminado_porTousuarios                                  archivos[]                       @relation("archivos_eliminado_porTousuarios")
   beneficio_social_beneficiarios                                             beneficio_social_beneficiarios[]
   beneficios_sociales                                                        beneficios_sociales[]
   bitacora_auditoria                                                         bitacora_auditoria[]
@@ -1284,9 +1457,13 @@ model usuarios {
   ascensos_reglas_actualizadas                                               ascensos_reglas[]                @relation("ascensos_reglas_actualizado_por")
   personas                                                                   personas?                        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuarios_roles                                                             usuarios_roles[]
-  usuarios_unidades                                                          usuarios_unidades[]
+  usuarios_sub_unidades                                                      usuarios_sub_unidades[]
   retiros_registrados                                                        retiros[]                        @relation("retiros_registrado_por")
   retiros_anulados                                                           retiros[]                        @relation("retiros_anulado_por")
+  historial_derecha_numor                                                    historial_derecha_numor[]
+  periodos_vuelo                                                             periodos_vuelo[]
+  registros_vuelo_editados                                                   registros_vuelo[]
+  historial_unidad_vuelo                                                     historial_unidad_vuelo[]
 
   @@unique([username, aplicacion])
 }
@@ -1703,4 +1880,80 @@ model tramos_sanidad_militar {
   vigente_hasta    DateTime? @db.Date
 
   @@unique([codigo_retencion, vigente_desde])
+}
+
+/// Unidades en las que vuela el personal (Esc. Aér. 5, E.V.B, …). Tabla NUESTRA: no son
+/// las `unidades` administrativas, que comparte liquidación. La crea migration_vuelos.sql.
+model unidades_vuelo {
+  id           BigInt  @id @default(autoincrement())
+  denominacion String  @db.VarChar(100)
+  vigente      Boolean @default(true)
+
+  registros_vuelo                 registros_vuelo[]
+  historial_unidad_vuelo_anterior historial_unidad_vuelo[] @relation("historial_unidad_vuelo_anterior")
+  historial_unidad_vuelo_nueva    historial_unidad_vuelo[] @relation("historial_unidad_vuelo_nueva")
+}
+
+/// Período de carga de horas de vuelo: 4 por año; el año militar es el año calendario.
+model periodos_vuelo {
+  id         BigInt   @id @default(autoincrement())
+  anio       Int      @db.SmallInt
+  numero     Int      @db.SmallInt
+  cerrado    Boolean  @default(false)
+  creado_en  DateTime @default(now()) @db.Timestamp(6)
+  usuario_id BigInt?
+
+  usuarios               usuarios?                @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  registros_vuelo        registros_vuelo[]
+  historial_unidad_vuelo historial_unidad_vuelo[]
+
+  @@unique([anio, numero], map: "uq_periodos_vuelo_anio_numero")
+}
+
+/// Horas de vuelo de una persona en un período. Grado, escalafón y categoría son los del
+/// momento en que se abrió el período. `editado_en` NULL = fila generada y nunca editada.
+model registros_vuelo {
+  id                 BigInt    @id @default(autoincrement())
+  periodo_id         BigInt
+  persona_id         BigInt
+  grado_id           BigInt?
+  escalafon_id       BigInt?
+  tipo_funcionario   String?   @db.VarChar(20)
+  unidad_vuelo_id    BigInt?
+  aeronaves          String?
+  hs_av_anio_militar Decimal   @default(0) @db.Decimal(10, 1)
+  hs_av_total        Decimal   @default(0) @db.Decimal(10, 1)
+  hs_ob_anio_militar Decimal   @default(0) @db.Decimal(10, 1)
+  hs_ob_total        Decimal   @default(0) @db.Decimal(10, 1)
+  editado_en         DateTime? @db.Timestamp(6)
+  editado_por        BigInt?
+
+  periodos_vuelo periodos_vuelo  @relation(fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  personas       personas        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grados         grados?         @relation(fields: [grado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  escalafones    escalafones?    @relation(fields: [escalafon_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidades_vuelo unidades_vuelo? @relation(fields: [unidad_vuelo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios       usuarios?       @relation(fields: [editado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([periodo_id, persona_id], map: "uq_registros_vuelo_periodo_persona")
+  @@index([persona_id], map: "ix_registros_vuelo_persona")
+}
+
+/// Cada cambio de unidad de vuelo de una persona y el período en que se hizo.
+model historial_unidad_vuelo {
+  id                 BigInt   @id @default(autoincrement())
+  persona_id         BigInt
+  periodo_id         BigInt
+  unidad_anterior_id BigInt?
+  unidad_nueva_id    BigInt?
+  usuario_id         BigInt?
+  fecha              DateTime @default(now()) @db.Timestamp(6)
+
+  personas        personas        @relation(fields: [persona_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  periodos_vuelo  periodos_vuelo  @relation(fields: [periodo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidad_anterior unidades_vuelo? @relation("historial_unidad_vuelo_anterior", fields: [unidad_anterior_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unidad_nueva    unidades_vuelo? @relation("historial_unidad_vuelo_nueva", fields: [unidad_nueva_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios        usuarios?       @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([persona_id, fecha(sort: Desc)], map: "ix_historial_unidad_vuelo_persona")
 }

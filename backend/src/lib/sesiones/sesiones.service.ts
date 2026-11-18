@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 
 /**
@@ -9,14 +10,14 @@ import { PrismaService } from '../prisma.service';
  * `JwtAuthGuard` compara ese timestamp contra el `iat` del token en cada request.
  *
  * Solo hace falta invalidar cuando cambia algo que está FIRMADO en el token: los permisos
- * efectivos o la unidad del usuario. Mover un funcionario de destino no requiere invalidar
+ * efectivos o las bases del usuario. Mover un funcionario de destino no requiere invalidar
  * nada, porque el filtrado de datos se resuelve por consulta en cada request.
  */
 @Injectable()
 export class SesionesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Un usuario puntual: cambio de roles directos o de su unidad. */
+  /** Un usuario puntual: cambio de roles directos o de sus bases. */
   async invalidarUsuario(usuarioId: bigint): Promise<void> {
     await this.prisma.usuarios.updateMany({
       where: { id: usuarioId },
@@ -24,40 +25,50 @@ export class SesionesService {
     });
   }
 
-  /** Todos los usuarios del sistema asignados a esa unidad. */
-  async invalidarPorUnidad(unidadId: bigint): Promise<void> {
+  /** Todos los usuarios del sistema asignados a esa base. */
+  async invalidarPorSubUnidad(subUnidadId: bigint): Promise<void> {
     await this.prisma.usuarios.updateMany({
-      where: { usuarios_unidades: { some: { unidad_id: unidadId } } },
+      where: { usuarios_sub_unidades: { some: { sub_unidad_id: subUnidadId } } },
       data: { sesiones_invalidas_desde: new Date() },
     });
   }
 
   /**
-   * Todos los usuarios que tienen el rol, por asignación directa O por alguna de sus unidades.
+   * Todos los usuarios que tienen el rol, por asignación directa O por alguna de sus bases.
    * Omitir la segunda rama deja sesiones con permisos viejos sin ninguna señal visible.
    */
   async invalidarPorRol(rolId: bigint): Promise<void> {
     await this.prisma.usuarios.updateMany({
-      where: {
-        OR: [
-          { usuarios_roles: { some: { rol_id: rolId } } },
-          {
-            usuarios_unidades: {
-              some: {
-                unidades: { unidades_roles: { some: { rol_id: rolId } } },
-              },
-            },
-          },
-        ],
-      },
+      where: this.usuariosConRol(rolId),
       data: { sesiones_invalidas_desde: new Date() },
     });
   }
 
-  /** Cuántos usuarios quedarían deslogueados al tocar los roles de una unidad. */
-  async contarUsuariosDeUnidad(unidadId: bigint): Promise<number> {
+  /** Cuántos usuarios quedarían deslogueados al tocar los permisos de un rol. */
+  async contarUsuariosDeRol(rolId: bigint): Promise<number> {
+    return this.prisma.usuarios.count({ where: this.usuariosConRol(rolId) });
+  }
+
+  /** Compartido entre invalidar y contar, para que el aviso nunca difiera de lo que pasa. */
+  private usuariosConRol(rolId: bigint): Prisma.usuariosWhereInput {
+    return {
+      OR: [
+        { usuarios_roles: { some: { rol_id: rolId } } },
+        {
+          usuarios_sub_unidades: {
+            some: {
+              sub_unidades: { sub_unidades_roles: { some: { rol_id: rolId } } },
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  /** Cuántos usuarios quedarían deslogueados al tocar los roles de una base. */
+  async contarUsuariosDeSubUnidad(subUnidadId: bigint): Promise<number> {
     return this.prisma.usuarios.count({
-      where: { usuarios_unidades: { some: { unidad_id: unidadId } } },
+      where: { usuarios_sub_unidades: { some: { sub_unidad_id: subUnidadId } } },
     });
   }
 }

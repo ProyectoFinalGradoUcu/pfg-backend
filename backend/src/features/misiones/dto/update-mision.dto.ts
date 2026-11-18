@@ -1,10 +1,15 @@
-import { IsString, IsOptional, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, IsDateString, ValidateIf } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+const trim = ({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value;
 
 export class UpdateMisionDto {
   @ApiPropertyOptional({ example: 'Congo (MONUSCO)', maxLength: 200 })
   @IsOptional()
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty({ message: 'El nombre de la misión no puede quedar vacío' })
   @MaxLength(200)
   nombre_mision?: string;
 
@@ -13,4 +18,50 @@ export class UpdateMisionDto {
   @IsString()
   @MaxLength(100)
   pais?: string;
+
+  @ApiPropertyOptional({ example: 'O.D. 088/2008', maxLength: 50, nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(50)
+  numero_orden?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-08-20', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDateString()
+  fecha_orden?: string | null;
+
+  @ApiPropertyOptional({ example: 'B.P. 04/2008', maxLength: 50, nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(50)
+  boletin?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-08-20', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDateString()
+  fecha_boletin?: string | null;
+
+  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50, nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(50)
+  numero_resolucion?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-08-20', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDateString()
+  fecha_resolucion?: string | null;
+
+  @ApiPropertyOptional({ example: 'R.CJE. 120/2026', maxLength: 50, nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(50)
+  resolucion_cje?: string | null;
 }

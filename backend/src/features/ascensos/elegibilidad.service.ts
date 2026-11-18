@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
 import { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 import {
@@ -16,6 +16,7 @@ import {
   ListPasiblesQueryDto,
 } from './dto/list-pasibles-query.dto.js';
 import { SimularImpactoDto } from './dto/simular-impacto.dto.js';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 const listaDeEnv = (nombre: string, porDefecto: string[]): string[] => {
   const crudo = process.env[nombre];
@@ -153,6 +154,16 @@ export class ElegibilidadService {
 
     const resultado = evaluados[0];
     if (!resultado) {
+      // El motor no evalúa a los civiles: se avisa que es civil en lugar de devolver 404.
+      const civil = await this.prisma.personas.findFirst({
+        where: { id: BigInt(personaId), es_civil: true, relaciones_laborales: { some: { fecha_fin: null } } },
+        select: { primer_nombre: true, primer_apellido: true },
+      });
+      if (civil) {
+        throw new BadRequestException(
+          `${civil.primer_nombre} ${civil.primer_apellido} es personal civil: los civiles no ascienden por la escala militar y no tienen evaluación de elegibilidad.`,
+        );
+      }
       throw new NotFoundException(
         `El funcionario ${personaId} no tiene una relación laboral vigente para evaluar`,
       );
@@ -264,7 +275,7 @@ export class ElegibilidadService {
 
   /** Una sola pasada por la nómina vigente y sus datos asociados. */
   private async cargarFuncionarios(
-    query: Pick<ListPasiblesQueryDto, 'escalafon_id' | 'grado_id' | 'unidad_id' | 'query'>,
+    query: Pick<ListPasiblesQueryDto, 'escalafon_id' | 'grado_id' | 'sub_unidad_id' | 'query' | 'categoria'>,
     alcance?: AlcanceResuelto,
     personaIds?: bigint[],
   ): Promise<DatosFuncionario[]> {
@@ -277,21 +288,20 @@ export class ElegibilidadService {
     if (personaIds?.length) where['persona_id'] = { in: personaIds };
     if (query.escalafon_id) where['escalafon_id'] = BigInt(query.escalafon_id);
     if (query.grado_id) where['grado_id'] = BigInt(query.grado_id);
-    if (query.unidad_id) where['unidad_id'] = BigInt(query.unidad_id);
+    if (query.categoria) where['tipo_funcionario'] = query.categoria;
 
+    // El filtro por base se suma al alcance: con `.unidad`, una base ajena no trae a nadie.
+    const bases: Record<string, unknown>[] = [];
+    if (query.sub_unidad_id) bases.push({ sub_unidad_id: BigInt(query.sub_unidad_id) });
     if (alcance?.tipo === 'unidad') {
-      where['unidad_id'] = { in: alcance.unidadIds.map((id) => BigInt(id)) };
+      bases.push({ sub_unidad_id: { in: alcance.subUnidadIds.map((id) => BigInt(id)) } });
     }
+    if (bases.length) where['AND'] = bases;
 
     if (query.query) {
       where['personas'] = {
         es_civil: false,
-        OR: [
-          { cedula: { contains: query.query, mode: 'insensitive' } },
-          { primer_nombre: { contains: query.query, mode: 'insensitive' } },
-          { primer_apellido: { contains: query.query, mode: 'insensitive' } },
-          { segundo_apellido: { contains: query.query, mode: 'insensitive' } },
-        ],
+        ...whereBusqueda(query.query, CAMPOS_PERSONA),
       };
     }
 
@@ -315,6 +325,7 @@ export class ElegibilidadService {
         grados: { select: { id: true, codigo: true, denominacion: true, orden: true } },
         situaciones: { select: { id: true, codigo: true, denominacion: true } },
         unidades: { select: { id: true, denominacion: true } },
+        sub_unidades: { select: { id: true, denominacion: true } },
         escalafones: { select: { id: true, denominacion: true } },
       },
     });
@@ -358,11 +369,34 @@ export class ElegibilidadService {
     }
 
     const legajoPorPersona = new Map(legajos.map((l) => [l.persona_id.toString(), l]));
-    const retiroPorPersona = new Map(
-      retiros
-        .filter((r) => r.persona_id != null)
-        .map((r) => [r.persona_id!.toString(), r]),
-    );
+
+    // El retiro que cuenta es el más reciente. Sin fecha, se toma como el más
+    // reciente: no se puede afirmar que una relación empezó después.
+    const peso = (f: Date | null) => (f ? f.getTime() : Number.POSITIVE_INFINITY);
+    const retiroPorPersona = new Map<string, { fecha_retiro: Date | null }>();
+    for (const r of retiros) {
+      if (r.persona_id == null) continue;
+      const clave = r.persona_id.toString();
+      const previo = retiroPorPersona.get(clave);
+      if (!previo || peso(r.fecha_retiro) > peso(previo.fecha_retiro)) {
+        retiroPorPersona.set(clave, r);
+      }
+    }
+
+    /**
+     * Un retiro bloquea solo si la relación activa no empieza después de él.
+     * No se mira ninguna marca de "reincorporado" (SIT16/SIT17): si se anula la
+     * reincorporación, la relación nueva desaparece y el retiro vuelve a bloquear.
+     */
+    const retiroVigente = (personaId: string, inicioRelacion: Date | null) => {
+      const retiro = retiroPorPersona.get(personaId);
+      if (!retiro) return null;
+      const reincorporado =
+        retiro.fecha_retiro != null &&
+        inicioRelacion != null &&
+        inicioRelacion > retiro.fecha_retiro;
+      return reincorporado ? null : retiro;
+    };
 
     return relaciones.map((r) => {
       const clave = r.personas.id.toString();
@@ -397,6 +431,9 @@ export class ElegibilidadService {
         unidad: r.unidades
           ? { id: r.unidades.id.toString(), denominacion: r.unidades.denominacion }
           : null,
+        sub_unidad: r.sub_unidades
+          ? { id: r.sub_unidades.id.toString(), denominacion: r.sub_unidades.denominacion }
+          : null,
         escalafon: r.escalafones
           ? { id: r.escalafones.id.toString(), denominacion: r.escalafones.denominacion }
           : null,
@@ -407,9 +444,10 @@ export class ElegibilidadService {
             }
           : null,
         cursos: cursosPorPersona.get(clave) ?? new Map(),
-        retiro: retiroPorPersona.get(clave)
-          ? { fecha_retiro: retiroPorPersona.get(clave)!.fecha_retiro }
-          : null,
+        retiro: (() => {
+          const retiro = retiroVigente(clave, r.fecha_inicio);
+          return retiro ? { fecha_retiro: retiro.fecha_retiro } : null;
+        })(),
       };
     });
   }

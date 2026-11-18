@@ -1,15 +1,17 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Borders, Workbook } from 'exceljs';
 import { PrismaService } from '../../lib/prisma.service';
+import { wherePersonasPorAlcance } from '../../lib/alcance/alcance.where';
 import { REPORTES } from './definiciones';
 import { FUENTES } from './custom';
 import { FuenteCatalogo, FuenteCustom } from './custom/fuentes.types';
 import { CustomReporteDto } from './dto/custom-reporte.dto';
 import {
   AlcanceResuelto,
-  unidadIdDeAlcance,
+  subUnidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types';
 import {
+  FILTRO_ALCANCE_BASES,
   FUENTES_CON_ALCANCE_UNIDAD,
   MENSAJE_REPORTE_SIN_ALCANCE,
   REPORTES_CON_ALCANCE_UNIDAD,
@@ -41,18 +43,18 @@ export class ReportesService {
   }
 
   /* Definición de un reporte. */
-  async obtenerDefinicion(clave: string): Promise<ReporteCatalogo> {
+  async obtenerDefinicion(clave: string, alcance?: AlcanceResuelto): Promise<ReporteCatalogo> {
     const def = this.requerir(clave);
     const parametros = await Promise.all(
-      def.parametros.map((p) => this.resolverParametro(p)),
+      def.parametros.map((p) => this.resolverParametro(p, alcance)),
     );
     const { ejecutar: _ejecutar, ...meta } = def;
     return { ...meta, parametros };
   }
 
   /**
-   * Fuerza `unidad_id` cuando el alcance es de unidad, y bloquea los reportes que no saben
-   * acotarse en vez de dejarlos devolver el padrón completo.
+   * Con alcance de unidad agrega las bases del usuario (`FILTRO_ALCANCE_BASES`) y bloquea los
+   * reportes que no saben acotarse. Si el usuario eligió una unidad en el filtro, se mantiene.
    */
   private aplicarAlcance(
     clave: string,
@@ -60,15 +62,16 @@ export class ReportesService {
     permitidos: Set<string>,
     alcance?: AlcanceResuelto,
   ): Record<string, string | undefined> {
-    if (!alcance) return filtros;
-    const unidadId = unidadIdDeAlcance(alcance);
-    if (unidadId === null) return filtros;
+    // Este filtro lo arma el backend; si viene en el pedido se ignora.
+    const { [FILTRO_ALCANCE_BASES]: _ignorado, ...propios } = filtros;
+    const bases = alcance ? subUnidadIdsDeAlcance(alcance) : null;
+    if (bases === null) return propios;
 
     if (!permitidos.has(clave)) {
       throw new ForbiddenException(MENSAJE_REPORTE_SIN_ALCANCE);
     }
 
-    return { ...filtros, unidad_id: unidadId.toString() };
+    return { ...propios, [FILTRO_ALCANCE_BASES]: bases.join(',') };
   }
 
   /* Ejecuta el reporte y devuelve los datos para mostrar en pantalla */
@@ -78,6 +81,7 @@ export class ReportesService {
     alcance?: AlcanceResuelto,
   ): Promise<ResultadoReporte> {
     const def = this.requerir(clave);
+    this.validarRequeridos(def, filtros);
     const conAlcance = this.aplicarAlcance(
       clave,
       filtros,
@@ -94,6 +98,7 @@ export class ReportesService {
     alcance?: AlcanceResuelto,
   ): Promise<{ buffer: Buffer; nombreArchivo: string }> {
     const def = this.requerir(clave);
+    this.validarRequeridos(def, filtros);
     const conAlcance = this.aplicarAlcance(
       clave,
       filtros,
@@ -105,13 +110,17 @@ export class ReportesService {
   }
 
   // Reportes personalizados.
+  private validarRequeridos(def: DefinicionReporte, filtros: Record<string, string | undefined>): void {
+    const faltante = def.parametros.find(p => p.requerido && !filtros[p.clave]?.trim());
+    if (faltante) throw new BadRequestException(`Seleccioná o completá ${faltante.etiqueta} para generar el reporte.`);
+  }
 
   /* Fuentes de información disponible para armar reportes personalizados. */
-  async listarFuentes(): Promise<FuenteCatalogo[]> {
+  async listarFuentes(alcance?: AlcanceResuelto): Promise<FuenteCatalogo[]> {
     return Promise.all(
       [...this.fuentes.values()].map(async ({ consultar: _c, ...meta }) => ({
         ...meta,
-        filtros: await Promise.all(meta.filtros.map((f) => this.resolverParametro(f))),
+        filtros: await Promise.all(meta.filtros.map((f) => this.resolverParametro(f, alcance))),
       })),
     );
   }
@@ -248,24 +257,38 @@ export class ReportesService {
     return nombre;
   }
 
-  private async resolverParametro(param: ParametroReporte): Promise<ParametroReporte> {
+  private async resolverParametro(param: ParametroReporte, alcance?: AlcanceResuelto): Promise<ParametroReporte> {
     if (!param.fuenteOpciones) return param;
-    const opciones = await this.resolverFuente(param.fuenteOpciones);
+    const opciones = await this.resolverFuente(param.fuenteOpciones, alcance);
     return { ...param, opciones };
   }
 
-  private async resolverFuente(fuente: string): Promise<OpcionParametro[]> {
+  private async resolverFuente(fuente: string, alcance?: AlcanceResuelto): Promise<OpcionParametro[]> {
+    const basesPermitidas = alcance ? subUnidadIdsDeAlcance(alcance) : null;
     switch (fuente) {
       case 'unidades': {
         const unidades = await this.prisma.unidades.findMany({
-          where: { vigente: true },
+          where: { vigente: true, ...(alcance?.tipo === 'unidad' && { id: { in: alcance.comandoIds.map(BigInt) } }) },
           select: { id: true, denominacion: true },
           orderBy: { denominacion: 'asc' },
         });
         return unidades.map((u) => ({ valor: u.id.toString(), etiqueta: u.denominacion }));
       }
+      case 'sub_unidades': {
+        // Bases vigentes, agrupadas por comando: "B.A.I. (C.A.O.)".
+        const bases = await this.prisma.sub_unidades.findMany({
+          where: { vigente: true, ...(basesPermitidas !== null && { id: { in: basesPermitidas } }) },
+          select: { id: true, denominacion: true, unidades: { select: { denominacion: true } } },
+          orderBy: [{ unidades: { denominacion: 'asc' } }, { denominacion: 'asc' }],
+        });
+        return bases.map((b) => ({
+          valor: b.id.toString(),
+          etiqueta: b.unidades ? `${b.denominacion} (${b.unidades.denominacion})` : b.denominacion,
+        }));
+      }
       case 'personas': {
         const personas = await this.prisma.personas.findMany({
+          ...(alcance && { where: wherePersonasPorAlcance(alcance) }),
           select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true },
           orderBy: [{ primer_apellido: 'asc' }, { primer_nombre: 'asc' }],
         });

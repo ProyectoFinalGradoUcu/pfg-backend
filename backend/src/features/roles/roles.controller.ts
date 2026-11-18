@@ -16,6 +16,8 @@ import { CreateRolDto } from './dto/create-rol.dto';
 import { UpdateRolDto } from './dto/update-rol.dto';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
 
 @ApiTags('Roles')
 @ApiCookieAuth('auth_token')
@@ -41,8 +43,8 @@ export class RolesController {
   @Post()
   @RequirePermissions('roles.gestionar')
   @ApiOperation({ summary: 'Crear un nuevo rol' })
-  create(@Body() dto: CreateRolDto) {
-    return this.rolesService.create(dto);
+  create(@Body() dto: CreateRolDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.rolesService.create(dto, user);
   }
 
   @Patch(':id')
@@ -67,8 +69,9 @@ export class RolesController {
   activarPermiso(
     @Param('id') id: string,
     @Param('permisoId') permisoId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.rolesService.activarPermiso(id, permisoId);
+    return this.rolesService.activarPermiso(id, permisoId, user);
   }
 
   @Delete(':id/permisos/:permisoId')

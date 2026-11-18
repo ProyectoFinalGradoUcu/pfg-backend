@@ -9,38 +9,52 @@ import {
   ArrayMinSize,
   MaxLength,
   IsIn,
+  Min,
+  IsNotEmpty,
+  IsEmail,
+  Matches,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FamiliarDto } from './familiar.dto.js';
 import { NIVELES_EDUCATIVOS } from '../legajo-militar.constants.js';
 
+// Saca los espacios del principio y del final.
+const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+
 export class CreatePersonalDto {
   // --- Datos personales (siempre requeridos) ---
 
-  @ApiProperty({ example: '12345678', maxLength: 12 })
+  @ApiProperty({ example: '12345678', description: 'Entre 6 y 9 dígitos, sin puntos ni guión' })
+  @Transform(trim)
   @IsString()
-  @MaxLength(12)
+  @Matches(/^\d{6,9}$/, { message: 'La cédula tiene que tener entre 6 y 9 dígitos, sin puntos ni guión' })
   cedula: string;
 
   @ApiProperty({ example: 'Juan', maxLength: 100 })
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty({ message: 'El primer nombre no puede quedar vacío' })
   @MaxLength(100)
   primer_nombre: string;
 
   @ApiProperty({ example: 'Pérez', maxLength: 100 })
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty({ message: 'El primer apellido no puede quedar vacío' })
   @MaxLength(100)
   primer_apellido: string;
 
   @ApiPropertyOptional({ example: 'Carlos', maxLength: 100 })
   @IsOptional()
+  @Transform(trim)
   @IsString()
   @MaxLength(100)
   segundo_nombre?: string;
 
   @ApiPropertyOptional({ example: 'García', maxLength: 100 })
   @IsOptional()
+  @Transform(trim)
   @IsString()
   @MaxLength(100)
   segundo_apellido?: string;
@@ -52,7 +66,7 @@ export class CreatePersonalDto {
 
   @ApiPropertyOptional({ example: 'juan.perez@ejemplo.com', maxLength: 150 })
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: 'El email no es válido' })
   @MaxLength(150)
   email?: string;
 
@@ -104,6 +118,22 @@ export class CreatePersonalDto {
   @MaxLength(100)
   seccional?: string;
 
+  @ApiPropertyOptional({ example: 'CC 1.234.567', maxLength: 20 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  credencial_civica?: string;
+
+  @ApiPropertyOptional({
+    example: 5,
+    enum: [3, 5, 7, 9],
+    description: 'Nivel de pericia/idoneidad otorgado por la ETA. Solo para personal subalterno.',
+  })
+  @IsOptional()
+  @IsInt()
+  @IsIn([3, 5, 7, 9])
+  nivel_idoneidad?: number;
+
   @ApiProperty({ example: false, description: 'true si es personal civil' })
   @IsBoolean()
   es_civil: boolean;
@@ -112,6 +142,16 @@ export class CreatePersonalDto {
   @IsOptional()
   @IsString()
   observaciones?: string;
+
+  @ApiPropertyOptional({
+    example: '-1-4-7-8-',
+    maxLength: 20,
+    description: 'Códigos del legajo. Solo para oficiales. Se guarda en la relación laboral.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  codigos_legajo?: string;
 
   // --- Datos laborales (requeridos solo si es_civil = false) ---
 
@@ -126,7 +166,10 @@ export class CreatePersonalDto {
   @IsInt()
   regimen_id?: number;
 
-  @ApiPropertyOptional({ example: 1 })
+  @ApiPropertyOptional({
+    example: 1,
+    description: 'Comando. Se toma de la base; si se manda, tiene que coincidir.',
+  })
   @IsOptional()
   @IsInt()
   unidad_id?: number;
@@ -167,10 +210,45 @@ export class CreatePersonalDto {
   @IsBoolean()
   tiene_mando?: boolean;
 
-  @ApiPropertyOptional({ description: 'ID de sub-unidad (opcional)' })
+  @ApiPropertyOptional({
+    example: 2,
+    description: 'Base (sub-unidad). Obligatoria para el personal militar.',
+  })
   @IsOptional()
   @IsInt()
   sub_unidad_id?: number;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: 'Posición en la derecha de su grado. Si se omite, al final. Exige el permiso derecha.gestionar.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  posicion_derecha?: number;
+
+  @ApiPropertyOptional({
+    example: 2,
+    description: 'Posición en el numor de su grado y escalafón. Si se omite, al final. Exige el permiso derecha.gestionar.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  posicion_numor?: number;
+
+  @ApiPropertyOptional({
+    example: '2022-02-01',
+    description: 'Fecha del último ascenso. Las reglas de ascenso cuentan la permanencia en el grado desde acá; si falta, usan `fecha_inicio`.',
+  })
+  @IsOptional()
+  @IsDateString()
+  fecha_ultimo_ascenso?: string;
+
+  @ApiPropertyOptional({ example: 0, description: 'Años de servicio previos que suman a la antigüedad total' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  anios_servicio_anterior?: number;
 
   // --- Legajo militar (opcional) ---
 
@@ -211,7 +289,7 @@ export class CreatePersonalDto {
 
   @ApiPropertyOptional({
     type: [FamiliarDto],
-    description: 'Lista de familiares militares asociados. Requerido si es_civil = true (mínimo uno); opcional para oficiales/subalternos.',
+    description: 'Familiares ya registrados (civiles o militares). Requerido si es_civil = true, con al menos un militar entre ellos; opcional para oficiales/subalternos.',
   })
   @IsOptional()
   @IsArray()

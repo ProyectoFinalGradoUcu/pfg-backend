@@ -10,14 +10,24 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  Res,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiCookieAuth,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CursosService } from './cursos.service';
+import { CursosCargaService } from './cursos-carga.service';
+import { archivoExcelPipe, enviarExcel } from '../../lib/carga-masiva';
+import type { ArchivoSubido } from '../../lib/carga-masiva';
 import { CursoDto } from './dto/curso.dto';
 import { ListCursosQueryDto } from './dto/list-cursos-query.dto';
 import { CreateModuloCursoDto } from './dto/create-modulo-curso.dto';
@@ -26,6 +36,7 @@ import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { CalificarDesignacionesDto } from './dto/calificar-designaciones.dto';
 import { BajaDesignacionDto } from './dto/baja-designacion.dto';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator';
 import type { AlcanceResuelto } from '../../lib/alcance/alcance.types';
@@ -38,7 +49,10 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 @Auditar({ contexto: 'Cursos', entidad: 'Curso' })
 @Controller('cursos')
 export class CursosController {
-  constructor(private readonly cursosService: CursosService) {}
+  constructor(
+    private readonly cursosService: CursosService,
+    private readonly cargaService: CursosCargaService,
+  ) {}
 
   @Post()
   @RequireAlcance('cursos.gestionar')
@@ -67,6 +81,29 @@ export class CursosController {
   @ApiResponse({ status: 200, description: 'Lista obtenida exitosamente.' })
   async getCursosPorFuncionario(@Query() query: CursosPorFuncionarioQueryDto, @Alcance() alcance: AlcanceResuelto) {
     return this.cursosService.getCursosPorFuncionario(query, alcance);
+  }
+
+  // ─── Carga masiva de historial (antes de /:id para que no la tome como id) ──
+
+  @Get('carga-masiva/plantilla')
+  @RequireAlcance('cursos.gestionar')
+  @ApiOperation({ summary: 'Descargar plantilla Excel del historial de cursos (con el catálogo como lista desplegable)' })
+  async descargarPlantillaHistorial(@Res() res: Response, @Alcance() alcance: AlcanceResuelto) {
+    enviarExcel(res, await this.cargaService.generarPlantilla(alcance), 'plantilla_historial_cursos.xlsx');
+  }
+
+  @Post('carga-masiva')
+  @RequireAlcance('cursos.gestionar')
+  @Auditar({ contexto: 'Cursos', entidad: 'Carga masiva de historial de cursos', incluirRespuesta: true })
+  @ApiOperation({ summary: 'Carga masiva del historial de cursos de los funcionarios desde Excel' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { archivo: { type: 'string', format: 'binary' } } } })
+  @UseInterceptors(FileInterceptor('archivo'))
+  cargaMasivaHistorial(
+    @UploadedFile(archivoExcelPipe()) archivo: ArchivoSubido,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.cargaService.procesarCarga(archivo.buffer, alcance);
   }
 
   @Get(':id')
@@ -110,6 +147,21 @@ export class CursosController {
     @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.cursosService.crearDesignacion(cursoId, dto, alcance);
+  }
+
+  @Patch(':cursoId/designaciones')
+  @RequireAlcance('cursos.gestionar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Registrar resultados en lote', description: 'Califica varias designaciones del curso en una sola transacción: se guardan todas o ninguna.' })
+  @ApiResponse({ status: 200, description: 'Resultados registrados.' })
+  @ApiResponse({ status: 400, description: 'Datos inválidos o designaciones repetidas.' })
+  @ApiResponse({ status: 404, description: 'Alguna designación no pertenece al curso.' })
+  async calificarDesignaciones(
+    @Param('cursoId', ParseIntPipe) cursoId: number,
+    @Body() dto: CalificarDesignacionesDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.cursosService.calificarDesignaciones(cursoId, dto, alcance);
   }
 
   @Patch(':cursoId/designaciones/:designacionId')

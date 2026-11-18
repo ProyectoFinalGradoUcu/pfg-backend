@@ -129,9 +129,13 @@ export class AuditoriaService {
     };
   }
 
-  /** Devuelve los valores disponibles de acción y contexto para poblar filtros en el frontend. */
+  /**
+   * Devuelve los valores disponibles para poblar los filtros en el frontend. Los usuarios van
+   * todos, bloqueados incluidos: siguen teniendo historial, y salen de acá porque `/usuarios`
+   * pide otro permiso que quien consulta la auditoría puede no tener.
+   */
   async filtros() {
-    const [acciones, contextos] = await Promise.all([
+    const [acciones, contextos, usuarios] = await Promise.all([
       this.prisma.acciones.findMany({
         orderBy: { nombre: 'asc' },
         select: { id: true, nombre: true },
@@ -140,11 +144,17 @@ export class AuditoriaService {
         orderBy: { nombre: 'asc' },
         select: { id: true, nombre: true },
       }),
+      this.prisma.usuarios.findMany({
+        where: { aplicacion: APLICACION },
+        orderBy: { username: 'asc' },
+        select: { id: true, username: true },
+      }),
     ]);
 
     return {
       acciones: acciones.map((a) => ({ id: a.id.toString(), nombre: a.nombre })),
       contextos: contextos.map((c) => ({ id: c.id.toString(), nombre: c.nombre })),
+      usuarios: usuarios.map((u) => ({ id: u.id.toString(), username: u.username })),
     };
   }
 
@@ -152,18 +162,17 @@ export class AuditoriaService {
     desde?: string,
     hasta?: string,
   ): Prisma.bitacora_auditoriaWhereInput {
+    // Las fechas sin hora (YYYY-MM-DD) se toman en hora de Uruguay, UTC-3 fijo.
+    const soloFecha = /^\d{4}-\d{2}-\d{2}$/;
     const fecha: Prisma.DateTimeFilter = {};
     if (desde) {
-      const d = new Date(desde);
+      const d = new Date(soloFecha.test(desde) ? `${desde}T00:00:00.000-03:00` : desde);
       if (!Number.isNaN(d.getTime())) fecha.gte = d;
     }
     if (hasta) {
-      const h = new Date(hasta);
-      if (!Number.isNaN(h.getTime())) {
-        // Si viene solo la fecha (sin hora), incluir todo el día.
-        if (!hasta.includes('T')) h.setHours(23, 59, 59, 999);
-        fecha.lte = h;
-      }
+      // Si viene solo la fecha, incluir todo ese día en hora de Uruguay.
+      const h = new Date(soloFecha.test(hasta) ? `${hasta}T23:59:59.999-03:00` : hasta);
+      if (!Number.isNaN(h.getTime())) fecha.lte = h;
     }
     return Object.keys(fecha).length > 0 ? { fecha } : {};
   }

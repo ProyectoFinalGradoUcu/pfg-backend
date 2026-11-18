@@ -10,11 +10,47 @@ import { PrismaService } from '../../lib/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { APLICACION } from '../../lib/aplicacion.const';
+import { assertPermisosDelActor } from '../auth/privilegios';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { CrearInvitacionDto } from './dto/crear-invitacion.dto';
 import { AceptarInvitacionDto } from './dto/aceptar-invitacion.dto';
+import { ListInvitacionesQueryDto } from './dto/list-invitaciones-query.dto';
 
 const DEFAULT_INVITATION_TTL_HOURS = 48;
 const DEFAULT_BCRYPT_ROUNDS = 12;
+
+const INVITACION_SELECT = {
+  id: true,
+  email: true,
+  estado: true,
+  roles: true,
+  persona_id: true,
+  creado_en: true,
+  expira_en: true,
+  usado_en: true,
+} as const;
+
+function toInvitacionResponse(inv: {
+  id: bigint;
+  email: string;
+  estado: string;
+  roles: string[];
+  persona_id: bigint | null;
+  creado_en: Date;
+  expira_en: Date;
+  usado_en: Date | null;
+}) {
+  return {
+    id: inv.id.toString(),
+    email: inv.email,
+    estado: inv.estado,
+    roles: inv.roles,
+    personaId: inv.persona_id?.toString() ?? null,
+    creadoEn: inv.creado_en,
+    expiraEn: inv.expira_en,
+    usadoEn: inv.usado_en,
+  };
+}
 
 @Injectable()
 export class InvitacionesService {
@@ -24,7 +60,7 @@ export class InvitacionesService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  async crear(dto: CrearInvitacionDto, adminId: string) {
+  async crear(dto: CrearInvitacionDto, actor: AuthenticatedUser) {
     if (dto.personaId) {
       const persona = await this.prisma.personas.findUnique({
         where: { id: BigInt(dto.personaId) },
@@ -36,20 +72,43 @@ export class InvitacionesService {
     }
 
     if (dto.roles?.length) {
+      const nombres = Array.from(new Set(dto.roles));
+      // Se buscan en todas las aplicaciones para poder explicar el rechazo (la tabla `roles` es
+      // compartida con liquidación). Solo se puede invitar con roles de Personal.
       const rolesEncontrados = await this.prisma.roles.findMany({
-        where: { nombre: { in: dto.roles } },
-        select: { nombre: true },
+        where: { nombre: { in: nombres } },
+        select: {
+          nombre: true,
+          aplicacion: true,
+          roles_permisos: { select: { permisos: { select: { nombre: true } } } },
+        },
       });
-      const rolesNoExisten = dto.roles.filter(
-        (r) => !rolesEncontrados.some((re) => re.nombre === r),
+      const propios = rolesEncontrados.filter((r) => r.aplicacion === APLICACION);
+      const deOtraApp = nombres.filter(
+        (n) => !propios.some((r) => r.nombre === n) && rolesEncontrados.some((r) => r.nombre === n),
       );
+      if (deOtraApp.length) {
+        throw new BadRequestException(
+          `Estos roles son de otra aplicación (liquidación) y no se pueden asignar en una ` +
+            `invitación de Personal: ${deOtraApp.join(', ')}`,
+        );
+      }
+      const rolesNoExisten = nombres.filter((n) => !propios.some((r) => r.nombre === n));
       if (rolesNoExisten.length) {
         throw new BadRequestException(`Roles no encontrados: ${rolesNoExisten.join(', ')}`);
       }
+      // Invitar con un rol es otorgarlo: mismo límite que asignarlo a mano.
+      assertPermisosDelActor(
+        actor,
+        propios.flatMap((r) => r.roles_permisos.map((rp) => rp.permisos.nombre)),
+        'invitar con esos roles',
+      );
     }
 
+    // Las cuentas están separadas por aplicación: tener cuenta en liquidación no impide tener
+    // una en Personal con el mismo email.
     const usuarioExistente = await this.prisma.usuarios.findFirst({
-      where: { username: dto.email },
+      where: { username: { equals: dto.email, mode: 'insensitive' as const }, aplicacion: APLICACION },
       select: { id: true },
     });
     if (usuarioExistente) {
@@ -58,7 +117,7 @@ export class InvitacionesService {
 
     const pendienteExistente = await this.prisma.invitaciones.findFirst({
       where: {
-        email: dto.email,
+        email: { equals: dto.email, mode: 'insensitive' as const },
         estado: 'pendiente',
         expira_en: { gt: new Date() },
       },
@@ -74,12 +133,12 @@ export class InvitacionesService {
 
     const invitacion = await this.prisma.invitaciones.create({
       data: {
-        email: dto.email,
+        email: dto.email.trim().toLowerCase(),
         token_hash: tokenHash,
         persona_id: dto.personaId ? BigInt(dto.personaId) : null,
         roles: dto.roles ?? [],
         estado: 'pendiente',
-        creado_por: BigInt(adminId),
+        creado_por: BigInt(actor.id),
         expira_en: expiraEn,
       },
     });
@@ -96,32 +155,38 @@ export class InvitacionesService {
     };
   }
 
-  async listar(estado?: string) {
-    const invitaciones = await this.prisma.invitaciones.findMany({
-      where: estado ? { estado } : undefined,
-      orderBy: { creado_en: 'desc' },
-      select: {
-        id: true,
-        email: true,
-        estado: true,
-        roles: true,
-        persona_id: true,
-        creado_en: true,
-        expira_en: true,
-        usado_en: true,
-      },
-    });
+  /**
+   * Con `page` o `pageSize` devuelve una página. Sin ellos, el listado completo: lo usa el alta
+   * de usuarios para avisar de una invitación pendiente sin distinguir mayúsculas.
+   */
+  async listar(query: ListInvitacionesQueryDto = {}) {
+    const where = query.estado ? { estado: query.estado } : undefined;
+    // El id desempata: con fechas iguales un registro podría repetirse o saltearse entre páginas.
+    const orderBy = [{ creado_en: 'desc' as const }, { id: 'desc' as const }];
 
-    return invitaciones.map((inv) => ({
-      id: inv.id.toString(),
-      email: inv.email,
-      estado: inv.estado,
-      roles: inv.roles,
-      personaId: inv.persona_id?.toString() ?? null,
-      creadoEn: inv.creado_en,
-      expiraEn: inv.expira_en,
-      usadoEn: inv.usado_en,
-    }));
+    if (query.page === undefined && query.pageSize === undefined) {
+      const invitaciones = await this.prisma.invitaciones.findMany({
+        where,
+        orderBy,
+        select: INVITACION_SELECT,
+      });
+      return invitaciones.map(toInvitacionResponse);
+    }
+
+    const page = query.page ?? 1;
+    const pageSize = Math.min(query.pageSize ?? 10, 100);
+    const [total, invitaciones] = await this.prisma.$transaction([
+      this.prisma.invitaciones.count({ where }),
+      this.prisma.invitaciones.findMany({
+        where,
+        orderBy,
+        select: INVITACION_SELECT,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    return { items: invitaciones.map(toInvitacionResponse), total, page, pageSize };
   }
 
   async verificarToken(rawToken: string) {
@@ -168,7 +233,7 @@ export class InvitacionesService {
     }
 
     const usuarioExistente = await this.prisma.usuarios.findFirst({
-      where: { username: invitacion.email },
+      where: { username: { equals: invitacion.email, mode: 'insensitive' as const }, aplicacion: APLICACION },
     });
     if (usuarioExistente) {
       throw new ConflictException('Ya existe un usuario con ese email');

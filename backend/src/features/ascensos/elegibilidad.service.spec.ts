@@ -72,6 +72,32 @@ const requisitoCurso = (overrides: Partial<ReglaEvaluable['requisitos'][number]>
 // ─── Evaluador ────────────────────────────────────────────────────────────────
 
 describe('evaluarFuncionario', () => {
+  describe('tipo de ascenso', () => {
+    it('al grado siguiente de la escala es SIGUIENTE', () => {
+      expect(evaluarFuncionario(makeDatos(), makeRegla(), OPCIONES).tipo_ascenso).toBe('SIGUIENTE');
+    });
+
+    it('una regla que saltea grados es SALTO aunque cumpla', () => {
+      const regla = makeRegla({
+        grado_destino: { id: '6', codigo: 'SGTO_1RO', denominacion: 'Sgto. 1°', orden: 5 },
+      });
+      const res = evaluarFuncionario(makeDatos(), regla, OPCIONES);
+      expect(res.estado).toBe('PASIBLE');
+      expect(res.tipo_ascenso).toBe('SALTO');
+    });
+
+    it('un destino fuera de la escala del grado actual es CAMBIO_ESCALA', () => {
+      const regla = makeRegla({
+        grado_destino: { id: '20', codigo: 'ALF', denominacion: 'Alférez', orden: 10 },
+      });
+      expect(evaluarFuncionario(makeDatos(), regla, OPCIONES).tipo_ascenso).toBe('CAMBIO_ESCALA');
+    });
+
+    it('sin regla no hay destino ni tipo', () => {
+      expect(evaluarFuncionario(makeDatos(), null, OPCIONES).tipo_ascenso).toBeNull();
+    });
+  });
+
   describe('antigüedad en el grado', () => {
     it('es pasible cuando cumple el tiempo y no hay más requisitos', () => {
       const res = evaluarFuncionario(makeDatos(), makeRegla(), OPCIONES);
@@ -458,6 +484,7 @@ const makePrismaMock = () => ({
   legajo_militar: { findMany: jest.fn().mockResolvedValue([]) },
   retiros: { findMany: jest.fn().mockResolvedValue([]) },
   cursos: { findMany: jest.fn().mockResolvedValue([]) },
+  personas: { findFirst: jest.fn().mockResolvedValue(null) },
 });
 
 describe('ElegibilidadService', () => {
@@ -553,11 +580,89 @@ describe('ElegibilidadService', () => {
       expect(where.anulado).toBe(false);
     });
 
-    it('con alcance de unidad filtra por las unidades del usuario', async () => {
-      await service.listarPasibles({}, { tipo: 'unidad', unidadIds: ['5', '7'] });
+    // ─── Reincorporados ───────────────────────────────────────────────────────
+
+    const evaluarConRetiros = async (relacion: any, retiros: any[]) => {
+      prisma.relaciones_laborales.findMany.mockResolvedValue([relacion]);
+      prisma.ascensos_reglas.findMany.mockResolvedValue([makeReglaFila()]);
+      prisma.retiros.findMany.mockResolvedValue(retiros);
+      return service.evaluarPersona(100, '2027-06-01');
+    };
+
+    it('un retiro bloquea si la relación activa empezó antes que él', async () => {
+      const r = await evaluarConRetiros(makeRelacionFila(), [
+        { persona_id: 100n, fecha_retiro: new Date('2026-10-01') },
+      ]);
+
+      expect(r.estado).toBe('BLOQUEADO');
+      expect(r.motivo).toContain('retiro registrado el 2026-10-01');
+    });
+
+    it('un reincorporado (relación activa posterior al retiro) se evalúa por la regla', async () => {
+      const r = await evaluarConRetiros(
+        makeRelacionFila({
+          fecha_inicio: new Date('2026-10-10'),
+          situaciones: { id: 17n, codigo: 'SIT17', denominacion: 'Personal Subalterno reincorporado.' },
+        }),
+        [{ persona_id: 100n, fecha_retiro: new Date('2026-10-01') }],
+      );
+
+      expect(r.motivo ?? '').not.toContain('retiro');
+      expect(r.estado).not.toBe('BLOQUEADO');
+    });
+
+    it('cuenta el retiro más reciente: si se volvió a retirar después de reincorporarse, bloquea', async () => {
+      const r = await evaluarConRetiros(
+        makeRelacionFila({ fecha_inicio: new Date('2026-10-10') }),
+        [
+          { persona_id: 100n, fecha_retiro: new Date('2026-12-01') },
+          { persona_id: 100n, fecha_retiro: new Date('2026-10-01') },
+        ],
+      );
+
+      expect(r.estado).toBe('BLOQUEADO');
+      expect(r.motivo).toContain('2026-12-01');
+    });
+
+    it('sin la relación de la reincorporación (anulada), el retiro vuelve a bloquear', async () => {
+      // La anulación borra la relación nueva: la activa vuelve a ser la anterior al retiro.
+      const r = await evaluarConRetiros(
+        makeRelacionFila({ fecha_inicio: new Date('2015-02-01') }),
+        [{ persona_id: 100n, fecha_retiro: new Date('2026-10-01') }],
+      );
+
+      expect(r.estado).toBe('BLOQUEADO');
+    });
+
+    it('con alcance de unidad filtra por las bases del usuario', async () => {
+      await service.listarPasibles({}, { tipo: 'unidad', subUnidadIds: ['5', '7'], comandoIds: ['1'] });
 
       const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
-      expect(where.unidad_id).toEqual({ in: [5n, 7n] });
+      expect(where.AND).toEqual([{ sub_unidad_id: { in: [5n, 7n] } }]);
+      // El comando no entra en el filtro: el alcance es por base.
+      expect(where.unidad_id).toBeUndefined();
+    });
+
+    it('el filtro por base usa la sub-unidad de la relación laboral', async () => {
+      await service.listarPasibles({ sub_unidad_id: 7 });
+
+      const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
+      expect(where.AND).toEqual([{ sub_unidad_id: 7n }]);
+      expect(where.unidad_id).toBeUndefined();
+    });
+
+    it('el filtro por base se suma al alcance (una base ajena no trae a nadie)', async () => {
+      await service.listarPasibles({ sub_unidad_id: 9 }, { tipo: 'unidad', subUnidadIds: ['5'], comandoIds: ['1'] });
+
+      const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
+      expect(where.AND).toEqual([{ sub_unidad_id: 9n }, { sub_unidad_id: { in: [5n] } }]);
+    });
+
+    it('sin filtro ni alcance no restringe por base', async () => {
+      await service.listarPasibles({});
+
+      const where = prisma.relaciones_laborales.findMany.mock.calls[0][0].where;
+      expect(where.AND).toBeUndefined();
     });
 
     it('no consulta los cursos si no hay nadie en la nómina', async () => {
@@ -597,6 +702,13 @@ describe('ElegibilidadService', () => {
       prisma.relaciones_laborales.findMany.mockResolvedValue([]);
 
       await expect(service.evaluarPersona(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('a un civil con relación vigente le explica que los civiles no ascienden (400, no 404)', async () => {
+      prisma.relaciones_laborales.findMany.mockResolvedValue([]);
+      prisma.personas.findFirst.mockResolvedValue({ primer_nombre: 'Ana', primer_apellido: 'Gómez' });
+
+      await expect(service.evaluarPersona(96)).rejects.toThrow('Ana Gómez es personal civil');
     });
   });
 
@@ -684,7 +796,8 @@ describe('ElegibilidadService', () => {
 
   describe('situaciones configurables', () => {
     it('salen de las constantes cuando no hay variable de entorno', () => {
-      expect(service.situacionesElegibles).toEqual(['SIT01', 'SIT07']);
+      // SIT16 y SIT17: actividad de los reincorporados.
+      expect(service.situacionesElegibles).toEqual(['SIT01', 'SIT07', 'SIT16', 'SIT17']);
       expect(service.situacionesBloqueantes).toContain('SIT03');
     });
 

@@ -1,12 +1,15 @@
 import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateRolDto {
   @ApiPropertyOptional({ example: 'Encargado de Cursos' })
   @IsOptional()
-  @IsString()
-  @MinLength(3)
-  @MaxLength(60)
+  // Se recorta antes de validar para no aceptar nombres de solo espacios.
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString({ message: 'El nombre del rol tiene que ser un texto' })
+  @MinLength(3, { message: 'El nombre del rol tiene que tener al menos 3 caracteres' })
+  @MaxLength(60, { message: 'El nombre del rol no puede tener más de 60 caracteres' })
   nombre?: string;
 
   @ApiPropertyOptional({ example: 'Acceso ampliado al módulo de cursos y certificaciones' })

@@ -24,6 +24,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { InvitacionesService } from './invitaciones.service';
 import { CrearInvitacionDto } from './dto/crear-invitacion.dto';
 import { AceptarInvitacionDto } from './dto/aceptar-invitacion.dto';
+import { ListInvitacionesQueryDto } from './dto/list-invitaciones-query.dto';
 import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Invitaciones')
@@ -39,20 +40,21 @@ export class InvitacionesController {
   @ApiOperation({ summary: 'Crear y enviar una invitación por email' })
   @ApiResponse({ status: 201, description: 'Invitación enviada' })
   @ApiResponse({ status: 409, description: 'Ya existe una invitación pendiente para ese email' })
+  @ApiResponse({ status: 400, description: 'Roles inexistentes o de otra aplicación' })
+  @ApiResponse({ status: 403, description: 'Los roles otorgan permisos que quien invita no tiene' })
   crear(
     @Body() dto: CrearInvitacionDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.invitacionesService.crear(dto, user.id);
+    return this.invitacionesService.crear(dto, user);
   }
 
   @Get()
   @RequirePermissions('usuarios.gestionar')
   @ApiCookieAuth('auth_token')
-  @ApiOperation({ summary: 'Listar invitaciones' })
-  @ApiQuery({ name: 'estado', required: false, enum: ['pendiente', 'aceptada', 'expirada'] })
-  listar(@Query('estado') estado?: string) {
-    return this.invitacionesService.listar(estado);
+  @ApiOperation({ summary: 'Listar invitaciones, paginadas si se indica page o pageSize' })
+  listar(@Query() query: ListInvitacionesQueryDto) {
+    return this.invitacionesService.listar(query);
   }
 
   @Get('verificar')

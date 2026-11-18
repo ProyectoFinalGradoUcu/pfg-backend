@@ -2,7 +2,7 @@ import {
   esMutado,
   esNivelLiceal,
 } from '../subalternos/legajo-militar.constants.js';
-import { ESCALERA_FAU } from './ascensos.constants.js';
+import { ESCALERA_FAU, TipoAscenso, clasificarAscenso } from './ascensos.constants.js';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -58,6 +58,7 @@ export interface DatosFuncionario {
   grado: { id: string; codigo: string; denominacion: string; orden: number };
   situacion: { id: string; codigo: string; denominacion: string } | null;
   unidad: { id: string; denominacion: string } | null;
+  sub_unidad?: { id: string; denominacion: string } | null;
   escalafon: { id: string; denominacion: string } | null;
   legajo: { nivel_educativo: string | null; fecha_egreso_eta: Date | null } | null;
   cursos: Map<string, { aprobado: boolean | null; dado_de_baja: boolean }>;
@@ -97,6 +98,7 @@ export interface ResultadoElegibilidad {
     nombre_completo: string;
     apellido: string;
     unidad: { id: string; denominacion: string } | null;
+    sub_unidad?: { id: string; denominacion: string } | null;
     escalafon: { id: string; denominacion: string } | null;
     situacion: { id: string; codigo: string; denominacion: string } | null;
   };
@@ -110,6 +112,12 @@ export interface ResultadoElegibilidad {
   antiguedad_dias: number;
   edad: number | null;
   requisitos: RequisitoEvaluado[];
+  /**
+   * Cómo es el ascenso al `grado_destino` respecto de la escala (null sin destino).
+   * `SALTO` y `CAMBIO_ESCALA` solo se registran por excepción, con motivo, aunque
+   * el estado sea PASIBLE: el front lo usa para pedir el motivo antes de enviar.
+   */
+  tipo_ascenso: TipoAscenso | null;
 }
 
 // ─── Utilidades de fecha ────────────────────────────────────────────────────
@@ -337,6 +345,20 @@ export function evaluarFuncionario(
   regla: ReglaEvaluable | null,
   opciones: OpcionesEvaluacion,
 ): ResultadoElegibilidad {
+  const resultado = evaluarContraRegla(datos, regla, opciones);
+  return {
+    ...resultado,
+    tipo_ascenso: resultado.grado_destino
+      ? clasificarAscenso(resultado.grado_actual.codigo, resultado.grado_destino.codigo)
+      : null,
+  };
+}
+
+function evaluarContraRegla(
+  datos: DatosFuncionario,
+  regla: ReglaEvaluable | null,
+  opciones: OpcionesEvaluacion,
+): Omit<ResultadoElegibilidad, 'tipo_ascenso'> {
   const fechaRef = opciones.fecha_referencia;
 
   const base = {
@@ -346,6 +368,7 @@ export function evaluarFuncionario(
       nombre_completo: `${datos.persona.nombre} ${datos.persona.apellido}`.trim(),
       apellido: datos.persona.apellido,
       unidad: datos.unidad,
+      sub_unidad: datos.sub_unidad ?? null,
       escalafon: datos.escalafon,
       situacion: datos.situacion,
     },

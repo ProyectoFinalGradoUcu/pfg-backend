@@ -21,3 +21,42 @@ function aFecha(valor: Date | string | null | undefined): Date | null {
   const fecha = valor instanceof Date ? valor : new Date(valor);
   return Number.isNaN(fecha.getTime()) ? null : fecha;
 }
+
+// Fallecimiento: no puede ser futuro ni anterior al nacimiento o al inicio de la relación vigente.
+export function assertFechaFallecimientoValida(
+  fechaFallecimiento: Date | string | null | undefined,
+  fechaNacimiento: Date | string | null | undefined,
+  inicioRelacionActiva?: Date | string | null,
+): void {
+  const fallecimiento = aFecha(fechaFallecimiento);
+  if (!fallecimiento) return;
+
+  const hoy = new Date();
+  hoy.setUTCHours(0, 0, 0, 0);
+  if (fallecimiento.getTime() > hoy.getTime()) {
+    throw new BadRequestException('La fecha de fallecimiento no puede ser futura');
+  }
+  const nacimiento = aFecha(fechaNacimiento);
+  if (nacimiento && fallecimiento.getTime() < nacimiento.getTime()) {
+    throw new BadRequestException('La fecha de fallecimiento no puede ser anterior a la fecha de nacimiento');
+  }
+  const inicio = aFecha(inicioRelacionActiva);
+  if (inicio && fallecimiento.getTime() < inicio.getTime()) {
+    throw new BadRequestException(
+      'La fecha de fallecimiento no puede ser anterior al inicio de la relación laboral vigente',
+    );
+  }
+}
+
+// El egreso de la ETA no puede ser anterior al ingreso.
+export function assertEgresoEtaPosteriorAIngreso(
+  fechaIngreso: Date | string | null | undefined,
+  fechaEgreso: Date | string | null | undefined,
+): void {
+  const ingreso = aFecha(fechaIngreso);
+  const egreso = aFecha(fechaEgreso);
+  if (!ingreso || !egreso) return;
+  if (egreso.getTime() < ingreso.getTime()) {
+    throw new BadRequestException('La fecha de egreso de la ETA no puede ser anterior a la de ingreso');
+  }
+}

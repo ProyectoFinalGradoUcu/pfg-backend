@@ -1,6 +1,10 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { FiltroCategoriaPersonal } from '../../../lib/personal/categoria-personal.js';
+import type { CategoriaPersonal } from '../../../lib/personal/categoria-personal.js';
+import { FiltroDerechaNumorDto } from '../../../lib/personal/filtro-derecha-numor.js';
+import { FiltroListaIds } from '../../../lib/query/filtro-lista-ids.js';
 
 const toInt = ({ value }: { value: unknown }) =>
   value === undefined ? undefined : Number(value);
@@ -11,7 +15,7 @@ const toBool = ({ value }: { value: unknown }) => {
   return value;
 };
 
-export class ListPersonasQueryDto {
+export class ListPersonasQueryDto extends FiltroDerechaNumorDto {
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @Transform(toInt)
@@ -32,12 +36,8 @@ export class ListPersonasQueryDto {
   @IsString()
   search?: string;
 
-  @ApiPropertyOptional({ example: 3, description: 'ID de unidad (destino)' })
-  @IsOptional()
-  @Transform(toInt)
-  @IsInt()
-  @Min(1)
-  destino?: number;
+  @FiltroListaIds('IDs de base (sub-unidad) separados por coma. Trae a quien tiene la relación laboral activa en cualquiera de ellas.', '3')
+  destino?: number[];
 
   @ApiPropertyOptional({ example: 7, description: 'ID de grado (rango)' })
   @IsOptional()
@@ -46,12 +46,8 @@ export class ListPersonasQueryDto {
   @Min(1)
   rango?: number;
 
-  @ApiPropertyOptional({ example: 2, description: 'ID de situación (estado)' })
-  @IsOptional()
-  @Transform(toInt)
-  @IsInt()
-  @Min(1)
-  estado?: number;
+  @FiltroListaIds('IDs de situación (estado) separados por coma. Trae a quien tenga cualquiera de ellas.')
+  estado?: number[];
 
   @ApiPropertyOptional({
     example: false,
@@ -62,4 +58,7 @@ export class ListPersonasQueryDto {
   @Transform(toBool)
   @IsBoolean()
   incluir_inactivos?: boolean;
+
+  @FiltroCategoriaPersonal()
+  categoria?: CategoriaPersonal;
 }

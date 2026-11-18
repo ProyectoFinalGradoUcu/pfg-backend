@@ -3,21 +3,43 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service.js';
 import {
   AlcanceResuelto,
-  unidadIdDeAlcance,
-  unidadIdsDeAlcance,
+  subUnidadIdsDeAlcance,
 } from '../../lib/alcance/alcance.types.js';
-import { assertPersonaEnAlcance } from '../../lib/alcance/alcance.where.js';
+import { assertPersonaEnAlcance, RELACION_ACTIVA } from '../../lib/alcance/alcance.where.js';
 import { CreateSubalternoDto } from './dto/create-subalterno.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdateSubalternoDto } from './dto/update-subalterno.dto.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
 import { assertFechaInicioPosteriorANacimiento } from './validaciones-fechas.js';
+import { assertCamposDelTipo, assertGradoCoherenteConTipo } from './coherencia-tipo-funcionario.js';
 import { guardarLegajoEnTransaccion } from './legajo-militar.service.js';
+import {
+  describirBloqueos,
+  mensajeDeBloqueo,
+  SELECT_CONTEO_BLOQUEOS,
+} from './bloqueos-borrado.js';
+import { enIds } from '../../lib/query/filtro-lista-ids.js';
+import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal.js';
+import {
+  ordenarPersonasPorDerechaNumor,
+  tieneFiltroDerechaNumor,
+  whereRelacionPorDerechaNumor,
+} from '../../lib/personal/filtro-derecha-numor.js';
+import { DerechaService } from '../derecha/derecha.service.js';
+import { ArchivosService } from '../archivos/archivos.service.js';
+import {
+  archivosDeFilas,
+  type ArchivosFila,
+  darDeBajaArchivos,
+} from '../archivos/documentos-de-registro.js';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 const FK_MENSAJES: Record<string, string> = {
   relaciones_laborales_situacion_id_fkey: 'situacion_id no existe en la tabla de situaciones',
@@ -46,135 +68,163 @@ function mensajeFK(err: unknown): string {
 
 @Injectable()
 export class SubalternosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly derecha: DerechaService,
+    private readonly archivos: ArchivosService,
+  ) {}
+
+  private readonly logger = new Logger(SubalternosService.name);
 
   /**
-   * Con alcance de unidad, la persona se crea en alguna de las unidades del usuario.
-   * Si el body trae una unidad que no está en su alcance, se rechaza con 400.
-   * Si no se declara unidad y el usuario tiene exactamente una, se fuerza esa.
+   * La base (sub-unidad) es obligatoria para el personal militar y el comando sale de ella.
+   * Si llega un `unidad_id` que no es el comando de la base, se rechaza.
+   *
+   * Con alcance de unidad la base tiene que ser una de las del usuario; si no indica
+   * ninguna y tiene una sola, se usa esa.
    */
-  private aplicarUnidadDeAlcance<T extends { unidad_id?: number | string }>(
+  private async resolverBase<T extends { unidad_id?: number; sub_unidad_id?: number }>(
     dto: T,
     alcance?: AlcanceResuelto,
-  ): T {
-    if (!alcance) return dto;
-    const unidadesForzadas = unidadIdsDeAlcance(alcance);
-    if (unidadesForzadas === null) return dto;
+  ): Promise<T> {
+    const propias = alcance ? subUnidadIdsDeAlcance(alcance) : null;
 
-    if (
-      dto.unidad_id !== undefined &&
-      dto.unidad_id !== null &&
-      !unidadesForzadas.map(String).includes(String(dto.unidad_id))
-    ) {
-      throw new BadRequestException(
-        'Solo podés dar de alta personal en tus propias unidades',
-      );
-    }
-
-    // Si no declara unidad y tiene exactamente una, la forzamos.
-    if (dto.unidad_id === undefined || dto.unidad_id === null) {
-      if (unidadesForzadas.length === 1) {
-        return { ...dto, unidad_id: Number(unidadesForzadas[0]) };
+    let subUnidadId = dto.sub_unidad_id;
+    if (subUnidadId == null) {
+      if (propias?.length !== 1) {
+        throw new BadRequestException('Falta la base del funcionario (sub_unidad_id)');
       }
-      throw new BadRequestException(
-        'Debés indicar la unidad de destino (tenés acceso a más de una)',
-      );
+      subUnidadId = Number(propias[0]);
     }
 
-    return dto;
+    if (propias && !propias.some((id) => id === BigInt(subUnidadId))) {
+      throw new BadRequestException('Solo podés dar de alta personal en tus propias bases');
+    }
+
+    const base = await this.prisma.sub_unidades.findUnique({
+      where: { id: BigInt(subUnidadId) },
+      select: { unidad_id: true, vigente: true },
+    });
+    if (!base) {
+      throw new BadRequestException('sub_unidad_id no existe en la tabla de sub-unidades');
+    }
+    if (!base.vigente) {
+      throw new BadRequestException('La base elegida no está vigente');
+    }
+    if (dto.unidad_id != null && BigInt(dto.unidad_id) !== base.unidad_id) {
+      throw new BadRequestException('El comando no corresponde a la base elegida');
+    }
+
+    return { ...dto, sub_unidad_id: subUnidadId, unidad_id: Number(base.unidad_id) };
+  }
+
+  private async idsUltimaRelacion(): Promise<bigint[]> {
+    const filas = await this.prisma.$queryRaw<{ id: bigint }[]>`
+      SELECT DISTINCT ON (persona_id) id FROM relaciones_laborales
+      ORDER BY persona_id, fecha_inicio DESC, id DESC`;
+    return filas.map((f) => f.id);
   }
 
   async findAllPersonas(query: ListPersonasQueryDto, alcance?: AlcanceResuelto) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 100);
 
-    // Con alcance de unidad la unidad se fuerza y se IGNORA `query.destino`: el filtro no es
-    // opcional ni se puede desactivar desde la interfaz (spec 002 §3).
-    const unidadesForzadas = alcance ? unidadIdsDeAlcance(alcance) : null;
+    // Con alcance de unidad el filtro por base no se puede desactivar (spec 002 §3): sin `destino`
+    // se ven todas las bases del usuario, y con `destino` solo las elegidas que sean suyas.
+    const basesForzadas = alcance ? subUnidadIdsDeAlcance(alcance) : null;
 
     // Un retirado tiene fecha_fin, así que por defecto queda fuera del listado.
     // `incluir_inactivos` lo trae de vuelta con relacion_estado = 'inactivo'.
     const soloAbiertas = query.incluir_inactivos !== true;
 
+    // Con retirados, estado y grado se filtran por la última relación
+    const filtraUltima = !soloAbiertas && !tieneFiltroDerechaNumor(query) && !!(query.estado?.length || query.rango);
+    const ultimas = filtraUltima ? await this.idsUltimaRelacion() : null;
+
+    // Solo el personal en actividad tiene derecha y numor.
     const relacionWhere = {
-      ...(soloAbiertas && { fecha_fin: null }),
-      ...(query.estado && { situacion_id: BigInt(query.estado) }),
+      ...((soloAbiertas || tieneFiltroDerechaNumor(query)) && { fecha_fin: null }),
+      ...(ultimas && { id: { in: ultimas } }),
+      ...(query.estado?.length && { situacion_id: enIds(query.estado) }),
       ...(query.rango && { grado_id: BigInt(query.rango) }),
+      ...whereRelacionPorDerechaNumor(query),
     };
+
+    // La base se toma de la relación laboral ACTIVA, el mismo criterio que la ficha
+    // (`assertPersonaEnAlcance`): quien no tiene destino cargado igual aparece en su base.
+    const elegidas = query.destino?.length ? query.destino.map((id) => BigInt(id)) : null;
+    // Una base elegida fuera del alcance se descarta; si no queda ninguna, el listado sale vacío.
+    const bases = basesForzadas
+      ? (elegidas?.filter((id) => basesForzadas.includes(id)) ?? basesForzadas)
+      : elegidas;
+    const and = [
+      ...(query.categoria ? [wherePersonaPorCategoria(query.categoria)] : []),
+      ...(bases !== null
+        ? [{ relaciones_laborales: { some: { ...RELACION_ACTIVA, sub_unidad_id: { in: bases } } } }]
+        : []),
+      ...(whereBusqueda(query.search, CAMPOS_PERSONA)?.AND ?? []),
+    ];
 
     const where = {
       relaciones_laborales: { some: relacionWhere },
-      // Con alcance de unidad se fuerza el filtro por destino a las unidades del usuario.
-      // Sin alcance, se puede filtrar por query.destino opcionalmente.
-      ...(unidadesForzadas !== null
-        ? { destinos: { some: { unidad_id: { in: unidadesForzadas }, fecha_fin: null } } }
-        : query.destino && {
-            destinos: { some: { unidad_id: BigInt(query.destino), fecha_fin: null } },
-          }),
-      ...(query.search && {
-        OR: [
-          { cedula: { contains: query.search, mode: 'insensitive' as const } },
-          {
-            primer_nombre: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-          {
-            primer_apellido: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-          {
-            segundo_nombre: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-          {
-            segundo_apellido: {
-              contains: query.search,
-              mode: 'insensitive' as const,
-            },
-          },
-        ],
-      }),
+      ...(and.length && { AND: and }),
     };
 
-    const [total, personas] = await Promise.all([
-      this.prisma.personas.count({ where }),
-      this.prisma.personas.findMany({
+    const select = {
+      id: true,
+      cedula: true,
+      primer_nombre: true,
+      segundo_nombre: true,
+      primer_apellido: true,
+      segundo_apellido: true,
+      relaciones_laborales: {
+        where: soloAbiertas ? { fecha_fin: null } : {},
+        orderBy: [{ fecha_inicio: 'desc' as const }, { id: 'desc' as const }],
+        take: 1,
+        select: {
+          estado: true,
+          derecha: true,
+          numor: true,
+          escala_derecha: true,
+          grados: { select: { denominacion: true } },
+          escalafones: { select: { codigo: true } },
+          situaciones: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
+        },
+      },
+      destinos: {
+        where: { fecha_fin: null },
+        orderBy: { fecha_inicio: 'desc' as const },
+        take: 1,
+        select: {
+          unidades: { select: { denominacion: true } },
+          sub_unidades: { select: { denominacion: true } },
+        },
+      },
+    };
+
+    const total = await this.prisma.personas.count({ where });
+    const dir = (query.direccion ?? 'ASC') === 'ASC' ? ('asc' as const) : ('desc' as const);
+
+    let personas;
+    if (query.ordenarPor === 'apellido') {
+      personas = await this.prisma.personas.findMany({
         where,
-        orderBy: [{ primer_apellido: 'asc' }, { primer_nombre: 'asc' }],
+        orderBy: [{ primer_apellido: dir }, { primer_nombre: dir }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: {
-          id: true,
-          cedula: true,
-          primer_nombre: true,
-          segundo_nombre: true,
-          primer_apellido: true,
-          segundo_apellido: true,
-          relaciones_laborales: {
-            where: soloAbiertas ? { fecha_fin: null } : {},
-            orderBy: { fecha_inicio: 'desc' },
-            take: 1,
-            select: {
-              estado: true,
-              grados: { select: { denominacion: true } },
-              situaciones: { select: { denominacion: true } },
-            },
-          },
-          destinos: {
-            where: { fecha_fin: null },
-            orderBy: { fecha_inicio: 'desc' },
-            take: 1,
-            select: { unidades: { select: { denominacion: true } } },
-          },
-        },
-      }),
-    ]);
+        select,
+      });
+    } else {
+      const ids = (await this.prisma.personas.findMany({ where, select: { id: true } })).map((p) => p.id);
+      const pagina = (await ordenarPersonasPorDerechaNumor(this.prisma, ids, query)).slice(
+        (page - 1) * pageSize,
+        page * pageSize,
+      );
+      const filas = await this.prisma.personas.findMany({ where: { id: { in: pagina } }, select });
+      const porId = new Map(filas.map((p) => [p.id.toString(), p]));
+      personas = pagina.flatMap((id) => porId.get(id.toString()) ?? []);
+    }
 
     return {
       items: personas.map((p) => {
@@ -192,9 +242,19 @@ export class SubalternosService {
           nombre,
           cedula: p.cedula,
           rango: rel?.grados?.denominacion ?? null,
-          destino: p.destinos[0]?.unidades?.denominacion ?? null,
+          // El destino es la sub-unidad (B.A.I.); si un histórico no la tiene, se muestra el comando.
+          // Sin destino cargado (personal de liquidación) se muestra la base de la relación laboral.
+          destino:
+            p.destinos[0]?.sub_unidades?.denominacion ??
+            p.destinos[0]?.unidades?.denominacion ??
+            rel?.sub_unidades?.denominacion ??
+            null,
           estado: rel?.situaciones?.denominacion ?? null,
           relacion_estado: rel?.estado ?? null,
+          escalafon: rel?.escalafones?.codigo ?? null,
+          derecha: rel?.derecha ?? null,
+          numor: rel?.numor ?? null,
+          escala_derecha: rel?.escala_derecha ?? null,
         };
       }),
       total,
@@ -206,7 +266,7 @@ export class SubalternosService {
   async create(dto: CreateSubalternoDto, alcance?: AlcanceResuelto) {
     assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
 
-    dto = this.aplicarUnidadDeAlcance(dto, alcance);
+    dto = await this.resolverBase(dto, alcance);
 
     const existe = await this.prisma.personas.findUnique({
       where: { cedula: dto.cedula },
@@ -218,6 +278,7 @@ export class SubalternosService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await this.derecha.bloquearEnTransaccion(tx);
       const persona = await tx.personas.create({
         data: {
           cedula: dto.cedula,
@@ -241,7 +302,7 @@ export class SubalternosService {
         data: {
           persona_id: persona.id,
           regimen_id: BigInt(dto.regimen_id),
-          unidad_id: BigInt(dto.unidad_id),
+          unidad_id: BigInt(dto.unidad_id!),
           programa_id: BigInt(dto.programa_id),
           situacion_id: BigInt(dto.situacion_id),
           escalafon_id: BigInt(dto.escalafon_id),
@@ -249,17 +310,18 @@ export class SubalternosService {
           fecha_inicio: new Date(dto.fecha_inicio),
           estado: 'activo',
           tipo_funcionario: 'subalterno',
-          sub_unidad_id: dto.sub_unidad_id
-            ? BigInt(dto.sub_unidad_id)
-            : undefined,
+          sub_unidad_id: BigInt(dto.sub_unidad_id),
           observaciones: dto.observaciones,
         },
       });
 
+      await this.derecha.asignarEnAltaEnTransaccion(tx, persona.id);
+
       await tx.destinos.create({
         data: {
           persona_id: persona.id,
-          unidad_id: BigInt(dto.unidad_id),
+          unidad_id: BigInt(dto.unidad_id!),
+          sub_unidad_id: BigInt(dto.sub_unidad_id),
           fecha_inicio: new Date(dto.fecha_inicio),
         },
       });
@@ -294,8 +356,23 @@ export class SubalternosService {
     });
   }
 
-  async createPersonal(dto: CreatePersonalDto, alcance?: AlcanceResuelto) {
-    dto = this.aplicarUnidadDeAlcance(dto, alcance);
+  async createPersonal(
+    dto: CreatePersonalDto,
+    alcance?: AlcanceResuelto,
+    usuario?: { id: bigint | null; permisos: string[] },
+    opciones: { omitirDerecha?: boolean } = {},
+  ) {
+    // El personal civil no tiene relación laboral ni base.
+    if (!dto.es_civil) dto = await this.resolverBase(dto, alcance);
+
+    if (
+      (dto.posicion_derecha != null || dto.posicion_numor != null) &&
+      !usuario?.permisos.includes('derecha.gestionar')
+    ) {
+      throw new ForbiddenException(
+        'No tenés el permiso para elegir la posición en la derecha o el numor: sin él, el alta va al final de su grado.',
+      );
+    }
 
     const existe = await this.prisma.personas.findUnique({
       where: { cedula: dto.cedula },
@@ -306,15 +383,18 @@ export class SubalternosService {
       );
     }
 
+    // El civil no tiene tipo de funcionario: no lleva nivel de idoneidad ni códigos del legajo.
+    assertCamposDelTipo(dto.es_civil ? null : dto.tipo_funcionario, dto);
+
     if (dto.es_civil) {
       return this.createPersonalCivil(dto);
     }
-    return this.createPersonalMilitar(dto);
+    return this.createPersonalMilitar(dto, usuario?.id ?? null, opciones.omitirDerecha ?? false);
   }
 
   /**
-   * El familiar debe ser una persona ya registrada y militar (es_civil = false),
-   * sin importar si quien lo agrega es civil o militar.
+   * El familiar tiene que ser una persona ya registrada, civil o militar. Que un civil
+   * tenga al menos un familiar militar lo controla el alta del civil.
    */
   private async resolverFamiliares(familiares: FamiliarDto[]) {
     type PersonaFamiliar = { id: bigint; cedula: string; primer_nombre: string; primer_apellido: string; es_civil: boolean | null };
@@ -327,7 +407,6 @@ export class SubalternosService {
     for (const f of familiares) {
       const persona = porCedula.get(f.cedula);
       if (!persona) throw new BadRequestException(`No existe ningún personal registrado con cédula ${f.cedula}`);
-      if (persona.es_civil) throw new BadRequestException(`El familiar con cédula ${f.cedula} es civil. Debe ser un oficial o subalterno`);
     }
     return familiares.map((f) => ({ ...porCedula.get(f.cedula)!, tipo_relacion: f.tipo_relacion }));
   }
@@ -340,9 +419,16 @@ export class SubalternosService {
     }
 
     const familiaresResueltos = await this.resolverFamiliares(dto.familiares);
+    // Lo que justifica que un civil esté en el sistema es su vínculo con un militar.
+    if (!familiaresResueltos.some((f) => !f.es_civil)) {
+      throw new BadRequestException(
+        'El personal civil debe tener al menos un familiar militar (oficial o subalterno) entre sus familiares',
+      );
+    }
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await this.derecha.bloquearEnTransaccion(tx);
         const persona = await tx.personas.create({
           data: {
             cedula: dto.cedula,
@@ -362,6 +448,8 @@ export class SubalternosService {
             etnia: dto.etnia,
             codigo_postal: dto.codigo_postal,
             seccional: dto.seccional,
+            credencial_civica: dto.credencial_civica,
+            nivel_idoneidad: dto.nivel_idoneidad,
             es_civil: true,
           },
         });
@@ -391,6 +479,8 @@ export class SubalternosService {
           etnia: persona.etnia,
           codigo_postal: persona.codigo_postal,
           seccional: persona.seccional,
+          credencial_civica: persona.credencial_civica,
+          nivel_idoneidad: persona.nivel_idoneidad,
           es_civil: true,
           observaciones: dto.observaciones ?? null,
           familiares: familiaresResueltos.map((f) => ({
@@ -410,9 +500,10 @@ export class SubalternosService {
     }
   }
 
-  private async createPersonalMilitar(dto: CreatePersonalDto) {
+  /** Con `omitirDerecha` la derecha la asigna quien llama, como la carga masiva con todo el lote junto. */
+  private async createPersonalMilitar(dto: CreatePersonalDto, usuarioId: bigint | null, omitirDerecha = false) {
     const camposFaltantes = (
-      ['tipo_funcionario', 'regimen_id', 'unidad_id', 'programa_id', 'situacion_id', 'escalafon_id', 'grado_id', 'fecha_inicio'] as const
+      ['tipo_funcionario', 'regimen_id', 'sub_unidad_id', 'programa_id', 'situacion_id', 'escalafon_id', 'grado_id', 'fecha_inicio'] as const
     ).filter((campo) => dto[campo] == null);
 
     if (camposFaltantes.length > 0) {
@@ -423,12 +514,20 @@ export class SubalternosService {
 
     assertFechaInicioPosteriorANacimiento(dto.fecha_inicio, dto.fecha_nacimiento);
 
+    // Si el grado no existe, lo rechaza la FK al crear la relación.
+    const grado = await this.prisma.grados.findUnique({
+      where: { id: BigInt(dto.grado_id!) },
+      select: { denominacion: true, es_oficial: true, es_subalterno: true },
+    });
+    if (grado) assertGradoCoherenteConTipo(dto.tipo_funcionario, grado);
+
     const familiaresResueltos = dto.familiares && dto.familiares.length > 0
       ? await this.resolverFamiliares(dto.familiares)
       : [];
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await this.derecha.bloquearEnTransaccion(tx);
         const persona = await tx.personas.create({
           data: {
             cedula: dto.cedula,
@@ -448,6 +547,8 @@ export class SubalternosService {
             etnia: dto.etnia,
             codigo_postal: dto.codigo_postal,
             seccional: dto.seccional,
+            credencial_civica: dto.credencial_civica,
+            nivel_idoneidad: dto.nivel_idoneidad,
             es_civil: false,
           },
         });
@@ -464,11 +565,14 @@ export class SubalternosService {
             fecha_inicio: new Date(dto.fecha_inicio!),
             estado: 'activo',
             tipo_funcionario: dto.tipo_funcionario,
-            sub_unidad_id: dto.sub_unidad_id ? BigInt(dto.sub_unidad_id) : undefined,
+            sub_unidad_id: BigInt(dto.sub_unidad_id!),
             prima_tecnica: dto.prima_tecnica,
             tiene_mando: dto.tiene_mando,
             observaciones: dto.observaciones,
             mutaciones: dto.mutaciones ?? undefined,
+            fecha_ultimo_ascenso: dto.fecha_ultimo_ascenso ? new Date(dto.fecha_ultimo_ascenso) : undefined,
+            anios_servicio_anterior: dto.anios_servicio_anterior ?? undefined,
+            codigos_legajo: dto.codigos_legajo,
           },
           include: {
             grados: { select: { denominacion: true } },
@@ -495,11 +599,26 @@ export class SubalternosService {
           data: {
             persona_id: persona.id,
             unidad_id: BigInt(dto.unidad_id!),
+            sub_unidad_id: BigInt(dto.sub_unidad_id!),
             fecha_inicio: new Date(dto.fecha_inicio!),
           },
         });
 
         await guardarLegajoEnTransaccion(tx, persona.id, dto);
+
+        if (!omitirDerecha) {
+          await this.derecha.asignarEnAltaEnTransaccion(
+            tx,
+            persona.id,
+            dto.posicion_derecha,
+            dto.posicion_numor,
+            { usuarioId },
+          );
+        }
+        const ubicacion = await tx.relaciones_laborales.findUnique({
+          where: { id: relacion.id },
+          select: { derecha: true, numor: true },
+        });
 
         return {
           id: Number(persona.id),
@@ -518,6 +637,8 @@ export class SubalternosService {
           etnia: persona.etnia,
           codigo_postal: persona.codigo_postal,
           seccional: persona.seccional,
+          credencial_civica: persona.credencial_civica,
+          nivel_idoneidad: persona.nivel_idoneidad,
           es_civil: false,
           familiares: familiaresResueltos.map((f) => ({
             id: Number(f.id),
@@ -547,6 +668,8 @@ export class SubalternosService {
             situacion: relacion.situaciones.denominacion,
             sub_unidad_id: relacion.sub_unidad_id ? Number(relacion.sub_unidad_id) : null,
             sub_unidad: relacion.sub_unidades?.denominacion ?? null,
+            derecha: ubicacion?.derecha ?? null,
+            numor: ubicacion?.numor ?? null,
           },
         };
       });
@@ -594,22 +717,67 @@ export class SubalternosService {
       await assertPersonaEnAlcance(this.prisma, BigInt(id), alcance);
     }
 
+    const personaId = BigInt(id);
     const persona = await this.prisma.personas.findUnique({
-      where: { id: BigInt(id) },
+      where: { id: personaId },
+      select: {
+        id: true,
+        _count: { select: SELECT_CONTEO_BLOQUEOS },
+      },
     });
     if (!persona) {
       throw new NotFoundException(`No existe subalterno con id ${id}`);
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.relaciones_laborales.deleteMany({
-        where: { persona_id: BigInt(id) },
-      });
-      await tx.personas.delete({
-        where: { id: BigInt(id) },
-      });
+    // Se avisa qué tiene en vez de intentar el borrado y devolver el error crudo de la FK.
+    const vinculosFamiliares = await this.prisma.relaciones_familiares.count({
+      where: { OR: [{ persona_id: personaId }, { familiar_id: personaId }] },
     });
+    const bloqueos = describirBloqueos({
+      ...persona._count,
+      relaciones_familiares: vinculosFamiliares,
+    });
+    if (bloqueos.length > 0) {
+      throw new ConflictException({
+        message: mensajeDeBloqueo(bloqueos),
+        data: { motivo: 'tiene_registros', registros: bloqueos },
+      });
+    }
 
+    let archivosDestinos: bigint[] = [];
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.derecha.bloquearEnTransaccion(tx);
+        // Padre primero: un destino nuevo necesita KEY SHARE sobre la persona y espera hasta el commit.
+        await tx.$queryRaw`SELECT id FROM personas WHERE id = ${personaId} FOR UPDATE`;
+        await tx.relaciones_laborales.deleteMany({ where: { persona_id: personaId } });
+        archivosDestinos = archivosDeFilas(
+          await tx.$queryRaw<ArchivosFila[]>`
+            SELECT archivo_orden_id, archivo_boletin_id FROM destinos WHERE persona_id = ${personaId} FOR UPDATE`,
+        );
+        await tx.destinos.deleteMany({ where: { persona_id: personaId } });
+        await tx.asignaciones_comision.deleteMany({ where: { persona_id: personaId } });
+        await tx.legajo_militar.deleteMany({ where: { persona_id: personaId } });
+        // Solo quedan los nunca editados: los cargados bloquean el borrado.
+        await tx.registros_vuelo.deleteMany({ where: { persona_id: personaId } });
+        // Solo los de archivos ya borrados: un documento activo tiene que seguir bloqueando.
+        await tx.personas_documentos.deleteMany({
+          where: { persona_id: personaId, archivos: { eliminado_en: { not: null } } },
+        });
+        await tx.personas.delete({ where: { id: personaId } });
+      });
+    } catch (err) {
+      // Red de seguridad: una relación que el conteo no cubre, o una carrera.
+      if ((err as { code?: unknown })?.code === 'P2003') {
+        throw new ConflictException({
+          message: 'No se puede eliminar: el funcionario tiene registros asociados',
+          data: { motivo: 'tiene_registros', registros: [] },
+        });
+      }
+      throw err;
+    }
+
+    await darDeBajaArchivos(this.archivos, archivosDestinos, null, this.logger);
     return { id, eliminado: true };
   }
 }

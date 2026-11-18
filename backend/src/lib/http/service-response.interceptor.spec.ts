@@ -1,4 +1,5 @@
-import { CallHandler, ExecutionContext } from '@nestjs/common';
+import { CallHandler, ExecutionContext, StreamableFile } from '@nestjs/common';
+import { Readable } from 'node:stream';
 import { of } from 'rxjs';
 import { ServiceResponseInterceptor } from './service-response.interceptor';
 
@@ -41,6 +42,16 @@ describe('ServiceResponseInterceptor', () => {
   it('convierte BigInt a string dentro del payload', (done) => {
     interceptor.intercept(makeContext(), makeHandler({ id: 5n })).subscribe((result: any) => {
       expect(result.service_response.service_data).toEqual({ id: '5' });
+      done();
+    });
+  });
+
+  it('deja pasar un StreamableFile sin envolverlo', (done) => {
+    const archivo = new StreamableFile(Readable.from(['contenido']));
+
+    interceptor.intercept(makeContext(), makeHandler(archivo)).subscribe((result: any) => {
+      expect(result).toBe(archivo);
+      expect(result.service_response).toBeUndefined();
       done();
     });
   });

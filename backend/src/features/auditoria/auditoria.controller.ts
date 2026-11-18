@@ -19,7 +19,7 @@ export class AuditoriaController {
 
   @Get('filtros')
   @RequirePermissions('auditoria.ver')
-  @ApiOperation({ summary: 'Obtener acciones y contextos disponibles para los filtros' })
+  @ApiOperation({ summary: 'Obtener acciones, contextos y usuarios disponibles para los filtros' })
   filtros() {
     return this.auditoriaService.filtros();
   }

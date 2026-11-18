@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Put, Delete, Query, Body, Param, ParseIntPipe, Res,
-  UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,
+  UseInterceptors, UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth, ApiConsumes, ApiBody, ApiParam } from '@nestjs/swagger';
@@ -9,17 +9,21 @@ import { SubalternosService } from './subalternos.service.js';
 import { PersonasCargaService } from './personas-carga.service.js';
 import { PersonalPerfilService } from './personal-perfil.service.js';
 import { LegajoMilitarService } from './legajo-militar.service.js';
+import { CambioSituacionService } from './cambio-situacion.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types/auth.types.js';
 import { ListPersonasQueryDto } from './dto/list-personas-query.dto.js';
 import { CreatePersonalDto } from './dto/create-personal.dto.js';
 import { UpdatePersonalDto } from './dto/update-personal.dto.js';
 import { FamiliarDto } from './dto/familiar.dto.js';
+import { BuscarFamiliarQueryDto } from './dto/buscar-familiar-query.dto.js';
 import { LegajoMilitarDto } from './dto/legajo-militar.dto.js';
+import { CambiarSituacionDto } from './dto/cambiar-situacion.dto.js';
 import { Auditar } from '../auditoria/decorators/auditar.decorator.js';
-import { RequirePermissions } from '../auth/decorators/permissions.decorator.js';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator.js';
 import type { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
+import { archivoExcelPipe, enviarExcel } from '../../lib/carga-masiva/index.js';
+import type { ArchivoSubido } from '../../lib/carga-masiva/index.js';
 
 @ApiTags('Personas')
 @ApiCookieAuth('auth_token')
@@ -31,6 +35,7 @@ export class PersonasController {
     private readonly cargaService: PersonasCargaService,
     private readonly perfilService: PersonalPerfilService,
     private readonly legajoMilitarService: LegajoMilitarService,
+    private readonly cambioSituacionService: CambioSituacionService,
   ) {}
 
   // ─── Listado ───────────────────────────────────────────────────────────────
@@ -47,32 +52,22 @@ export class PersonasController {
 
   // ─── Carga masiva ─────────────────────────────────────────────────────────
 
-  @ApiOperation({ summary: 'Descargar plantilla Excel para carga masiva' })
+  @ApiOperation({ summary: 'Descargar plantilla Excel para carga masiva (con listas desplegables de catálogos)' })
   @RequireAlcance('personas.crear')
   @Get('plantilla')
-  descargarPlantilla(@Res() res: Response) {
-    const buffer = this.cargaService.generarPlantilla();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename="plantilla_carga_personal.xlsx"');
-    res.send(buffer);
+  async descargarPlantilla(@Res() res: Response, @Alcance() alcance: AlcanceResuelto) {
+    enviarExcel(res, await this.cargaService.generarPlantilla(alcance), 'plantilla_carga_personal.xlsx');
   }
 
   @ApiOperation({ summary: 'Carga masiva de personal desde Excel' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { archivo: { type: 'string', format: 'binary' } } } })
   @RequireAlcance('personas.crear')
+  @Auditar({ contexto: 'Personas', entidad: 'Carga masiva de personal', incluirRespuesta: true })
   @Post('carga-masiva')
   @UseInterceptors(FileInterceptor('archivo'))
   cargaMasiva(
-    @UploadedFile(
-      new ParseFilePipe({
-        validators: [
-          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
-          new FileTypeValidator({ fileType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
-        ],
-      }),
-    )
-    archivo: { buffer: Buffer; mimetype: string; originalname: string },
+    @UploadedFile(archivoExcelPipe()) archivo: ArchivoSubido,
     @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.cargaService.procesarCarga(archivo.buffer, alcance);
@@ -87,8 +82,15 @@ export class PersonasController {
   @RequireAlcance('personas.crear')
   @Auditar({ contexto: 'Personas', entidad: 'Persona', incluirRespuesta: true })
   @Post()
-  create(@Body() dto: CreatePersonalDto, @Alcance() alcance: AlcanceResuelto) {
-    return this.subalternosService.createPersonal(dto, alcance);
+  create(
+    @Body() dto: CreatePersonalDto,
+    @Alcance() alcance: AlcanceResuelto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.subalternosService.createPersonal(dto, alcance, {
+      id: user?.id != null ? BigInt(user.id) : null,
+      permisos: user?.permisos ?? [],
+    });
   }
 
   // ─── Familiares por cédula ────────────────────────────────────────────────
@@ -104,6 +106,16 @@ export class PersonasController {
     return this.perfilService.findFamiliaresPorCedula(cedula, alcance);
   }
 
+  @ApiOperation({ summary: 'Buscar personas para vincular como familiar (militares en actividad y civiles)' })
+  @RequireAlcance('personas.ver')
+  @Get('familiares/candidatos')
+  buscarCandidatosFamiliar(
+    @Query() query: BuscarFamiliarQueryDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.perfilService.buscarCandidatosFamiliar(query.search, query.excluir, alcance);
+  }
+
   // ─── Detalle ──────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Datos personales + relación laboral activa (tab Datos Personales)' })
@@ -117,7 +129,7 @@ export class PersonasController {
     return this.perfilService.findOne(id, alcance);
   }
 
-  @ApiOperation({ summary: 'Familiares militares vinculados (tab Información Familiar)' })
+  @ApiOperation({ summary: 'Familiares vinculados (tab Información Familiar)' })
   @ApiParam({ name: 'id', type: Number })
   @RequireAlcance('personas.ver')
   @Get(':id/familiares')
@@ -128,7 +140,7 @@ export class PersonasController {
     return this.perfilService.findFamiliares(id, alcance);
   }
 
-  @ApiOperation({ summary: 'Vincular un familiar ya registrado (debe ser oficial o subalterno)' })
+  @ApiOperation({ summary: 'Vincular un familiar ya registrado (civil o militar)' })
   @ApiParam({ name: 'id', type: Number })
   @RequireAlcance('personas.editar')
   @Post(':id/familiares')
@@ -219,10 +231,38 @@ export class PersonasController {
 
   @ApiOperation({ summary: 'Historial de destinos (tab Destinos)' })
   @ApiParam({ name: 'id', type: Number })
-  @RequirePermissions('personas.ver')
+  @RequireAlcance('personas.ver')
   @Get(':id/destinos')
-  findDestinos(@Param('id', ParseIntPipe) id: number) {
-    return this.perfilService.findDestinos(id);
+  findDestinos(@Param('id', ParseIntPipe) id: number, @Alcance() alcance: AlcanceResuelto) {
+    return this.perfilService.findDestinos(id, alcance);
+  }
+
+  @Get(':id/comisiones')
+  @ApiOperation({ summary: 'Historial de comisiones de la persona' })
+  @RequireAlcance('personas.ver')
+  findComisiones(@Param('id', ParseIntPipe) id: number, @Alcance() alcance: AlcanceResuelto) {
+    return this.perfilService.findComisiones(id, alcance);
+  }
+
+  // ─── Situación ────────────────────────────────────────────────────────────
+
+  @ApiOperation({
+    summary: 'Cambiar la situación: licencia sin goce, No Disponible o volver a actividad',
+    description:
+      'Como liquidación: cierra la relación laboral activa y abre otra con la situación nueva. ' +
+      'Licencia sin goce y No Disponible dejan de cobrar en el próximo cálculo de liquidación.',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @RequireAlcance('personas.editar')
+  @Auditar({ contexto: 'Personas', entidad: 'Persona', accion: 'ACTUALIZAR', incluirRespuesta: true })
+  @Post(':id/situacion')
+  cambiarSituacion(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CambiarSituacionDto,
+    @Alcance() alcance: AlcanceResuelto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.cambioSituacionService.cambiar(id, dto, BigInt(user.id), alcance);
   }
 
   // ─── Editar ───────────────────────────────────────────────────────────────
@@ -238,6 +278,6 @@ export class PersonasController {
     @Alcance() alcance: AlcanceResuelto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.perfilService.update(id, dto, BigInt(user.id), alcance);
+    return this.perfilService.update(id, dto, BigInt(user.id), alcance, user.permisos ?? []);
   }
 }

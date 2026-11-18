@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { AscensoRegistroService } from './ascenso-registro.service';
 import { PrismaService } from '../../lib/prisma.service';
+import { DerechaService } from '../derecha/derecha.service';
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,12 @@ const makePrismaMock = () => {
   const mock: any = {
     relaciones_laborales: {
       findFirst: jest.fn(),
+      // El service lee las vigentes con findMany: se arma desde findFirst para
+      // que cada test configure una sola relación.
+      findMany: jest.fn(async (args: any) => {
+        const r = await mock.relaciones_laborales.findFirst(args);
+        return r ? [r] : [];
+      }),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -88,13 +95,16 @@ const makePrismaMock = () => {
     tipos_movimiento: { findUnique: jest.fn() },
     movimientos_laborales: { createMany: jest.fn(), deleteMany: jest.fn() },
     items_liquidacion: { count: jest.fn().mockResolvedValue(0) },
+    personas: { findUnique: jest.fn().mockResolvedValue({ es_civil: false }) },
     ascensos: {
       create: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
       findUnique: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
     },
     $transaction: jest.fn(),
+    $executeRaw: jest.fn().mockResolvedValue(0),
   };
   mock.$transaction.mockImplementation((cb: any) => cb(mock));
   return mock;
@@ -127,13 +137,16 @@ const escenarioOk = (prisma: any, overrides: { relacion?: any; destino?: any } =
 describe('AscensoRegistroService', () => {
   let service: AscensoRegistroService;
   let prisma: ReturnType<typeof makePrismaMock>;
+  let derecha: { ascenderEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
+    derecha = { ascenderEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AscensoRegistroService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DerechaService, useValue: derecha },
       ],
     }).compile();
     service = module.get<AscensoRegistroService>(AscensoRegistroService);
@@ -173,12 +186,14 @@ describe('AscensoRegistroService', () => {
           superprima: true,
           mutaciones: 'Mutado de SG a AT',
           categoria_viatico: 3,
+          codigos_legajo: '-1-4-7-8-',
         }),
       });
 
       await service.registrar(params());
 
       const data = prisma.relaciones_laborales.create.mock.calls[0][0].data;
+      expect(data.codigos_legajo).toBe('-1-4-7-8-');
       expect(data.unidad_id).toBe(2n);
       expect(data.situacion_id).toBe(7n);
       expect(data.escalafon_id).toBe(14n);
@@ -188,12 +203,34 @@ describe('AscensoRegistroService', () => {
       expect(data.categoria_viatico).toBe(3);
     });
 
+    it('en un reincorporado lleva el grado de reincorporación al grado nuevo y conserva haber y porcentaje', async () => {
+      escenarioOk(prisma, {
+        relacion: makeRelacion({ grado_reincorporacion_id: 3n, haber_retiro: 42000.5, porcentaje_progresivo: 0.3 }),
+      });
+
+      await service.registrar(params());
+
+      const data = prisma.relaciones_laborales.create.mock.calls[0][0].data;
+      expect(data.grado_reincorporacion_id).toBe(4n);
+      expect(data.haber_retiro).toBe(42000.5);
+      expect(data.porcentaje_progresivo).toBe(0.3);
+    });
+
+    it('a quien no es reincorporado no le carga grado de reincorporación', async () => {
+      escenarioOk(prisma);
+
+      await service.registrar(params());
+
+      const data = prisma.relaciones_laborales.create.mock.calls[0][0].data;
+      expect(data.grado_reincorporacion_id).toBeNull();
+    });
+
     it('vacía la prima técnica solo si el destino es Sgto. 1.º', async () => {
       escenarioOk(prisma, {
         destino: makeGrado({ id: 6n, codigo: 'SGTO_1RO', denominacion: 'Sargento 1.º', orden: 6 }),
       });
 
-      await service.registrar(params({ grado_destino_id: 6n }));
+      await service.registrar(params({ grado_destino_id: 6n, motivo_excepcion: 'salto de prueba' }));
 
       expect(prisma.relaciones_laborales.create.mock.calls[0][0].data.prima_tecnica).toBe('VACIO');
     });
@@ -211,7 +248,7 @@ describe('AscensoRegistroService', () => {
         destino: makeGrado({ id: 7n, codigo: 'ALF', denominacion: 'Alférez', orden: 7 }),
       });
 
-      await service.registrar(params({ grado_destino_id: 7n }));
+      await service.registrar(params({ grado_destino_id: 7n, motivo_excepcion: 'pasaje a oficial' }));
 
       expect(prisma.relaciones_laborales.create.mock.calls[0][0].data.fecha_ascenso_oficial).toEqual(
         new Date('2026-02-01'),
@@ -224,7 +261,7 @@ describe('AscensoRegistroService', () => {
         destino: makeGrado({ id: 7n, codigo: 'ALF', denominacion: 'Alférez', orden: 7 }),
       });
 
-      await service.registrar(params({ grado_destino_id: 7n }));
+      await service.registrar(params({ grado_destino_id: 7n, motivo_excepcion: 'pasaje a oficial' }));
 
       expect(prisma.relaciones_laborales.create.mock.calls[0][0].data.fecha_ascenso_oficial).toEqual(
         new Date('2010-02-01'),
@@ -317,6 +354,22 @@ describe('AscensoRegistroService', () => {
       expect(prisma.relaciones_laborales.update).not.toHaveBeenCalled();
     });
 
+    it('mueve la derecha y el numor a la relación nueva en la posición elegida', async () => {
+      escenarioOk(prisma);
+
+      await service.registrar(
+        params({ numero_orden: 'O.C.G.F.A. 1', usuario_id: 8n, posicion_derecha: 2, posicion_numor: 1 }),
+      );
+
+      expect(derecha.ascenderEnTransaccion).toHaveBeenCalledWith(
+        prisma,
+        100n,
+        4n,
+        { posicion: 2, posicionNumor: 1, relacionDestinoId: 501n },
+        { motivo: 'Orden de ascenso O.C.G.F.A. 1', usuarioId: 8n },
+      );
+    });
+
     it('exige motivo cuando el ascenso es por excepción', async () => {
       escenarioOk(prisma);
 
@@ -336,6 +389,140 @@ describe('AscensoRegistroService', () => {
       expect(data.cumplia_requisitos).toBe(false);
       expect(data.motivo_excepcion).toBe('Vacante urgente en la unidad');
     });
+
+    // ─── Concurrencia ─────────────────────────────────────────────────────────
+
+    it('toma el lock de la derecha antes que el de la persona', async () => {
+      escenarioOk(prisma);
+
+      await service.registrar(params());
+
+      expect(derecha.bloquearEnTransaccion.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.$executeRaw.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('toma el lock de la persona antes de leer la relación vigente', async () => {
+      escenarioOk(prisma);
+
+      await service.registrar(params());
+
+      const lock = prisma.$executeRaw.mock.invocationCallOrder[0];
+      const lectura = prisma.relaciones_laborales.findMany.mock.invocationCallOrder[0];
+      expect(lock).toBeLessThan(lectura);
+    });
+
+    it('responde 409 si la relación vigente ya no es la que se leyó antes del lock', async () => {
+      escenarioOk(prisma);
+
+      await expect(
+        service.registrar(params({ relacion_esperada_id: 499n })),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.relaciones_laborales.create).not.toHaveBeenCalled();
+    });
+
+    it('sigue si la relación vigente es la esperada', async () => {
+      escenarioOk(prisma);
+
+      await service.registrar(params({ relacion_esperada_id: 500n }));
+
+      expect(prisma.ascensos.create).toHaveBeenCalled();
+    });
+
+    it('responde 409 si la persona ya tiene más de una relación vigente', async () => {
+      escenarioOk(prisma);
+      prisma.relaciones_laborales.findMany.mockResolvedValue([
+        makeRelacion(),
+        makeRelacion({ id: 501n }),
+      ]);
+
+      await expect(service.registrar(params())).rejects.toThrow(ConflictException);
+    });
+
+    // ─── Escala ───────────────────────────────────────────────────────────────
+
+    it('rechaza un salto de grados sin motivo de excepción', async () => {
+      escenarioOk(prisma, {
+        destino: makeGrado({ id: 6n, codigo: 'SGTO_1RO', denominacion: 'Sargento 1.º' }),
+      });
+
+      await expect(service.registrar(params({ grado_destino_id: 6n }))).rejects.toThrow(
+        /saltea grados.*motivo de excepción/,
+      );
+    });
+
+    it('rechaza un cambio de escala sin motivo de excepción', async () => {
+      escenarioOk(prisma, {
+        destino: makeGrado({ id: 15n, codigo: 'GRAL', denominacion: 'Gral. del Aire', orden: 15 }),
+      });
+
+      await expect(service.registrar(params({ grado_destino_id: 15n }))).rejects.toThrow(
+        /cambia de escala/,
+      );
+    });
+
+    it('con motivo registra el salto como excepción aunque la evaluación diga que cumplía', async () => {
+      escenarioOk(prisma, {
+        destino: makeGrado({ id: 6n, codigo: 'SGTO_1RO', denominacion: 'Sargento 1.º' }),
+      });
+
+      await service.registrar(
+        params({ grado_destino_id: 6n, cumplia_requisitos: true, motivo_excepcion: '  Orden del Comando  ' }),
+      );
+
+      const data = prisma.ascensos.create.mock.calls[0][0].data;
+      expect(data.cumplia_requisitos).toBe(false);
+      expect(data.motivo_excepcion).toBe('Orden del Comando');
+    });
+
+    it('no acepta bajar de grado dentro de la escala, ni con motivo', async () => {
+      escenarioOk(prisma, {
+        destino: makeGrado({ id: 1n, codigo: 'SDO_1RA', denominacion: 'Soldado de 1.ª', orden: 1 }),
+      });
+
+      await expect(
+        service.registrar(params({ grado_destino_id: 1n, motivo_excepcion: 'x' })),
+      ).rejects.toThrow(/no es superior/);
+    });
+
+    // ─── Fecha ────────────────────────────────────────────────────────────────
+
+    it('rechaza una fecha anterior al último ascenso de la relación', async () => {
+      escenarioOk(prisma);
+
+      await expect(
+        service.registrar(params({ fecha_ascenso: new Date('2022-06-01') })),
+      ).rejects.toThrow(/posterior a la del último ascenso.*2023-02-01/);
+    });
+
+    it('rechaza la misma fecha del último ascenso', async () => {
+      escenarioOk(prisma);
+
+      await expect(
+        service.registrar(params({ fecha_ascenso: new Date('2023-02-01') })),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('mira también el último ascenso registrado en el módulo', async () => {
+      escenarioOk(prisma);
+      prisma.ascensos.findFirst.mockResolvedValue({ fecha_ascenso: new Date('2026-03-01') });
+
+      await expect(service.registrar(params())).rejects.toThrow(/2026-03-01/);
+      expect(prisma.ascensos.findFirst.mock.calls[0][0].where).toMatchObject({
+        persona_id: 100n,
+        anulado_en: null,
+      });
+    });
+
+    // ─── Civiles ──────────────────────────────────────────────────────────────
+
+    it('no asciende a personal civil', async () => {
+      escenarioOk(prisma);
+      prisma.personas.findUnique.mockResolvedValue({ es_civil: true });
+
+      await expect(service.registrar(params())).rejects.toThrow(/personal civil/);
+      expect(prisma.relaciones_laborales.create).not.toHaveBeenCalled();
+    });
   });
 
   // ─── Anular ─────────────────────────────────────────────────────────────────
@@ -352,6 +539,18 @@ describe('AscensoRegistroService', () => {
         Promise.resolve({ ...ascenso, ...data }),
       );
     };
+
+    it('toma el lock de la persona y relee el ascenso antes de revertir', async () => {
+      prepararAnulacion(prisma);
+
+      await service.anular(900n, { motivo: 'Orden dejada sin efecto' });
+
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      expect(prisma.ascensos.findUnique).toHaveBeenCalledTimes(2);
+      expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.relaciones_laborales.delete.mock.invocationCallOrder[0],
+      );
+    });
 
     it('borra los movimientos, elimina la relación nueva y reactiva la anterior', async () => {
       prepararAnulacion(prisma);
@@ -373,6 +572,30 @@ describe('AscensoRegistroService', () => {
         anulado_por: 8n,
         motivo_anulacion: 'Orden dejada sin efecto',
       });
+    });
+
+    it('devuelve la derecha al final del grado anterior, sobre la relación reactivada', async () => {
+      prepararAnulacion(prisma);
+      prisma.relaciones_laborales.findUnique.mockImplementation(({ where }: any) =>
+        Promise.resolve(
+          where.id === 500n
+            ? { grado_id: 3n }
+            : { id: 501n, persona_id: 100n, fecha_fin: null },
+        ),
+      );
+
+      await service.anular(900n, { motivo: 'Error de carga', usuario_id: 8n });
+
+      expect(derecha.ascenderEnTransaccion).toHaveBeenCalledWith(
+        prisma,
+        100n,
+        3n,
+        { relacionDestinoId: 500n },
+        { motivo: 'Anulación de ascenso: Error de carga', usuarioId: 8n },
+      );
+      const ordenDerecha = derecha.ascenderEnTransaccion.mock.invocationCallOrder[0];
+      const ordenBorrado = prisma.relaciones_laborales.delete.mock.invocationCallOrder[0];
+      expect(ordenDerecha).toBeLessThan(ordenBorrado);
     });
 
     it('exige motivo', async () => {

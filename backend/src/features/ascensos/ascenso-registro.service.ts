@@ -6,15 +6,36 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service.js';
+import { DerechaService } from '../derecha/derecha.service.js';
 import {
   CODIGO_GRADO_SIN_PRIMA_TECNICA,
   CODIGO_PRIMER_GRADO_OFICIAL,
   ESTADO_RELACION_ACTIVA,
   ESTADO_RELACION_INACTIVA,
+  LOCK_ASCENSO_PERSONA,
   PRIMA_TECNICA_VACIA,
   TIPO_MOVIMIENTO_ASCENSO,
   TIPO_MOVIMIENTO_CIERRE,
+  TipoAscenso,
+  clasificarAscenso,
 } from './ascensos.constants.js';
+
+const soloFecha = (fecha: Date) => fecha.toISOString().split('T')[0];
+
+/** Mismo texto en la orden y en el registro: el frontend lo muestra tal cual. */
+export function mensajeFueraDeCarrera(
+  tipo: TipoAscenso,
+  actual: { denominacion: string } | null | undefined,
+  destino: { denominacion: string },
+  personaId: bigint | number | string,
+): string {
+  const desde = actual?.denominacion ?? 'sin grado';
+  const que =
+    tipo === 'SALTO'
+      ? `saltea grados (de ${desde} a ${destino.denominacion})`
+      : `cambia de escala (de ${desde} a ${destino.denominacion})`;
+  return `El ascenso del funcionario ${personaId} ${que}: solo se permite el grado siguiente de su escala. Para registrarlo igual hay que escribir un motivo de excepción.`;
+}
 
 export interface RegistrarAscensoParams {
   persona_id: bigint;
@@ -30,6 +51,14 @@ export interface RegistrarAscensoParams {
   evaluacion?: Prisma.InputJsonValue | null;
   motivo_excepcion?: string | null;
   usuario_id?: bigint | null;
+  /** Posición en el grado destino. Sin valor: al final. */
+  posicion_derecha?: number | null;
+  posicion_numor?: number | null;
+  /**
+   * Relación vigente que se leyó antes de abrir la transacción (al evaluar). Si
+   * al tomar el lock ya no es la vigente, otro ascenso ganó la carrera: 409.
+   */
+  relacion_esperada_id?: bigint | null;
 }
 
 export interface AnularAscensoParams {
@@ -45,7 +74,10 @@ export interface AnularAscensoParams {
  */
 @Injectable()
 export class AscensoRegistroService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly derecha: DerechaService,
+  ) {}
 
   async registrar(params: RegistrarAscensoParams) {
     return this.prisma.$transaction((tx) => this.registrarEnTransaccion(tx, params));
@@ -62,14 +94,40 @@ export class AscensoRegistroService {
       );
     }
 
-    const relacionActual = await tx.relaciones_laborales.findFirst({
+    await this.bloquearPersonas(tx, [params.persona_id]);
+
+    const persona = await tx.personas.findUnique({
+      where: { id: params.persona_id },
+      select: { es_civil: true },
+    });
+    if (persona?.es_civil) {
+      throw new BadRequestException(
+        `El funcionario ${params.persona_id} es personal civil: los civiles no ascienden por la escala militar`,
+      );
+    }
+
+    const vigentes = await tx.relaciones_laborales.findMany({
       where: { persona_id: params.persona_id, fecha_fin: null },
       orderBy: { fecha_inicio: 'desc' },
     });
+    const relacionActual = vigentes[0];
 
     if (!relacionActual) {
       throw new BadRequestException(
         `El funcionario ${params.persona_id} no tiene una relación laboral vigente: no se le puede registrar un ascenso`,
+      );
+    }
+    if (vigentes.length > 1) {
+      throw new ConflictException(
+        `El funcionario ${params.persona_id} tiene ${vigentes.length} relaciones laborales vigentes. Revisá su historial antes de registrarle un ascenso.`,
+      );
+    }
+    if (
+      params.relacion_esperada_id != null &&
+      relacionActual.id !== params.relacion_esperada_id
+    ) {
+      throw new ConflictException(
+        `La relación laboral del funcionario ${params.persona_id} cambió mientras se registraba la orden (probablemente otro ascenso en simultáneo). Volvé a cargar sus datos e intentá de nuevo.`,
       );
     }
 
@@ -92,10 +150,19 @@ export class AscensoRegistroService {
         `El grado ${gradoDestino.denominacion} no está vigente`,
       );
     }
-    if (gradoActual && gradoDestino.orden <= gradoActual.orden) {
-      // `grados.orden` es ascendente: ascender es siempre ir a un orden mayor.
+    // `grados.orden` es global y mezcla escalas: la carrera se mira por escala.
+    const tipo = gradoActual
+      ? clasificarAscenso(gradoActual.codigo, gradoDestino.codigo)
+      : 'CAMBIO_ESCALA';
+    if (tipo === 'NO_SUPERIOR') {
       throw new BadRequestException(
-        `El grado ${gradoDestino.denominacion} no es superior a ${gradoActual.denominacion}`,
+        `El grado ${gradoDestino.denominacion} no es superior a ${gradoActual!.denominacion}`,
+      );
+    }
+    const fueraDeCarrera = tipo !== 'SIGUIENTE';
+    if (fueraDeCarrera && !params.motivo_excepcion?.trim()) {
+      throw new BadRequestException(
+        mensajeFueraDeCarrera(tipo, gradoActual, gradoDestino, params.persona_id),
       );
     }
     if (
@@ -104,6 +171,23 @@ export class AscensoRegistroService {
     ) {
       throw new BadRequestException(
         'La fecha del ascenso es anterior al inicio de la relación laboral vigente',
+      );
+    }
+
+    // La historia de ascensos va en orden: el nuevo tiene que ser posterior al
+    // último. Se mira la relación (incluye ascensos de liquidación o importados)
+    // y la tabla de ascensos del módulo, sin contar los anulados.
+    const ultimoRegistrado = await tx.ascensos.findFirst({
+      where: { persona_id: params.persona_id, anulado_en: null, fecha_ascenso: { not: null } },
+      orderBy: { fecha_ascenso: 'desc' },
+      select: { fecha_ascenso: true },
+    });
+    const ultimoAscenso = [relacionActual.fecha_ultimo_ascenso, ultimoRegistrado?.fecha_ascenso]
+      .filter((f): f is Date => f instanceof Date)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+    if (ultimoAscenso && params.fecha_ascenso.getTime() <= ultimoAscenso.getTime()) {
+      throw new BadRequestException(
+        `La fecha del ascenso (${soloFecha(params.fecha_ascenso)}) tiene que ser posterior a la del último ascenso del funcionario (${soloFecha(ultimoAscenso)})`,
       );
     }
 
@@ -152,7 +236,9 @@ export class AscensoRegistroService {
         observaciones: params.observaciones ?? relacionActual.observaciones,
         sub_unidad_id: relacionActual.sub_unidad_id,
         motivo_baja_id: relacionActual.motivo_baja_id,
-        grado_reincorporacion_id: relacionActual.grado_reincorporacion_id,
+        // Liquidación toma la base del sueldo de este grado antes que de grado_id: si no sigue al ascenso, cobra como antes.
+        grado_reincorporacion_id:
+          relacionActual.grado_reincorporacion_id != null ? gradoDestino.id : null,
         haber_retiro: relacionActual.haber_retiro,
         porcentaje_progresivo: relacionActual.porcentaje_progresivo,
         superprima: relacionActual.superprima,
@@ -163,8 +249,24 @@ export class AscensoRegistroService {
         anios_servicio_anterior: relacionActual.anios_servicio_anterior,
         categoria_viatico: relacionActual.categoria_viatico,
         usa_fonasa: relacionActual.usa_fonasa,
+        codigos_legajo: relacionActual.codigos_legajo,
       },
     });
+
+    await this.derecha.ascenderEnTransaccion(
+      tx,
+      params.persona_id,
+      gradoDestino.id,
+      {
+        posicion: params.posicion_derecha,
+        posicionNumor: params.posicion_numor,
+        relacionDestinoId: relacionNueva.id,
+      },
+      {
+        motivo: params.numero_orden ? `Orden de ascenso ${params.numero_orden}` : 'Ascenso',
+        usuarioId: params.usuario_id ?? null,
+      },
+    );
 
     // El cierre va sobre la relación vieja y el alta sobre la nueva.
     await tx.movimientos_laborales.createMany({
@@ -198,9 +300,11 @@ export class AscensoRegistroService {
         relacion_laboral_anterior_id: relacionActual.id,
         relacion_laboral_nueva_id: relacionNueva.id,
         regla_id: params.regla_id ?? null,
-        cumplia_requisitos: params.cumplia_requisitos ?? null,
+        // Un salto o cambio de escala no cumple la regla de su grado, aunque la
+        // evaluación diga PASIBLE: queda contado como excepción.
+        cumplia_requisitos: fueraDeCarrera ? false : (params.cumplia_requisitos ?? null),
         evaluacion: params.evaluacion ?? Prisma.DbNull,
-        motivo_excepcion: params.motivo_excepcion ?? null,
+        motivo_excepcion: params.motivo_excepcion?.trim() || null,
         registrado_por: params.usuario_id ?? null,
       },
     });
@@ -234,8 +338,15 @@ export class AscensoRegistroService {
       throw new BadRequestException('Anular un ascenso necesita un motivo escrito');
     }
 
-    const ascenso = await tx.ascensos.findUnique({ where: { id: ascensoId } });
-    if (!ascenso) throw new NotFoundException(`No existe el ascenso ${ascensoId}`);
+    const encontrado = await tx.ascensos.findUnique({ where: { id: ascensoId } });
+    if (!encontrado) throw new NotFoundException(`No existe el ascenso ${ascensoId}`);
+
+    // Mismo lock que el alta: una anulación y un ascenso de la misma persona no
+    // se pisan. Se relee después del lock, por si otra anulación ganó.
+    if (encontrado.persona_id != null) {
+      await this.bloquearPersonas(tx, [encontrado.persona_id]);
+    }
+    const ascenso = (await tx.ascensos.findUnique({ where: { id: ascensoId } })) ?? encontrado;
     if (ascenso.anulado_en) {
       throw new ConflictException(`El ascenso ${ascensoId} ya está anulado`);
     }
@@ -284,6 +395,25 @@ export class AscensoRegistroService {
       );
     }
 
+    const relacionAnterior = await tx.relaciones_laborales.findUnique({
+      where: { id: ascenso.relacion_laboral_anterior_id },
+      select: { grado_id: true },
+    });
+    if (!relacionAnterior) {
+      throw new BadRequestException(
+        `La relación laboral anterior al ascenso ${ascensoId} ya no existe`,
+      );
+    }
+
+    // Vuelve al final de su grado anterior.
+    await this.derecha.ascenderEnTransaccion(
+      tx,
+      relacionNueva.persona_id,
+      relacionAnterior.grado_id,
+      { relacionDestinoId: ascenso.relacion_laboral_anterior_id },
+      { motivo: `Anulación de ascenso: ${params.motivo}`, usuarioId: params.usuario_id ?? null },
+    );
+
     await tx.movimientos_laborales.deleteMany({
       where: {
         relacion_laboral_id: {
@@ -319,6 +449,25 @@ export class AscensoRegistroService {
         motivo_anulacion: params.motivo,
       },
     });
+  }
+
+  /**
+   * Advisory lock por persona, hasta el fin de la transacción. Es reentrante:
+   * una orden puede tomar todos los de sus funcionarios antes de empezar y
+   * `registrarEnTransaccion` volver a pedirlo sin trabarse. Se toman en orden
+   * de id para que dos órdenes que comparten funcionarios no hagan deadlock.
+   */
+  async bloquearPersonas(tx: Prisma.TransactionClient, personaIds: bigint[]) {
+    // Primero el lock de la derecha.
+    await this.derecha.bloquearEnTransaccion(tx);
+    const ordenados = [...new Set(personaIds.map(String))]
+      .map((id) => BigInt(id))
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    for (const id of ordenados) {
+      // La variante de dos claves es int4: el módulo solo importa para ids enormes.
+      const clave = Number(id % 2_147_483_647n);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_ASCENSO_PERSONA}::int, ${clave}::int)`;
+    }
   }
 
   /** Por nombre y nunca por id: el catálogo es del otro equipo. */

@@ -4,7 +4,9 @@ import {
   DefinicionReporte,
   ResultadoReporte,
 } from '../reportes.types';
-import { fmtFecha, unir } from './_helpers';
+import { wherePersonaPorCategoria } from '../../../lib/personal/categoria-personal';
+import { categoriaDeFiltros, fmtFecha, PARAMETRO_CATEGORIA, unir } from './_helpers';
+import { wherePersonaReporte } from '../alcance-reportes';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'cedula', etiqueta: 'Cédula', tipo: 'texto' },
@@ -13,11 +15,17 @@ const COLUMNAS: ColumnaReporte[] = [
   { clave: 'apellido', etiqueta: 'Apellido', tipo: 'texto' },
   { clave: 'nombre', etiqueta: 'Nombre', tipo: 'texto' },
   { clave: 'destino', etiqueta: 'Destino', tipo: 'texto' },
-  { clave: 'tipo_destino', etiqueta: 'Tipo', tipo: 'texto' },
+  { clave: 'comando', etiqueta: 'Comando', tipo: 'texto' },
   { clave: 'cargo', etiqueta: 'Cargo', tipo: 'texto' },
   { clave: 'fecha_destino', etiqueta: 'Fecha destino', tipo: 'fecha' },
   { clave: 'fecha_fin', etiqueta: 'Fecha fin', tipo: 'fecha' },
+  { clave: 'numero_destino', etiqueta: 'Des Num', tipo: 'texto' },
   { clave: 'numero_orden', etiqueta: 'N.º Orden', tipo: 'texto' },
+  { clave: 'fecha_orden', etiqueta: 'Fecha orden', tipo: 'fecha' },
+  { clave: 'boletin', etiqueta: 'N.º Boletín', tipo: 'texto' },
+  { clave: 'fecha_boletin', etiqueta: 'Fecha boletín', tipo: 'fecha' },
+  { clave: 'numero_resolucion', etiqueta: 'N.º Resolución', tipo: 'texto' },
+  { clave: 'fecha_resolucion', etiqueta: 'Fecha resolución', tipo: 'fecha' },
 ];
 
 export const destinosReporte: DefinicionReporte = {
@@ -28,12 +36,15 @@ export const destinosReporte: DefinicionReporte = {
 
    
 
-  parametros: [],
+  parametros: [PARAMETRO_CATEGORIA],
 
-  async ejecutar({ prisma }: ContextoEjecucion): Promise<ResultadoReporte> {
+  async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
+    const categoria = categoriaDeFiltros(filtros);
     const asignaciones = await prisma.destinos.findMany({
+      where: { personas: { ...wherePersonaReporte(filtros), ...(categoria && wherePersonaPorCategoria(categoria)) } },
       include: {
         unidades: true,
+        sub_unidades: true,
         personas: {
           include: {
             relaciones_laborales: {
@@ -55,12 +66,18 @@ export const destinosReporte: DefinicionReporte = {
         escalafon: rel?.escalafones?.codigo ?? '',
         apellido: unir(a.personas?.primer_apellido, a.personas?.segundo_apellido),
         nombre: unir(a.personas?.primer_nombre, a.personas?.segundo_nombre),
-        destino: a.unidades?.denominacion ?? '',
-        tipo_destino: a.unidades?.tipo ?? '',
+        destino: a.sub_unidades?.denominacion ?? '',
+        comando: a.unidades?.denominacion ?? '',
         cargo: a.posicion_destino ?? '',
         fecha_destino: fmtFecha(a.fecha_inicio),
         fecha_fin: fmtFecha(a.fecha_fin),
         numero_orden: a.numero_orden ?? '',
+        numero_destino: a.numero_destino ?? '',
+        fecha_orden: fmtFecha(a.fecha_orden),
+        boletin: a.boletin ?? '',
+        fecha_boletin: fmtFecha(a.fecha_boletin),
+        numero_resolucion: a.numero_resolucion ?? '',
+        fecha_resolucion: fmtFecha(a.fecha_resolucion),
       };
     });
 

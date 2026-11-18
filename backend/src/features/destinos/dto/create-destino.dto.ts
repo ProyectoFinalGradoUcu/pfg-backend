@@ -14,9 +14,12 @@ export class CreateDestinoDto {
   @IsInt()
   persona_id: number;
 
-  @ApiProperty({ example: 5, description: 'Unidad en la que pasa a revistar' })
+  @ApiProperty({
+    example: 5,
+    description: 'Sub-unidad en la que pasa a revistar (B.A.I., E.M.A., ...). El comando sale de ella.',
+  })
   @IsInt()
-  unidad_id: number;
+  sub_unidad_id: number;
 
   @ApiProperty({ example: '2026-09-01', description: 'Fecha desde la que revista en la unidad' })
   @IsDateString()
@@ -58,6 +61,33 @@ export class CreateDestinoDto {
   @IsNotEmpty()
   @MaxLength(50)
   boletin?: string;
+
+  @ApiPropertyOptional({ example: '087', maxLength: 20, description: 'Número de destino (Des Num)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  numero_destino?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-01', description: 'Fecha del documento que ordena el destino' })
+  @IsOptional()
+  @IsDateString()
+  fecha_orden?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-01' })
+  @IsOptional()
+  @IsDateString()
+  fecha_boletin?: string;
+
+  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  numero_resolucion?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-01' })
+  @IsOptional()
+  @IsDateString()
+  fecha_resolucion?: string;
 
   @ApiPropertyOptional({ example: 'Comisión en la ECEMA' })
   @IsOptional()

@@ -2,12 +2,23 @@ import { forwardRef, Inject, Injectable, UnprocessableEntityException } from '@n
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { RetirosService } from './retiros.service';
+import { DerechaService } from '../derecha/derecha.service';
 
-export type CierresElegidos = { destino: boolean; inscripciones: number[]; usuario: boolean };
+export type CierresElegidos = {
+  destino: boolean;
+  inscripciones: number[];
+  comisiones?: number[];
+  usuario: boolean;
+};
 
 export type ResultadoCierre = {
   retiroId: bigint;
-  cerrado: { destino: string | null; inscripciones: string[]; usuario: string | null };
+  cerrado: {
+    destino: string | null;
+    inscripciones: string[];
+    comisiones: string[];
+    usuario: string | null;
+  };
 };
 
 export type ParamsCierre = {
@@ -34,6 +45,7 @@ export class CierreCarreraService {
     private readonly sesiones: SesionesService,
     @Inject(forwardRef(() => RetirosService))
     private readonly retiros: RetirosService,
+    private readonly derecha: DerechaService,
   ) {}
 
   async cerrar(params: ParamsCierre): Promise<ResultadoCierre> {
@@ -71,11 +83,32 @@ export class CierreCarreraService {
       );
     }
 
+    const comisionesValidas = impacto.comisiones.map((a: any) => a.id.toString());
+    const comisionesPedidas = (params.cierres.comisiones ?? []).map(String);
+    const comisionesInvalidas = comisionesPedidas.filter((id) => !comisionesValidas.includes(id));
+    if (comisionesInvalidas.length > 0) {
+      throw new UnprocessableEntityException(
+        `Pertenencias a comisiones inválidas para este funcionario: ${comisionesInvalidas.join(', ')}`,
+      );
+    }
+    // Un retiro no puede dejar pertenencias vigentes, aunque el usuario desmarque el cierre.
+
     const cerrarDestino = (forzar || params.cierres.destino) && impacto.destino != null;
     const cerrarUsuario = (forzar || params.cierres.usuario) && impacto.usuario != null;
     const inscripcionesACerrar = forzar ? idsValidos : pedidas;
 
     const resultado = await this.prisma.$transaction(async (tx: any) => {
+      await this.derecha.bloquearEnTransaccion(tx);
+      await tx.$queryRaw`SELECT id FROM personas WHERE id = ${BigInt(params.personaId)} FOR UPDATE`;
+      // Volver a consultar bajo bloqueo: un alta puede haber terminado después de la previa.
+      const futuras = await tx.asignaciones_comision.findFirst({ where: { persona_id: BigInt(params.personaId), fecha_inicio: { gt: params.fechaRetiro } } });
+      if (futuras) throw new UnprocessableEntityException('Corregí las pertenencias a comisiones posteriores al retiro antes de continuarlo');
+      const actuales = await tx.asignaciones_comision.findMany({
+        where: { persona_id: BigInt(params.personaId), OR: [{ fecha_fin: null }, { fecha_fin: { gt: params.fechaRetiro } }] },
+      });
+      // Las importadas de períodos laborales ya terminados son historial, no se reabren.
+      const periodos = await tx.relaciones_laborales.findMany({ where: { persona_id: BigInt(params.personaId) }, select: { id: true, fecha_fin: true } });
+      const aCerrar = actuales.filter((a: any) => !a.relacion_laboral_id || periodos.some((p: any) => p.id === a.relacion_laboral_id && (!p.fecha_fin || p.fecha_fin > params.fechaRetiro)));
       await tx.relaciones_laborales.update({
         where: { id: impacto.relacion.id },
         data: {
@@ -84,6 +117,19 @@ export class CierreCarreraService {
           motivo_baja_id: motivoBaja.id,
           fecha_actualizacion: new Date(),
         },
+      });
+
+      // Así las dos puertas de un fallecimiento dejan el mismo estado: la de PATCH /personas ya la cargó.
+      if (motivoBaja.codigo === 'FALLECIMIENTO') {
+        await tx.personas.updateMany({
+          where: { id: BigInt(params.personaId), fecha_fallecimiento: null },
+          data: { fecha_fallecimiento: params.fechaRetiro },
+        });
+      }
+
+      await this.derecha.quitarPorInactividadEnTransaccion(tx, BigInt(params.personaId), {
+        motivo: params.motivo ?? nombreTipo,
+        usuarioId: params.autorId,
       });
 
       const movimiento = await tx.movimientos_laborales.create({
@@ -115,6 +161,13 @@ export class CierreCarreraService {
         });
       }
 
+      for (const a of aCerrar) {
+        await tx.asignaciones_comision.update({
+          where: { id: a.id },
+          data: { fecha_fin: params.fechaRetiro },
+        });
+      }
+
       if (cerrarUsuario) {
         // El CHECK de usuarios no admite 'inactivo'.
         await tx.usuarios.update({
@@ -126,6 +179,7 @@ export class CierreCarreraService {
       const cerrado = {
         destino: cerrarDestino ? impacto.destino.id.toString() : null,
         inscripciones: inscripcionesACerrar,
+        comisiones: aCerrar.map((a: any) => a.id.toString()),
         usuario: cerrarUsuario ? impacto.usuario.id.toString() : null,
       };
 
@@ -144,6 +198,11 @@ export class CierreCarreraService {
           cierres_aplicados: {
             destino_id: cerrado.destino,
             inscripciones_ids: cerrado.inscripciones,
+            // Con la fecha_fin que tenían, para que anular el retiro las deje como estaban.
+            comisiones: aCerrar.map((a: any) => ({
+              id: a.id.toString(),
+              fecha_fin_anterior: a.fecha_fin ? a.fecha_fin.toISOString().split('T')[0] : null,
+            })),
             usuario_id: cerrado.usuario,
           },
           registrado_por: params.autorId,

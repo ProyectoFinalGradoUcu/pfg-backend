@@ -2,14 +2,25 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
 import { CreateDestinoDto } from './dto/create-destino.dto';
 import { UpdateDestinoDto } from './dto/update-destino.dto';
 import { ListDestinosQueryDto } from './dto/list-destinos-query.dto';
-import { ListUnidadesQueryDto } from './dto/list-unidades-query.dto';
+import { ListSubUnidadesQueryDto } from './dto/list-sub-unidades-query.dto';
 import { ListFuncionariosUnidadQueryDto } from './dto/list-funcionarios-unidad-query.dto';
+import {
+  INCLUDE_DOCUMENTOS,
+  archivosDeFilas,
+  darDeBajaArchivos,
+  documentosDe,
+} from '../archivos/documentos-de-registro';
+import { ArchivosService } from '../archivos/archivos.service';
+import { bloquearDerecha } from '../derecha/derecha-lock';
+import { CategoriaPersonal, wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
+import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
 
 // Un destino está vigente mientras no tenga fecha de fin.
 const esActivo = (fechaFin: Date | null) => fechaFin == null;
@@ -25,24 +36,29 @@ const diaAnterior = (fecha: Date) => {
 
 @Injectable()
 export class DestinosService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(DestinosService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly archivos: ArchivosService,
+  ) {}
 
   private readonly includeDestino = {
     personas: {
       select: { id: true, cedula: true, primer_nombre: true, primer_apellido: true },
     },
-    unidades: { select: { id: true, codigo: true, denominacion: true, tipo: true } },
+    unidades: { select: { id: true, codigo: true, denominacion: true } },
+    sub_unidades: { select: { id: true, codigo: true, denominacion: true } },
+    ...INCLUDE_DOCUMENTOS,
   };
 
   /** Filtro de personas compartido por los listados (cédula, nombre o apellido). */
-  private filtroPersona(texto: string) {
-    return {
-      OR: [
-        { cedula: { contains: texto, mode: 'insensitive' as const } },
-        { primer_nombre: { contains: texto, mode: 'insensitive' as const } },
-        { primer_apellido: { contains: texto, mode: 'insensitive' as const } },
-      ],
-    };
+  private filtroPersona(texto?: string, categoria?: CategoriaPersonal) {
+    const and = [
+      ...(whereBusqueda(texto, CAMPOS_PERSONA)?.AND ?? []),
+      ...(categoria ? [wherePersonaPorCategoria(categoria)] : []),
+    ];
+    return and.length ? { AND: and } : {};
   }
 
   private mapDestino(a: any) {
@@ -56,12 +72,20 @@ export class DestinosService {
             primer_apellido: a.personas.primer_apellido,
           }
         : null,
+      // Comando (C.A.O., C.A.P., ...). El lugar donde revista es `sub_unidad`.
       unidad: a.unidades
         ? {
             id: a.unidades.id.toString(),
             codigo: a.unidades.codigo,
             denominacion: a.unidades.denominacion,
-            tipo: a.unidades.tipo,
+          }
+        : null,
+      // Null solo en destinos históricos cargados antes de que el destino guardara la sub-unidad.
+      sub_unidad: a.sub_unidades
+        ? {
+            id: a.sub_unidades.id.toString(),
+            codigo: a.sub_unidades.codigo,
+            denominacion: a.sub_unidades.denominacion,
           }
         : null,
       fecha_inicio: soloFecha(a.fecha_inicio),
@@ -69,15 +93,22 @@ export class DestinosService {
       posicion_destino: a.posicion_destino,
       numero_orden: a.numero_orden,
       boletin: a.boletin,
+      numero_destino: a.numero_destino,
+      fecha_orden: soloFecha(a.fecha_orden),
+      fecha_boletin: soloFecha(a.fecha_boletin),
+      numero_resolucion: a.numero_resolucion,
+      fecha_resolucion: soloFecha(a.fecha_resolucion),
       observaciones: a.observaciones,
       activo: esActivo(a.fecha_fin),
+      documentos: documentosDe(a),
     };
   }
 
   /**
-   * Registra un destino. Si el funcionario ya revistaba en otra unidad, el pase
-   * cierra esa asignación y abre la nueva en la misma transacción, y deja la
-   * relación laboral activa apuntando a la unidad nueva.
+   * Registra un destino en una sub-unidad (B.A.I., E.M.A., ...). Su comando queda en
+   * `unidad_id`. Si el funcionario ya revistaba en otra sub-unidad, el pase cierra esa
+   * asignación y abre la nueva en la misma transacción, y deja la relación laboral activa
+   * apuntando a la sub-unidad y al comando nuevos, como hace liquidación.
    */
   async crearDestino(dto: CreateDestinoDto) {
     if (!dto.numero_orden && !dto.boletin) {
@@ -85,14 +116,15 @@ export class DestinosService {
     }
 
     const personaId = BigInt(dto.persona_id);
-    const unidadId = BigInt(dto.unidad_id);
+    const subUnidadId = BigInt(dto.sub_unidad_id);
 
-    const [persona, unidad] = await Promise.all([
+    const [persona, subUnidad] = await Promise.all([
       this.prisma.personas.findUnique({ where: { id: personaId } }),
-      this.prisma.unidades.findUnique({ where: { id: unidadId } }),
+      this.prisma.sub_unidades.findUnique({ where: { id: subUnidadId } }),
     ]);
     if (!persona) throw new NotFoundException(`No existe personal con id ${dto.persona_id}`);
-    if (!unidad) throw new NotFoundException(`No existe unidad con id ${dto.unidad_id}`);
+    if (!subUnidad) throw new NotFoundException(`No existe sub-unidad con id ${dto.sub_unidad_id}`);
+    const unidadId = subUnidad.unidad_id;
 
     const fechaInicio = new Date(dto.fecha_inicio);
 
@@ -100,9 +132,9 @@ export class DestinosService {
       where: { persona_id: personaId, fecha_fin: null },
     });
 
-    if (activo && activo.unidad_id === unidadId) {
+    if (activo && activo.sub_unidad_id === subUnidadId) {
       throw new ConflictException(
-        `El funcionario ${dto.persona_id} ya tiene un destino activo en esa unidad`,
+        `El funcionario ${dto.persona_id} ya tiene un destino activo en esa sub-unidad`,
       );
     }
 
@@ -117,9 +149,17 @@ export class DestinosService {
           'La fecha de cierre del destino anterior es previa a su fecha de inicio',
         );
       }
+      // Si el anterior cierra el mismo día o después del inicio del nuevo, los dos destinos
+      // quedan superpuestos y deshacer el pase ya no encuentra el anterior (SCRUM-183).
+      if (fechaCierre >= fechaInicio) {
+        throw new BadRequestException(
+          'La fecha de cierre del destino anterior debe ser previa al inicio del nuevo destino',
+        );
+      }
     }
 
     const creado = await this.prisma.$transaction(async (tx) => {
+      await bloquearDerecha(tx);
       if (activo) {
         await tx.destinos.update({
           where: { id: activo.id },
@@ -131,11 +171,17 @@ export class DestinosService {
         data: {
           persona_id: personaId,
           unidad_id: unidadId,
+          sub_unidad_id: subUnidadId,
           fecha_inicio: fechaInicio,
           fecha_fin: null,
           posicion_destino: dto.posicion_destino ?? null,
           numero_orden: dto.numero_orden ?? null,
           boletin: dto.boletin ?? null,
+          numero_destino: dto.numero_destino ?? null,
+          fecha_orden: dto.fecha_orden ? new Date(dto.fecha_orden) : null,
+          fecha_boletin: dto.fecha_boletin ? new Date(dto.fecha_boletin) : null,
+          numero_resolucion: dto.numero_resolucion ?? null,
+          fecha_resolucion: dto.fecha_resolucion ? new Date(dto.fecha_resolucion) : null,
           observaciones: dto.observaciones ?? null,
         },
         include: this.includeDestino,
@@ -148,7 +194,7 @@ export class DestinosService {
       // ejemplo con situación Retiro), y el listado quedaba con la unidad vieja.
       await tx.relaciones_laborales.updateMany({
         where: { persona_id: personaId, fecha_fin: null },
-        data: { unidad_id: unidadId },
+        data: { unidad_id: unidadId, sub_unidad_id: subUnidadId },
       });
 
       return nuevo;
@@ -165,25 +211,28 @@ export class DestinosService {
 
     const where: any = {};
     if (query.unidad_id) where.unidad_id = BigInt(query.unidad_id);
+    if (query.sub_unidad_id) where.sub_unidad_id = BigInt(query.sub_unidad_id);
     if (query.activo === true) where.fecha_fin = null;
     else if (query.activo === false) where.fecha_fin = { not: null };
-    if (query.query) where.personas = this.filtroPersona(query.query);
+    if (query.query || query.categoria) {
+      where.personas = this.filtroPersona(query.query, query.categoria);
+    }
 
-    const [total, destinosActivos, asignaciones, unidadesActivas] =
+    const [total, destinosActivos, asignaciones, subUnidadesActivas] =
       await this.prisma.$transaction([
         this.prisma.destinos.count({ where }),
         this.prisma.destinos.count({ where: { fecha_fin: null } }),
         this.prisma.destinos.findMany({
           where,
-          orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }],
+          orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }, { id: 'desc' }],
           skip: (page - 1) * pageSize,
           take: pageSize,
           include: this.includeDestino,
         }),
         this.prisma.destinos.findMany({
-          where: { fecha_fin: null, unidad_id: { not: null } },
-          select: { unidad_id: true },
-          distinct: ['unidad_id'],
+          where: { fecha_fin: null, sub_unidad_id: { not: null } },
+          select: { sub_unidad_id: true },
+          distinct: ['sub_unidad_id'],
         }),
       ]);
 
@@ -195,7 +244,7 @@ export class DestinosService {
       stats: {
         total_destinos: total,
         destinos_activos: destinosActivos,
-        unidades_con_personal: unidadesActivas.length,
+        sub_unidades_con_personal: subUnidadesActivas.length,
       },
     };
   }
@@ -210,38 +259,51 @@ export class DestinosService {
     return this.mapDestino(asignacion);
   }
 
-  async listarUnidades(query: ListUnidadesQueryDto = {}) {
+  /**
+   * Sub-unidades (los destinos posibles) con su comando y cuántos funcionarios revistan hoy.
+   * El catálogo es de liquidación: acá solo se lee.
+   */
+  async listarSubUnidades(query: ListSubUnidadesQueryDto = {}) {
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 200);
 
     const where: any = {};
     if (query.query) {
-      where.denominacion = { contains: query.query, mode: 'insensitive' };
+      where.OR = [
+        { denominacion: { contains: query.query, mode: 'insensitive' } },
+        { codigo: { contains: query.query, mode: 'insensitive' } },
+      ];
     }
-    if (query.tipo) where.tipo = query.tipo;
+    if (query.unidad_id) where.unidad_id = BigInt(query.unidad_id);
     if (query.vigente !== undefined) where.vigente = query.vigente;
 
-    const [total, unidades] = await this.prisma.$transaction([
-      this.prisma.unidades.count({ where }),
-      this.prisma.unidades.findMany({
+    const [total, subUnidades] = await this.prisma.$transaction([
+      this.prisma.sub_unidades.count({ where }),
+      this.prisma.sub_unidades.findMany({
         where,
-        orderBy: { denominacion: 'asc' },
+        // Agrupadas por comando, en el orden del catálogo de liquidación.
+        orderBy: [{ unidad_id: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
+          unidades: { select: { id: true, codigo: true, denominacion: true } },
           _count: { select: { destinos: { where: { fecha_fin: null } } } },
         },
       }),
     ]);
 
     return {
-      items: unidades.map((u: any) => ({
-        id: u.id.toString(),
-        codigo: u.codigo,
-        denominacion: u.denominacion,
-        tipo: u.tipo,
-        vigente: u.vigente,
-        total_destinados: u._count.destinos,
+      items: subUnidades.map((su: any) => ({
+        id: su.id.toString(),
+        codigo: su.codigo,
+        denominacion: su.denominacion,
+        vigente: su.vigente,
+        unidad: {
+          id: su.unidades.id.toString(),
+          codigo: su.unidades.codigo,
+          denominacion: su.unidades.denominacion,
+        },
+        total_destinados: su._count.destinos,
       })),
       total,
       page,
@@ -249,26 +311,30 @@ export class DestinosService {
     };
   }
 
-  async listarFuncionariosUnidad(
-    unidadId: number,
+  async listarFuncionariosSubUnidad(
+    subUnidadId: number,
     query: ListFuncionariosUnidadQueryDto = {},
   ) {
-    const unidad = await this.prisma.unidades.findUnique({ where: { id: BigInt(unidadId) } });
-    if (!unidad) throw new NotFoundException(`No existe unidad con id ${unidadId}`);
+    const subUnidad = await this.prisma.sub_unidades.findUnique({
+      where: { id: BigInt(subUnidadId) },
+    });
+    if (!subUnidad) throw new NotFoundException(`No existe sub-unidad con id ${subUnidadId}`);
 
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 10, 200);
 
-    const where: any = { unidad_id: BigInt(unidadId) };
+    const where: any = { sub_unidad_id: BigInt(subUnidadId) };
     if (query.activo === true) where.fecha_fin = null;
     else if (query.activo === false) where.fecha_fin = { not: null };
-    if (query.query) where.personas = this.filtroPersona(query.query);
+    if (query.query || query.categoria) {
+      where.personas = this.filtroPersona(query.query, query.categoria);
+    }
 
     const [total, asignaciones] = await this.prisma.$transaction([
       this.prisma.destinos.count({ where }),
       this.prisma.destinos.findMany({
         where,
-        orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }],
+        orderBy: [{ fecha_inicio: 'desc' }, { personas: { primer_apellido: 'asc' } }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -312,7 +378,10 @@ export class DestinosService {
 
     const ordenFinal = dto.numero_orden !== undefined ? dto.numero_orden : asignacion.numero_orden;
     const boletinFinal = dto.boletin !== undefined ? dto.boletin : asignacion.boletin;
-    if (!ordenFinal && !boletinFinal) {
+    // Solo se valida si la edición cambia los documentos: hay destinos históricos sin
+    // número de orden ni boletín.
+    const tocaDocumentos = dto.numero_orden !== undefined || dto.boletin !== undefined;
+    if (tocaDocumentos && !ordenFinal && !boletinFinal) {
       throw new BadRequestException(
         'El destino debe conservar al menos número de orden o boletín',
       );
@@ -348,6 +417,38 @@ export class DestinosService {
       }
     }
 
+    // Mover las fechas no puede dejarlo superpuesto con otro destino del funcionario (SCRUM-183).
+    const cambiaFechas = dto.fecha_inicio !== undefined || dto.fecha_fin !== undefined;
+    if (cambiaFechas && asignacion.persona_id && fechaInicio) {
+      const superpuesto = await this.prisma.destinos.findFirst({
+        where: {
+          persona_id: asignacion.persona_id,
+          id: { not: BigInt(destinoId) },
+          ...(fechaFin && { fecha_inicio: { lte: fechaFin } }),
+          OR: [{ fecha_fin: null }, { fecha_fin: { gte: fechaInicio } }],
+        },
+      });
+      if (superpuesto) {
+        throw new ConflictException(
+          'Las fechas se superponen con otro destino del funcionario',
+        );
+      }
+    }
+
+    // Al reabrirlo pasa a ser el destino vigente: la relación laboral toma su comando y su
+    // sub-unidad, como en un pase. Si no tiene base, no se toca.
+    const reabre = fechaFin === null && asignacion.fecha_fin !== null;
+    if (reabre && asignacion.persona_id && asignacion.unidad_id && asignacion.sub_unidad_id) {
+      const { persona_id, unidad_id, sub_unidad_id } = asignacion;
+      await this.prisma.$transaction(async (tx) => {
+        await bloquearDerecha(tx);
+        await tx.relaciones_laborales.updateMany({
+          where: { persona_id, fecha_fin: null },
+          data: { unidad_id, sub_unidad_id },
+        });
+      });
+    }
+
     const actualizado = await this.prisma.destinos.update({
       where: { id: BigInt(destinoId) },
       data: {
@@ -356,6 +457,17 @@ export class DestinosService {
         ...(dto.posicion_destino !== undefined && { posicion_destino: dto.posicion_destino }),
         ...(dto.numero_orden !== undefined && { numero_orden: dto.numero_orden }),
         ...(dto.boletin !== undefined && { boletin: dto.boletin }),
+        ...(dto.numero_destino !== undefined && { numero_destino: dto.numero_destino }),
+        ...(dto.fecha_orden !== undefined && {
+          fecha_orden: dto.fecha_orden ? new Date(dto.fecha_orden) : null,
+        }),
+        ...(dto.fecha_boletin !== undefined && {
+          fecha_boletin: dto.fecha_boletin ? new Date(dto.fecha_boletin) : null,
+        }),
+        ...(dto.numero_resolucion !== undefined && { numero_resolucion: dto.numero_resolucion }),
+        ...(dto.fecha_resolucion !== undefined && {
+          fecha_resolucion: dto.fecha_resolucion ? new Date(dto.fecha_resolucion) : null,
+        }),
         ...(dto.observaciones !== undefined && { observaciones: dto.observaciones }),
       },
       include: this.includeDestino,
@@ -364,14 +476,60 @@ export class DestinosService {
     return this.mapDestino(actualizado);
   }
 
+  /**
+   * Elimina un destino cargado por error. Si es el vigente, deshace el pase: la relación
+   * laboral vuelve al comando y la sub-unidad del destino anterior, y ese destino se reabre si el pase lo
+   * había cerrado (terminaba el día antes o el mismo día).
+   */
   async eliminarDestino(destinoId: number) {
     const asignacion = await this.prisma.destinos.findUnique({
       where: { id: BigInt(destinoId) },
     });
     if (!asignacion) throw new NotFoundException(`No existe destino con id ${destinoId}`);
 
-    await this.prisma.destinos.delete({ where: { id: BigInt(destinoId) } });
+    let borrado = asignacion;
+    const resultado = await this.prisma.$transaction(async (tx) => {
+      await bloquearDerecha(tx);
+      // Los archivos se toman de la fila borrada: un adjunto que entró tras la lectura no queda huérfano.
+      borrado = await tx.destinos.delete({ where: { id: asignacion.id } });
 
-    return { id: destinoId.toString(), eliminado: true };
+      // Un destino cerrado no define la unidad actual.
+      if (asignacion.fecha_fin !== null || !asignacion.persona_id) {
+        return { id: destinoId.toString(), eliminado: true, destino_reabierto: null };
+      }
+
+      const anterior = await tx.destinos.findFirst({
+        where: {
+          persona_id: asignacion.persona_id,
+          fecha_fin: { not: null, ...(asignacion.fecha_inicio ? { lte: asignacion.fecha_inicio } : {}) },
+        },
+        orderBy: [{ fecha_fin: 'desc' }, { id: 'desc' }],
+      });
+      // Sin destino anterior no se sabe dónde revistaba antes: la relación queda como está.
+      if (!anterior) {
+        return { id: destinoId.toString(), eliminado: true, destino_reabierto: null };
+      }
+
+      const contiguo =
+        !asignacion.fecha_inicio ||
+        (anterior.fecha_fin !== null && anterior.fecha_fin >= diaAnterior(asignacion.fecha_inicio));
+      if (contiguo) {
+        await tx.destinos.update({ where: { id: anterior.id }, data: { fecha_fin: null } });
+      }
+      if (anterior.unidad_id !== null && anterior.sub_unidad_id !== null) {
+        await tx.relaciones_laborales.updateMany({
+          where: { persona_id: asignacion.persona_id, fecha_fin: null },
+          data: { unidad_id: anterior.unidad_id, sub_unidad_id: anterior.sub_unidad_id },
+        });
+      }
+
+      return {
+        id: destinoId.toString(),
+        eliminado: true,
+        destino_reabierto: contiguo ? anterior.id.toString() : null,
+      };
+    });
+    await darDeBajaArchivos(this.archivos, archivosDeFilas([borrado]), null, this.logger);
+    return resultado;
   }
 }

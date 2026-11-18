@@ -12,8 +12,9 @@ import { UsuariosModule } from '../features/usuarios/usuarios.module';
 import { SubalternosModule } from '../features/subalternos/subalternos.module';
 import { MisionesModule } from '../features/misiones/misiones.module';
 import { DestinosModule } from '../features/destinos/destinos.module';
+import { ComisionesModule } from '../features/comisiones/comisiones.module';
+import { ArchivosModule } from '../features/archivos/archivos.module';
 import { RetirosModule } from '../features/retiros/retiros.module';
-import { FilesModule } from '../features/files/files.module';
 import { PrismaModule } from '../lib/prisma.module';
 import { SesionesModule } from '../lib/sesiones/sesiones.module';
 import { UnidadesModule } from '../features/unidades/unidades.module';
@@ -24,6 +25,8 @@ import { AuditoriaModule } from '../features/auditoria/auditoria.module';
 import { AuditoriaHttpModule } from '../features/auditoria/auditoria-http.module';
 import { ReportesModule } from '../features/reportes/reportes.module';
 import { AscensosModule } from '../features/ascensos/ascensos.module';
+import { DerechaModule } from '../features/derecha/derecha.module';
+import { VuelosModule } from '../features/vuelos/vuelos.module';
 
 @Module({
   imports: [
@@ -42,14 +45,17 @@ import { AscensosModule } from '../features/ascensos/ascensos.module';
     SubalternosModule,
     MisionesModule,
     DestinosModule,
+    ComisionesModule,
+    ArchivosModule,
     RetirosModule,
-    FilesModule,
     CursosModule,
     CatalogosModule,
     HistorialCursosModule,
     AuditoriaHttpModule,
     ReportesModule,
     AscensosModule,
+    DerechaModule,
+    VuelosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -9,6 +9,8 @@ import {
   NivelEducativo,
   esMutado,
 } from './legajo-militar.constants.js';
+import { assertEgresoEtaPosteriorAIngreso } from './validaciones-fechas.js';
+import { bloquearDerecha } from '../derecha/derecha-lock.js';
 
 type LegajoFila = {
   nivel_educativo: string | null;
@@ -41,6 +43,21 @@ export async function guardarLegajoEnTransaccion(
     dto.fecha_egreso_eta !== undefined ||
     dto.numero_orden_egreso_eta !== undefined;
   if (!hayDatos) return;
+
+  // Si viene una sola fecha de la ETA, se compara con la guardada.
+  if (dto.fecha_ingreso_eta || dto.fecha_egreso_eta) {
+    const actual =
+      dto.fecha_ingreso_eta === undefined || dto.fecha_egreso_eta === undefined
+        ? await tx.legajo_militar.findUnique({
+            where: { persona_id: personaId },
+            select: { fecha_ingreso_eta: true, fecha_egreso_eta: true },
+          })
+        : null;
+    assertEgresoEtaPosteriorAIngreso(
+      dto.fecha_ingreso_eta !== undefined ? dto.fecha_ingreso_eta : actual?.fecha_ingreso_eta,
+      dto.fecha_egreso_eta !== undefined ? dto.fecha_egreso_eta : actual?.fecha_egreso_eta,
+    );
+  }
 
   await tx.legajo_militar.upsert({
     where: { persona_id: personaId },
@@ -122,6 +139,7 @@ export class LegajoMilitarService {
       dto.numero_orden_egreso_eta !== undefined;
 
     const { legajo, relacion } = await this.prisma.$transaction(async (tx) => {
+      if (dto.mutaciones !== undefined) await bloquearDerecha(tx);
       let legajoFila: LegajoFila = await tx.legajo_militar.findUnique({
         where: { persona_id: personaId },
         select: {

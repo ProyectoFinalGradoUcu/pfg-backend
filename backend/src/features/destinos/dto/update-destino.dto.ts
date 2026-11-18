@@ -38,6 +38,38 @@ export class UpdateDestinoDto {
   @MaxLength(50)
   boletin?: string | null;
 
+  @ApiPropertyOptional({ example: '087', maxLength: 20, nullable: true, description: 'Número de destino (Des Num)' })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(20)
+  numero_destino?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-09-01', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDateString()
+  fecha_orden?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-09-01', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDateString()
+  fecha_boletin?: string | null;
+
+  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50, nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(50)
+  numero_resolucion?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-09-01', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDateString()
+  fecha_resolucion?: string | null;
+
   @ApiPropertyOptional({ example: 'Comisión en la ECEMA', nullable: true })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)

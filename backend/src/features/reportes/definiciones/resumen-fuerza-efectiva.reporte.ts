@@ -4,7 +4,9 @@ import {
   DefinicionReporte,
   ResultadoReporte,
 } from '../reportes.types';
-import { clasificarGenero } from './_helpers';
+import { clasificarGenero, PARAMETRO_CATEGORIA } from './_helpers';
+import { consultarFuerzaEfectiva } from '../fuerza-efectiva';
+import { PARAMETRO_BASE } from './_helpers';
 
 const COLUMNAS: ColumnaReporte[] = [
   { clave: 'grado', etiqueta: 'Grado', tipo: 'texto' },
@@ -19,6 +21,7 @@ interface Acc {
   grado: string;
   masculino: number;
   femenino: number;
+  total: number;
   reincorporados: number;
 }
 
@@ -31,17 +34,10 @@ export const resumenFuerzaEfectivaReporte: DefinicionReporte = {
 
    
 
-  parametros: [],
+  parametros: [PARAMETRO_BASE, PARAMETRO_CATEGORIA],
 
-  async ejecutar({ prisma }: ContextoEjecucion): Promise<ResultadoReporte> {
-    const relaciones = await prisma.relaciones_laborales.findMany({
-      where: { estado: 'activo' },
-      select: {
-        grado_reincorporacion_id: true,
-        personas: { select: { genero: true } },
-        grados: { select: { denominacion: true, orden: true } },
-      },
-    });
+  async ejecutar({ prisma, filtros }: ContextoEjecucion): Promise<ResultadoReporte> {
+    const relaciones = await consultarFuerzaEfectiva(prisma, filtros);
 
     const mapa = new Map<string, Acc>();
     let totMasc = 0;
@@ -49,12 +45,13 @@ export const resumenFuerzaEfectivaReporte: DefinicionReporte = {
 
     for (const rel of relaciones) {
       const grado = rel.grados;
-      if (!grado) continue;
-      let acc = mapa.get(grado.denominacion);
+      const clave = grado?.id.toString() ?? 'sin-grado';
+      let acc = mapa.get(clave);
       if (!acc) {
-        acc = { orden: grado.orden, grado: grado.denominacion, masculino: 0, femenino: 0, reincorporados: 0 };
-        mapa.set(grado.denominacion, acc);
+        acc = { orden: grado?.orden ?? Number.MAX_SAFE_INTEGER, grado: grado?.denominacion ?? 'Sin grado', masculino: 0, femenino: 0, total: 0, reincorporados: 0 };
+        mapa.set(clave, acc);
       }
+      acc.total++;
       const g = clasificarGenero(rel.personas?.genero);
       if (g === 'F') {
         acc.femenino++;
@@ -72,7 +69,7 @@ export const resumenFuerzaEfectivaReporte: DefinicionReporte = {
         grado: a.grado,
         masculino: a.masculino,
         femenino: a.femenino,
-        total: a.masculino + a.femenino,
+        total: a.total,
         reincorporados: a.reincorporados,
       }));
 
@@ -80,7 +77,8 @@ export const resumenFuerzaEfectivaReporte: DefinicionReporte = {
       columnas: COLUMNAS,
       filas,
       resumen: [
-        { etiqueta: 'Total efectivos', valor: totMasc + totFem },
+        { etiqueta: 'Total efectivos', valor: relaciones.length },
+        { etiqueta: 'Sin dato de género', valor: relaciones.length - totMasc - totFem },
         { etiqueta: 'Masculino', valor: totMasc },
         { etiqueta: 'Femenino', valor: totFem },
       ],

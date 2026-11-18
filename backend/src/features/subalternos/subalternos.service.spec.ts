@@ -1,12 +1,25 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, ValidationPipe } from '@nestjs/common';
+import { CreatePersonalDto } from './dto/create-personal.dto';
 import { SubalternosService } from './subalternos.service';
+import { ArchivosService } from '../archivos/archivos.service';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import { ListPersonasQueryDto } from './dto/list-personas-query.dto';
+import { sinTildes } from '../../lib/query/busqueda';
 
 describe('SubalternosService', () => {
   let service: SubalternosService;
   let prisma: any;
+  let derecha: { asignarEnAltaEnTransaccion: jest.Mock; bloquearEnTransaccion: jest.Mock };
+  let archivos: { eliminar: jest.Mock };
 
   beforeEach(() => {
+    archivos = { eliminar: jest.fn().mockResolvedValue(undefined) };
+    derecha = { asignarEnAltaEnTransaccion: jest.fn(), bloquearEnTransaccion: jest.fn() };
     prisma = {
+      grados: {
+        findUnique: jest.fn().mockResolvedValue({ denominacion: 'Sargento', es_oficial: false, es_subalterno: true }),
+      },
       personas: {
         findUnique: jest.fn(),
         create: jest.fn().mockResolvedValue({ id: 1n, cedula: '12345678' }),
@@ -33,13 +46,24 @@ describe('SubalternosService', () => {
           sub_unidades: null,
         }),
         deleteMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue({ derecha: 7, numor: 2 }),
       },
       destinos: {
         create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn(),
       },
+      legajo_militar: { deleteMany: jest.fn() },
+      registros_vuelo: { deleteMany: jest.fn() },
+      asignaciones_comision: { deleteMany: jest.fn() },
+      relaciones_familiares: { count: jest.fn().mockResolvedValue(0) },
+      personas_documentos: { deleteMany: jest.fn() },
+      sub_unidades: { findUnique: jest.fn().mockResolvedValue({ unidad_id: 1n, vigente: true }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
       $transaction: jest.fn((cb) => cb(prisma)),
     };
-    service = new SubalternosService(prisma);
+    service = new SubalternosService(prisma, derecha as any, archivos as unknown as ArchivosService);
   });
 
   const dto = {
@@ -49,6 +73,7 @@ describe('SubalternosService', () => {
     fecha_inicio: '2024-01-15',
     regimen_id: 1,
     unidad_id: 1,
+    sub_unidad_id: 3,
     programa_id: 1,
     situacion_id: 1,
     escalafon_id: 1,
@@ -116,10 +141,29 @@ describe('SubalternosService', () => {
       expect(result.items[0].destino).toBeNull();
     });
 
+    it('sin destino cargado muestra la base de la relación laboral (personal de liquidación)', async () => {
+      prisma.personas.findMany.mockResolvedValue([
+        makePersona({
+          destinos: [],
+          relaciones_laborales: [
+            {
+              grados: { denominacion: 'Sargento' },
+              situaciones: { denominacion: 'Actividad' },
+              sub_unidades: { denominacion: 'B.A.I.' },
+            },
+          ],
+        }),
+      ]);
+
+      const result = await service.findAllPersonas({});
+
+      expect(result.items[0].destino).toBe('B.A.I.');
+    });
+
     it('pide solo el destino vigente y el más reciente', async () => {
       await service.findAllPersonas({});
 
-      const { select } = prisma.personas.findMany.mock.calls[0][0];
+      const { select } = prisma.personas.findMany.mock.calls.at(-1)[0];
 
       expect(select.destinos).toEqual(
         expect.objectContaining({
@@ -138,50 +182,272 @@ describe('SubalternosService', () => {
     });
   });
 
+  describe('findAllPersonas · estado', () => {
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(0);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([]);
+    });
+
+    const relacionWhere = () =>
+      prisma.personas.count.mock.calls.at(-1)[0].where.relaciones_laborales.some;
+
+    it('con varios estados trae a quien tenga cualquiera de ellos', async () => {
+      await service.findAllPersonas({ estado: [2, 5] });
+
+      expect(relacionWhere().situacion_id).toEqual({ in: [2n, 5n] });
+    });
+
+    it('sin estados no filtra por situación', async () => {
+      await service.findAllPersonas({ estado: [] });
+
+      expect(relacionWhere()).not.toHaveProperty('situacion_id');
+    });
+
+    it('con retirados incluidos filtra el estado sobre la última relación', async () => {
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 8n }, { id: 9n }]);
+      await service.findAllPersonas({ estado: [7], incluir_inactivos: true });
+
+      expect(relacionWhere()).toEqual(expect.objectContaining({ id: { in: [8n, 9n] }, situacion_id: { in: [7n] } }));
+    });
+
+    it('sin retirados no filtra por la última relación', async () => {
+      await service.findAllPersonas({ estado: [7] });
+
+      expect(relacionWhere()).not.toHaveProperty('id');
+    });
+  });
+
+  describe('findAllPersonas · varios destinos, grados y escalafones', () => {
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(0);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([]);
+      prisma.relaciones_laborales = { ...prisma.relaciones_laborales, findMany: jest.fn().mockResolvedValue([]) };
+    });
+
+    it('arma un `in` por cada lista', async () => {
+      await service.findAllPersonas({ destino: [3, 4], gradoId: [14, 15], escalafonId: [1, 2] });
+
+      const { where } = prisma.personas.count.mock.calls.at(-1)[0];
+      expect(where.AND).toContainEqual({ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [3n, 4n] } } } });
+      expect(where.relaciones_laborales.some).toEqual(
+        expect.objectContaining({ grado_id: { in: [14n, 15n] }, escalafon_id: { in: [1n, 2n] } }),
+      );
+    });
+
+    it('listas vacías no filtran', async () => {
+      await service.findAllPersonas({ destino: [], gradoId: [], escalafonId: [] });
+
+      const { where } = prisma.personas.count.mock.calls.at(-1)[0];
+      expect(where).not.toHaveProperty('AND');
+      expect(where.relaciones_laborales.some).not.toHaveProperty('grado_id');
+      expect(where.relaciones_laborales.some).not.toHaveProperty('escalafon_id');
+    });
+  });
+
+  describe('ListPersonasQueryDto · estado', () => {
+    const parsear = (estado: unknown) =>
+      plainToInstance(ListPersonasQueryDto, { estado });
+
+    it('acepta ids separados por coma', () => {
+      const dto = parsear('2, 5');
+      expect(dto.estado).toEqual([2, 5]);
+      expect(validateSync(dto)).toHaveLength(0);
+    });
+
+    it('acepta el parámetro repetido y un id suelto', () => {
+      expect(parsear(['2', '5']).estado).toEqual([2, 5]);
+      expect(parsear('3').estado).toEqual([3]);
+    });
+
+    it('destino, gradoId y escalafonId también aceptan listas', () => {
+      const dto = plainToInstance(ListPersonasQueryDto, { destino: '3,4', gradoId: '14', escalafonId: ['1', '2'] });
+      expect(dto.destino).toEqual([3, 4]);
+      expect(dto.gradoId).toEqual([14]);
+      expect(dto.escalafonId).toEqual([1, 2]);
+      expect(validateSync(dto)).toHaveLength(0);
+    });
+
+    it('rechaza ids que no son enteros positivos', () => {
+      expect(validateSync(parsear('2,abc'))).not.toHaveLength(0);
+      expect(validateSync(parsear('0'))).not.toHaveLength(0);
+    });
+  });
+
+  describe('findAllPersonas · derecha y numor', () => {
+    const persona = (id: bigint, derecha: number | null) => ({
+      id,
+      cedula: String(id),
+      primer_nombre: 'N',
+      segundo_nombre: null,
+      primer_apellido: `A${id}`,
+      segundo_apellido: null,
+      relaciones_laborales: [{ estado: 'activo', derecha, numor: 1, escala_derecha: 'OFICIALES', escalafones: { codigo: 'AV' } }],
+      destinos: [],
+    });
+
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(3);
+      prisma.personas.findMany = jest.fn(({ where }: any) =>
+        Promise.resolve(where?.id?.in ? where.id.in.map((id: bigint) => persona(id, Number(id))) : [{ id: 3n }, { id: 1n }, { id: 2n }]),
+      );
+      prisma.relaciones_laborales.findMany = jest.fn().mockResolvedValue([
+        { persona_id: 1n },
+        { persona_id: 2n },
+        { persona_id: 3n },
+      ]);
+    });
+
+    it('por defecto ordena por derecha y pagina después de ordenar', async () => {
+      const result = await service.findAllPersonas({ page: 1, pageSize: 2 });
+
+      expect(result.items.map((i: any) => i.id)).toEqual(['1', '2']);
+      expect(result.items[0]).toMatchObject({ derecha: 1, numor: 1, escalafon: 'AV' });
+      expect(prisma.relaciones_laborales.findMany.mock.calls[0][0].orderBy).toEqual([
+        { escala_derecha: { sort: 'asc', nulls: 'last' } },
+        { derecha: { sort: 'asc', nulls: 'last' } },
+        { persona_id: 'asc' },
+      ]);
+    });
+
+    it('por numor ordena antes por jerarquía de grado y escalafón', async () => {
+      await service.findAllPersonas({ ordenarPor: 'numor', direccion: 'DESC' });
+
+      expect(prisma.relaciones_laborales.findMany.mock.calls[0][0].orderBy).toEqual([
+        { escala_derecha: { sort: 'desc', nulls: 'last' } },
+        { grados: { derecha_jerarquia: { posicion: 'desc' } } },
+        { escalafones: { codigo: 'desc' } },
+        { numor: { sort: 'desc', nulls: 'last' } },
+        { persona_id: 'asc' },
+      ]);
+    });
+
+    it('filtra por rango de derecha y numor sobre la relación vigente', async () => {
+      await service.findAllPersonas({ derechaDesde: 1, derechaHasta: 10, numorDesde: 1, numorHasta: 1, escala: 'OFICIALES' });
+
+      expect(prisma.personas.count.mock.calls[0][0].where.relaciones_laborales.some).toEqual(
+        expect.objectContaining({
+          fecha_fin: null,
+          derecha: { gte: 1, lte: 10 },
+          numor: { gte: 1, lte: 1 },
+          escala_derecha: 'OFICIALES',
+        }),
+      );
+    });
+
+    it('rechaza un rango invertido', async () => {
+      await expect(service.findAllPersonas({ derechaDesde: 5, derechaHasta: 2 })).rejects.toThrow(BadRequestException);
+    });
+
+    it('por apellido usa el orden nativo con la dirección pedida', async () => {
+      prisma.personas.findMany = jest.fn().mockResolvedValue([persona(2n, 2), persona(1n, 1)]);
+
+      await service.findAllPersonas({ ordenarPor: 'apellido', direccion: 'DESC' });
+
+      expect(prisma.personas.findMany.mock.calls[0][0].orderBy).toEqual([
+        { primer_apellido: 'desc' },
+        { primer_nombre: 'desc' },
+      ]);
+      expect(prisma.relaciones_laborales.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('findAllPersonas · filtro por destino', () => {
     beforeEach(() => {
       prisma.personas.count = jest.fn().mockResolvedValue(0);
       prisma.personas.findMany = jest.fn().mockResolvedValue([]);
     });
 
-    it('filtra por la unidad del destino vigente', async () => {
-      await service.findAllPersonas({ destino: 5 });
+    it('filtra por la base de la relación laboral activa, no por la tabla destinos', async () => {
+      await service.findAllPersonas({ destino: [5] });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
-      expect(where.destinos).toEqual({
-        some: { unidad_id: 5n, fecha_fin: null },
-      });
+      expect(where.AND).toEqual([{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [5n] } } } }]);
+      expect(where).not.toHaveProperty('destinos');
     });
 
     it('ya no filtra por la unidad de la relación laboral', async () => {
-      await service.findAllPersonas({ destino: 5 });
+      await service.findAllPersonas({ destino: [5] });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
       expect(where.relaciones_laborales.some).not.toHaveProperty('unidad_id');
     });
 
-    it('sin filtro de destino no restringe por destinos', async () => {
+    it('sin filtro de destino no restringe por base', async () => {
       await service.findAllPersonas({});
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
       expect(where).not.toHaveProperty('destinos');
+      expect(where).not.toHaveProperty('AND');
     });
 
     it('mantiene los filtros de estado y rango en la relación laboral', async () => {
-      await service.findAllPersonas({ estado: 2, rango: 6 });
+      await service.findAllPersonas({ estado: [2], rango: 6 });
 
       const { where } = prisma.personas.findMany.mock.calls[0][0];
 
       expect(where.relaciones_laborales.some).toEqual(
         expect.objectContaining({
           fecha_fin: null,
-          situacion_id: 2n,
+          situacion_id: { in: [2n] },
           grado_id: 6n,
         }),
       );
+    });
+  });
+
+  describe('findAllPersonas · búsqueda', () => {
+    const CAMPOS = ['cedula', 'primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido'];
+    const coincideEnAlgunCampo = (palabra: string) => ({
+      OR: expect.arrayContaining(CAMPOS.map((campo) => ({ [campo]: { contains: sinTildes(palabra.toLowerCase()), mode: 'insensitive' } }))),
+    });
+    const where = () => prisma.personas.count.mock.calls.at(-1)[0].where;
+
+    beforeEach(() => {
+      prisma.personas.count = jest.fn().mockResolvedValue(0);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([]);
+    });
+
+    it('con varias palabras exige que cada una aparezca en algún campo', async () => {
+      await service.findAllPersonas({ search: 'Juan Pérez' });
+
+      expect(where().AND).toEqual([coincideEnAlgunCampo('Juan'), coincideEnAlgunCampo('Pérez')]);
+      expect(where()).not.toHaveProperty('OR');
+    });
+
+    it('ignora los espacios de más entre palabras', async () => {
+      await service.findAllPersonas({ search: '  Test   E2E Individual  ' });
+
+      expect(where().AND).toEqual([
+        coincideEnAlgunCampo('Test'),
+        coincideEnAlgunCampo('E2E'),
+        coincideEnAlgunCampo('Individual'),
+      ]);
+    });
+
+    it('una cédula se busca entera', async () => {
+      await service.findAllPersonas({ search: '41234567' });
+
+      expect(where().AND).toEqual([coincideEnAlgunCampo('41234567')]);
+    });
+
+    it('solo espacios no filtra', async () => {
+      await service.findAllPersonas({ search: '   ' });
+
+      expect(where()).not.toHaveProperty('AND');
+      expect(where()).not.toHaveProperty('OR');
+    });
+
+    it('se suma al filtro de base sin reemplazarlo', async () => {
+      await service.findAllPersonas({ search: 'Juan Pérez', destino: [5] });
+
+      expect(where().AND).toEqual([
+        { relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [5n] } } } },
+        coincideEnAlgunCampo('Juan'),
+        coincideEnAlgunCampo('Pérez'),
+      ]);
     });
   });
 
@@ -196,7 +462,7 @@ describe('SubalternosService', () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await service.create(dto);
       expect(prisma.destinos.create).toHaveBeenCalledWith({
-        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dto.fecha_inicio) },
+        data: { persona_id: 1n, unidad_id: 1n, sub_unidad_id: 3n, fecha_inicio: new Date(dto.fecha_inicio) },
       });
     });
 
@@ -226,6 +492,40 @@ describe('SubalternosService', () => {
       es_civil: false,
       tipo_funcionario: 'subalterno',
     };
+
+    it('asigna derecha y numor al final cuando no se indica posición', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      const r: any = await service.createPersonal(dtoMilitar as any, undefined, { id: 5n, permisos: [] });
+
+      expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(prisma, 1n, undefined, undefined, {
+        usuarioId: 5n,
+      });
+      expect(r.relacion_laboral).toMatchObject({ derecha: 7, numor: 2 });
+    });
+
+    it('con posición elegida exige el permiso derecha.gestionar', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createPersonal({ ...dtoMilitar, posicion_derecha: 1 } as any, undefined, { id: 5n, permisos: [] }),
+      ).rejects.toThrow(ForbiddenException);
+
+      await service.createPersonal({ ...dtoMilitar, posicion_derecha: 1, posicion_numor: 2 } as any, undefined, {
+        id: 5n,
+        permisos: ['derecha.gestionar'],
+      });
+      expect(derecha.asignarEnAltaEnTransaccion).toHaveBeenCalledWith(prisma, 1n, 1, 2, { usuarioId: 5n });
+    });
+
+    it('con omitirDerecha crea al funcionario sin asignarle derecha', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      await service.createPersonal(dtoMilitar as any, undefined, undefined, { omitirDerecha: true });
+
+      expect(prisma.personas.create).toHaveBeenCalled();
+      expect(derecha.asignarEnAltaEnTransaccion).not.toHaveBeenCalled();
+    });
 
     it('Falla si la fecha de inicio es anterior a la de nacimiento', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
@@ -278,7 +578,21 @@ describe('SubalternosService', () => {
       ]);
     });
 
-    it('Rechaza un familiar civil también para un militar (el familiar debe ser militar)', async () => {
+    it('Un militar puede tener un familiar civil', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([
+        { id: 50n, cedula: '99999999', primer_nombre: 'Ana', primer_apellido: 'Ruiz', es_civil: true },
+      ]);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      await service.createPersonal({ ...dtoMilitar, familiares: [{ cedula: '99999999' }] });
+
+      expect(prisma.relaciones_familiares.createMany).toHaveBeenCalledWith({
+        data: [{ persona_id: 1n, familiar_id: 50n, tipo_relacion: null }],
+      });
+    });
+
+    it('Un civil con solo familiares civiles se rechaza: necesita al menos un militar', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       prisma.personas.findMany = jest.fn().mockResolvedValue([
         { id: 50n, cedula: '99999999', primer_nombre: 'Ana', primer_apellido: 'Ruiz', es_civil: true },
@@ -287,11 +601,27 @@ describe('SubalternosService', () => {
 
       await expect(
         service.createPersonal({
-          ...dtoMilitar,
+          cedula: '12345678', primer_nombre: 'Eva', primer_apellido: 'Paz', es_civil: true,
           familiares: [{ cedula: '99999999' }],
-        }),
-      ).rejects.toThrow(BadRequestException);
+        } as any),
+      ).rejects.toThrow('al menos un familiar militar');
       expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('Un civil con un familiar militar y otro civil se crea con los dos vínculos', async () => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+      prisma.personas.findMany = jest.fn().mockResolvedValue([
+        { id: 50n, cedula: '99999999', primer_nombre: 'Ana', primer_apellido: 'Ruiz', es_civil: true },
+        { id: 51n, cedula: '88888888', primer_nombre: 'Juan', primer_apellido: 'Paz', es_civil: false },
+      ]);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      await service.createPersonal({
+        cedula: '12345678', primer_nombre: 'Eva', primer_apellido: 'Paz', es_civil: true,
+        familiares: [{ cedula: '99999999' }, { cedula: '88888888', tipo_relacion: 'Padre' }],
+      } as any);
+
+      expect(prisma.relaciones_familiares.createMany.mock.calls[0][0].data).toHaveLength(2);
     });
 
     it('Un militar sin familiares no intenta crear vínculos', async () => {
@@ -307,8 +637,147 @@ describe('SubalternosService', () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await service.createPersonal(dtoMilitar);
       expect(prisma.destinos.create).toHaveBeenCalledWith({
-        data: { persona_id: 1n, unidad_id: 1n, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
+        data: { persona_id: 1n, unidad_id: 1n, sub_unidad_id: 3n, fecha_inicio: new Date(dtoMilitar.fecha_inicio) },
       });
+    });
+  });
+
+  describe('createPersonal · coherencia con el tipo de funcionario (SCRUM-179, SCRUM-196)', () => {
+    const dtoMilitar = { ...dto, es_civil: false, tipo_funcionario: 'oficial' };
+
+    beforeEach(() => prisma.personas.findUnique.mockResolvedValue(null));
+
+    it('rechaza un oficial con grado de subalterno', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Sargento', es_oficial: false, es_subalterno: true });
+      await expect(service.createPersonal(dtoMilitar as any)).rejects.toThrow(BadRequestException);
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un subalterno con grado de oficial', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Capitán', es_oficial: true, es_subalterno: false });
+      await expect(
+        service.createPersonal({ ...dtoMilitar, tipo_funcionario: 'subalterno' } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('acepta un oficial con grado de oficial', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Capitán', es_oficial: true, es_subalterno: false });
+      await service.createPersonal(dtoMilitar as any);
+      expect(prisma.personas.create).toHaveBeenCalled();
+    });
+
+    it('rechaza el nivel de idoneidad a un oficial', async () => {
+      prisma.grados.findUnique.mockResolvedValue({ denominacion: 'Capitán', es_oficial: true, es_subalterno: false });
+      await expect(service.createPersonal({ ...dtoMilitar, nivel_idoneidad: 7 } as any)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza los códigos del legajo a un subalterno', async () => {
+      await expect(
+        service.createPersonal({ ...dtoMilitar, tipo_funcionario: 'subalterno', codigos_legajo: '-1-' } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza el nivel de idoneidad y los códigos a un civil', async () => {
+      const civil = { cedula: '12345678', primer_nombre: 'A', primer_apellido: 'B', es_civil: true, familiares: [{ cedula: '1' }] };
+      await expect(service.createPersonal({ ...civil, nivel_idoneidad: 7 } as any)).rejects.toThrow(BadRequestException);
+      await expect(service.createPersonal({ ...civil, codigos_legajo: '-1-' } as any)).rejects.toThrow(BadRequestException);
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('CreatePersonalDto · validación (SCRUM-181)', () => {
+    const pipe = new ValidationPipe({ whitelist: true, transform: true });
+    const meta = { type: 'body' as const, metatype: CreatePersonalDto };
+    const valido = { cedula: '12345678', primer_nombre: 'Juan', primer_apellido: 'Pérez', es_civil: false };
+
+    it('acepta un alta válida', async () => {
+      await expect(pipe.transform(valido, meta)).resolves.toBeDefined();
+    });
+
+    it('rechaza una cédula con formato inválido', async () => {
+      await expect(pipe.transform({ ...valido, cedula: 'QA-abc' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ ...valido, cedula: '12345' }, meta)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza nombres y apellidos en blanco', async () => {
+      await expect(pipe.transform({ ...valido, primer_nombre: '   ' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ ...valido, primer_apellido: '' }, meta)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza un email inválido', async () => {
+      await expect(pipe.transform({ ...valido, email: 'no-es-email' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ ...valido, email: 'juan@fau.mil.uy' }, meta)).resolves.toBeDefined();
+    });
+  });
+
+  describe('createPersonal · base', () => {
+    const dtoMilitar: any = { ...dto, es_civil: false, tipo_funcionario: 'subalterno' };
+
+    beforeEach(() => {
+      prisma.personas.findUnique.mockResolvedValue(null);
+    });
+
+    it('el comando sale de la base aunque no venga unidad_id', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue({ unidad_id: 4n, vigente: true });
+
+      await service.createPersonal({ ...dtoMilitar, unidad_id: undefined });
+
+      expect(prisma.sub_unidades.findUnique).toHaveBeenCalledWith({
+        where: { id: 3n },
+        select: { unidad_id: true, vigente: true },
+      });
+      expect(prisma.relaciones_laborales.create.mock.calls[0][0].data).toMatchObject({
+        unidad_id: 4n,
+        sub_unidad_id: 3n,
+      });
+      expect(prisma.destinos.create.mock.calls[0][0].data).toMatchObject({ unidad_id: 4n, sub_unidad_id: 3n });
+    });
+
+    it('sin base y sin alcance de unidad responde 400', async () => {
+      await expect(service.createPersonal({ ...dtoMilitar, sub_unidad_id: undefined })).rejects.toThrow(
+        'Falta la base del funcionario (sub_unidad_id)',
+      );
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un comando que no es el de la base', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue({ unidad_id: 2n, vigente: true });
+
+      await expect(service.createPersonal({ ...dtoMilitar, unidad_id: 1 })).rejects.toThrow(
+        'El comando no corresponde a la base elegida',
+      );
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una base que no existe', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue(null);
+
+      await expect(service.createPersonal(dtoMilitar)).rejects.toThrow(BadRequestException);
+      expect(prisma.personas.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una base que no está vigente', async () => {
+      prisma.sub_unidades.findUnique.mockResolvedValue({ unidad_id: 1n, vigente: false });
+
+      await expect(service.createPersonal(dtoMilitar)).rejects.toThrow('La base elegida no está vigente');
+    });
+
+    it('el personal civil no pide base', async () => {
+      prisma.personas.findMany = jest.fn().mockResolvedValue([
+        { id: 50n, cedula: '99999999', primer_nombre: 'Pedro', primer_apellido: 'Ramos', es_civil: false },
+      ]);
+      prisma.relaciones_familiares = { createMany: jest.fn() };
+
+      await service.createPersonal({
+        cedula: '12345678',
+        primer_nombre: 'Ana',
+        primer_apellido: 'Ruiz',
+        es_civil: true,
+        familiares: [{ cedula: '99999999' }],
+      } as any);
+
+      expect(prisma.sub_unidades.findUnique).not.toHaveBeenCalled();
+      expect(prisma.personas.create).toHaveBeenCalled();
     });
   });
 
@@ -330,50 +799,224 @@ describe('SubalternosService', () => {
   });
 
   describe('remove', () => {
+    const sinRegistros = (conteos: Record<string, number> = {}) => ({ id: 1n, _count: conteos });
+
     it('Borra relaciones laborales y persona', async () => {
-      prisma.personas.findUnique.mockResolvedValue({ id: 1n });
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
       const r = await service.remove(1);
       expect(r).toEqual({ id: 1, eliminado: true });
       expect(prisma.relaciones_laborales.deleteMany).toHaveBeenCalled();
       expect(prisma.personas.delete).toHaveBeenCalled();
     });
 
+    it('borrar la persona da de baja los archivos de sus destinos', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.$queryRaw.mockResolvedValue([
+        { archivo_orden_id: 7n, archivo_boletin_id: 8n },
+        { archivo_orden_id: null, archivo_boletin_id: null },
+      ]);
+
+      await service.remove(1);
+
+      expect(archivos.eliminar).toHaveBeenCalledTimes(2);
+      expect(archivos.eliminar).toHaveBeenCalledWith(7n, null);
+      expect(archivos.eliminar).toHaveBeenCalledWith(8n, null);
+    });
+
+    it('bloquea los destinos FOR UPDATE antes de borrarlos y da de baja después de la transacción', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.$queryRaw
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+
+      await service.remove(1);
+
+      expect(prisma.$queryRaw.mock.calls[0][0].join('?')).toMatch(/FROM personas[\s\S]*FOR UPDATE/);
+      expect(prisma.$queryRaw.mock.calls[1][0].join('?')).toMatch(/FROM destinos[\s\S]*FOR UPDATE/);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+        prisma.destinos.deleteMany.mock.invocationCallOrder[0],
+      );
+      expect(prisma.destinos.findMany).not.toHaveBeenCalled();
+      expect(archivos.eliminar.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.personas.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si la transacción falla después de bloquear, no da de baja ningún archivo', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.$queryRaw.mockResolvedValue([{ archivo_orden_id: 7n, archivo_boletin_id: null }]);
+      prisma.personas.delete.mockRejectedValue(new Error('boom'));
+
+      await expect(service.remove(1)).rejects.toThrow('boom');
+      expect(archivos.eliminar).not.toHaveBeenCalled();
+    });
+
     it('Error porque no existe', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
       await expect(service.remove(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('con registros asociados no borra nada y responde 409 con lo que bloquea', async () => {
+      prisma.personas.findUnique.mockResolvedValue(
+        sinRegistros({ funcionarios_cursos: 2, aguinaldos: 4, items_liquidacion: 10 }),
+      );
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.getResponse()).toEqual({
+        message:
+          'No se puede eliminar: el funcionario tiene cursos (2) y registros de liquidaciones (14)',
+        data: {
+          motivo: 'tiene_registros',
+          registros: [
+            { tipo: 'cursos', etiqueta: 'Cursos', cantidad: 2 },
+            { tipo: 'liquidaciones', etiqueta: 'Registros de liquidaciones', cantidad: 14 },
+          ],
+        },
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('cuenta los vínculos familiares aparte, en las dos direcciones', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.relaciones_familiares.count.mockResolvedValue(2);
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(prisma.relaciones_familiares.count).toHaveBeenCalledWith({
+        where: { OR: [{ persona_id: 1n }, { familiar_id: 1n }] },
+      });
+      expect(error.getResponse().data.registros).toEqual([
+        { tipo: 'familiares', etiqueta: 'Vínculos familiares', cantidad: 2 },
+      ]);
+    });
+
+    it('los retiros (historial, incluidos los anulados) también bloquean', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros({ retiros: 2 }));
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(error.getResponse().data.registros).toEqual([
+        { tipo: 'retiro', etiqueta: 'Retiros', cantidad: 2 },
+      ]);
+    });
+
+    it('los destinos no bloquean: el alta crea uno y se van con la persona', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+
+      await service.remove(1);
+
+      const { select } = prisma.personas.findUnique.mock.calls[0][0];
+      expect(select._count.select).not.toHaveProperty('destinos');
+      expect(prisma.destinos.deleteMany).toHaveBeenCalledWith({ where: { persona_id: 1n } });
+    });
+
+    it('las horas de vuelo cargadas bloquean; las filas generadas se van con la persona', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros({ registros_vuelo: 2 }));
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(error.getResponse().data.registros).toEqual([
+        { tipo: 'vuelos', etiqueta: 'Horas de vuelo cargadas', cantidad: 2 },
+      ]);
+      const { select } = prisma.personas.findUnique.mock.calls.at(-1)[0];
+      expect(select._count.select.registros_vuelo).toEqual({ where: { editado_en: { not: null } } });
+
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      await service.remove(1);
+      expect(prisma.registros_vuelo.deleteMany).toHaveBeenCalledWith({ where: { persona_id: 1n } });
+    });
+
+    it('solo cuentan los documentos activos', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+
+      await service.remove(1);
+
+      const { select } = prisma.personas.findUnique.mock.calls[0][0];
+      expect(select._count.select.personas_documentos).toEqual({
+        where: { archivos: { eliminado_en: null } },
+      });
+    });
+
+    it('el legajo y los vínculos con documentos ya borrados se van con la persona', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+
+      await service.remove(1);
+
+      expect(prisma.legajo_militar.deleteMany).toHaveBeenCalledWith({ where: { persona_id: 1n } });
+      expect(prisma.personas_documentos.deleteMany).toHaveBeenCalledWith({
+        where: { persona_id: 1n, archivos: { eliminado_en: { not: null } } },
+      });
+    });
+
+    it('si igual salta una FK que no se contó, 409 genérico y no 500', async () => {
+      prisma.personas.findUnique.mockResolvedValue(sinRegistros());
+      prisma.$transaction.mockRejectedValueOnce(Object.assign(new Error('fk'), { code: 'P2003' }));
+
+      const error = await service.remove(1).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.getResponse()).toEqual({
+        message: 'No se puede eliminar: el funcionario tiene registros asociados',
+        data: { motivo: 'tiene_registros', registros: [] },
+      });
+      expect(archivos.eliminar).not.toHaveBeenCalled();
     });
   });
 
   // ─── Alcance por unidad (spec 002) ─────────────────────────────────────────
 
   describe('alcance por unidad', () => {
-    const UNIDAD: any = { tipo: 'unidad', unidadIds: ['7'] };
+    const UNIDAD: any = { tipo: 'unidad', subUnidadIds: ['7'], comandoIds: ['1'] };
     const GLOBAL: any = { tipo: 'global' };
+    const UNIDAD_VARIAS: any = { tipo: 'unidad', subUnidadIds: ['7', '8', '9'], comandoIds: ['1'] };
 
     beforeEach(() => {
       prisma.personas.count = jest.fn().mockResolvedValue(0);
       prisma.personas.findMany = jest.fn().mockResolvedValue([]);
     });
 
-    it('fuerza la unidad propia en el listado e ignora el filtro destino del query', async () => {
-      await service.findAllPersonas({ destino: '99' } as any, UNIDAD);
-
+    const conBases = (ids: bigint[]) =>
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            destinos: { some: { fecha_fin: null, unidad_id: { in: [7n] } } },
+            AND: [{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: ids } } } }],
           }),
         }),
       );
+
+    it('sin filtro destino lista todas las bases propias', async () => {
+      await service.findAllPersonas({}, UNIDAD_VARIAS);
+
+      conBases([7n, 8n, 9n]);
+    });
+
+    it('con filtro destino lista solo las bases propias elegidas', async () => {
+      await service.findAllPersonas({ destino: [8] }, UNIDAD_VARIAS);
+
+      conBases([8n]);
+    });
+
+    it('descarta las bases elegidas que no son propias', async () => {
+      await service.findAllPersonas({ destino: [8, 99] }, UNIDAD_VARIAS);
+
+      conBases([8n]);
+    });
+
+    it('si ninguna base elegida es propia no lista a nadie', async () => {
+      await service.findAllPersonas({ destino: [99] }, UNIDAD);
+
+      conBases([]);
     });
 
     it('respeta el filtro destino del query con alcance global', async () => {
-      await service.findAllPersonas({ destino: '99' } as any, GLOBAL);
+      await service.findAllPersonas({ destino: [99] }, GLOBAL);
 
       expect(prisma.personas.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            destinos: { some: { unidad_id: 99n, fecha_fin: null } },
+            AND: [{ relaciones_laborales: { some: { fecha_fin: null, sub_unidad_id: { in: [99n] } } } }],
           }),
         }),
       );
@@ -391,22 +1034,46 @@ describe('SubalternosService', () => {
       );
     });
 
-    it('rechaza dar de alta personal en una unidad ajena', async () => {
+    it('rechaza dar de alta personal en una base ajena', async () => {
       await expect(
-        service.create({ ...dto, unidad_id: 99 } as any, UNIDAD),
-      ).rejects.toThrow(BadRequestException);
+        service.create({ ...dto, sub_unidad_id: 99 } as any, UNIDAD),
+      ).rejects.toThrow('Solo podés dar de alta personal en tus propias bases');
+      expect(prisma.sub_unidades.findUnique).not.toHaveBeenCalled();
     });
 
-    it('fuerza la unidad propia al dar de alta sin declararla', async () => {
+    it('con una sola base usa esa si no se declara ninguna', async () => {
       prisma.personas.findUnique.mockResolvedValue(null);
 
-      await service.create({ ...dto, unidad_id: undefined } as any, UNIDAD);
+      await service.create({ ...dto, unidad_id: undefined, sub_unidad_id: undefined } as any, UNIDAD);
 
+      expect(prisma.sub_unidades.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 7n } }),
+      );
       expect(prisma.relaciones_laborales.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ unidad_id: 7n }),
+          data: expect.objectContaining({ unidad_id: 1n, sub_unidad_id: 7n }),
         }),
       );
+    });
+
+    it('con varias bases exige elegir una', async () => {
+      const VARIAS: any = { tipo: 'unidad', subUnidadIds: ['7', '8'], comandoIds: ['1'] };
+
+      await expect(
+        service.createPersonal({ ...dto, sub_unidad_id: undefined, es_civil: false } as any, VARIAS),
+      ).rejects.toThrow('Falta la base del funcionario (sub_unidad_id)');
+    });
+
+    it('acepta cualquiera de las bases propias', async () => {
+      const VARIAS: any = { tipo: 'unidad', subUnidadIds: ['7', '8'], comandoIds: ['1'] };
+      prisma.personas.findUnique.mockResolvedValue(null);
+
+      await service.createPersonal(
+        { ...dto, sub_unidad_id: 8, es_civil: false, tipo_funcionario: 'subalterno' } as any,
+        VARIAS,
+      );
+
+      expect(prisma.destinos.create.mock.calls[0][0].data).toMatchObject({ unidad_id: 1n, sub_unidad_id: 8n });
     });
 
     it('devuelve NotFoundException al editar una persona de otra unidad', async () => {

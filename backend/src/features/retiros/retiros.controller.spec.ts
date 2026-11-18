@@ -35,7 +35,7 @@ describe('RetirosController · rutas', () => {
     expect(idxPrevia).toBeLessThan(idxPorId);
   });
 
-  it('expone exactamente las seis rutas del módulo', () => {
+  it('expone exactamente las diez rutas del módulo', () => {
     const rutas = handlersEnOrden().map((r) => `${RequestMethod[r.method]} ${r.path}`);
 
     expect(rutas.sort()).toEqual(
@@ -46,6 +46,10 @@ describe('RetirosController · rutas', () => {
         'POST /',
         'PATCH :retiroId',
         'DELETE :retiroId',
+        'GET :retiroId/reincorporacion/previa',
+        'POST :retiroId/reincorporacion',
+        'PATCH :retiroId/reincorporacion',
+        'DELETE :retiroId/reincorporacion',
       ].sort(),
     );
   });
@@ -62,6 +66,10 @@ describe('RetirosController · permisos', () => {
     ['registrar', 'retiros.registrar'],
     ['corregir', 'retiros.registrar'],
     ['anular', 'retiros.registrar'],
+    ['previaReincorporacion', 'retiros.ver'],
+    ['reincorporar', 'retiros.registrar'],
+    ['actualizarReincorporacion', 'retiros.registrar'],
+    ['anularReincorporacion', 'retiros.registrar'],
   ])('%s requiere %s', (handler, permiso) => {
     expect(permisoDe(handler)).toEqual([permiso]);
   });
@@ -79,6 +87,16 @@ describe('RetirosController · auditoría', () => {
       entidad: 'Retiro',
     });
   });
+
+  // Anular no es eliminar: cada anulación tiene su propia acción en la bitácora.
+  it.each([
+    ['anular', 'retiro.anular'],
+    ['anularReincorporacion', 'reincorporacion.anular'],
+  ])('%s se audita como %s', (handler, accion) => {
+    expect(
+      Reflect.getMetadata(AUDITAR_KEY, (RetirosController.prototype as any)[handler]),
+    ).toMatchObject({ contexto: 'Retiros', accion });
+  });
 });
 
 describe('RetirosController · envoltorio service_request', () => {
@@ -92,7 +110,7 @@ describe('RetirosController · envoltorio service_request', () => {
       .map(([, valor]) => (valor as any).data);
   };
 
-  it.each(['registrar', 'corregir', 'anular'])(
+  it.each(['registrar', 'corregir', 'anular', 'reincorporar', 'actualizarReincorporacion', 'anularReincorporacion'])(
     '%s extrae el dto de service_request',
     (handler) => {
       expect(dataDeBody(handler)).toEqual(['service_request']);
@@ -100,7 +118,14 @@ describe('RetirosController · envoltorio service_request', () => {
   );
 
   it('ningun handler de escritura toma el body plano', () => {
-    const planos = ['registrar', 'corregir', 'anular'].filter((h) =>
+    const planos = [
+      'registrar',
+      'corregir',
+      'anular',
+      'reincorporar',
+      'actualizarReincorporacion',
+      'anularReincorporacion',
+    ].filter((h) =>
       dataDeBody(h).includes(undefined),
     );
     expect(planos).toEqual([]);

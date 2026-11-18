@@ -1,13 +1,29 @@
-import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsIn, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsIn, IsNotEmpty, Matches, MaxLength, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+// Saca los espacios del principio y del final.
+const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { NIVELES_EDUCATIVOS } from '../legajo-militar.constants.js';
 
 export class UpdatePersonalDto {
+  // Identificación
+  @ApiPropertyOptional({ example: '12345678', description: 'Entre 6 y 9 dígitos, sin puntos ni guión. No puede repetir la de otra persona.' })
+  @IsOptional() @Transform(trim) @IsString()
+  @Matches(/^\d{6,9}$/, { message: 'La cédula tiene que tener entre 6 y 9 dígitos, sin puntos ni guión' })
+  cedula?: string;
+  @ApiPropertyOptional({
+    example: 'subalterno', enum: ['oficial', 'subalterno'],
+    description: 'Va a la relación laboral vigente. El grado (el actual o el nuevo) tiene que corresponder al tipo.',
+  })
+  @IsOptional() @IsIn(['oficial', 'subalterno'], { message: 'El tipo de funcionario tiene que ser oficial o subalterno' })
+  tipo_funcionario?: 'oficial' | 'subalterno';
+
   // Datos personales
-  @ApiPropertyOptional({ example: 'Juan' }) @IsOptional() @IsString() @MaxLength(100) primer_nombre?: string;
-  @ApiPropertyOptional({ example: 'Carlos' }) @IsOptional() @IsString() @MaxLength(100) segundo_nombre?: string;
-  @ApiPropertyOptional({ example: 'Rodríguez' }) @IsOptional() @IsString() @MaxLength(100) primer_apellido?: string;
-  @ApiPropertyOptional({ example: 'García' }) @IsOptional() @IsString() @MaxLength(100) segundo_apellido?: string;
+  @ApiPropertyOptional({ example: 'Juan' }) @IsOptional() @Transform(trim) @IsString() @IsNotEmpty({ message: 'El primer nombre no puede quedar vacío' }) @MaxLength(100) primer_nombre?: string;
+  @ApiPropertyOptional({ example: 'Carlos' }) @IsOptional() @Transform(trim) @IsString() @MaxLength(100) segundo_nombre?: string;
+  @ApiPropertyOptional({ example: 'Rodríguez' }) @IsOptional() @Transform(trim) @IsString() @IsNotEmpty({ message: 'El primer apellido no puede quedar vacío' }) @MaxLength(100) primer_apellido?: string;
+  @ApiPropertyOptional({ example: 'García' }) @IsOptional() @Transform(trim) @IsString() @MaxLength(100) segundo_apellido?: string;
   @ApiPropertyOptional({ example: '1975-03-14' }) @IsOptional() @IsDateString() fecha_nacimiento?: string;
   @ApiPropertyOptional({ example: 'jc@fau.mil.uy' }) @IsOptional() @IsString() @MaxLength(150) email?: string;
   @ApiPropertyOptional({ example: '099 123 456' }) @IsOptional() @IsString() @MaxLength(30) telefono?: string;
@@ -16,14 +32,16 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 'Casado' }) @IsOptional() @IsString() @MaxLength(50) estado_civil?: string;
   @ApiPropertyOptional({ example: 'Montevideo' }) @IsOptional() @IsString() @MaxLength(200) lugar_nacimiento?: string;
   @ApiPropertyOptional({ example: 'Mestizo' }) @IsOptional() @IsString() @MaxLength(50) etnia?: string;
-  @ApiPropertyOptional({ example: '11300' }) @IsOptional() @IsString() @MaxLength(20) codigo_postal?: string;
+  @ApiPropertyOptional({ example: '11300' }) @IsOptional() @IsString() @MaxLength(10) codigo_postal?: string;
   @ApiPropertyOptional({ example: 'Seccional 14' }) @IsOptional() @IsString() @MaxLength(100) seccional?: string;
+  @ApiPropertyOptional({ example: 'CC 1.234.567', nullable: true }) @IsOptional() @IsString() @MaxLength(20) credencial_civica?: string | null;
+  @ApiPropertyOptional({ example: 7, enum: [3, 5, 7, 9], nullable: true, description: 'Nivel de pericia/idoneidad del personal subalterno' }) @IsOptional() @IsInt() @IsIn([3, 5, 7, 9]) nivel_idoneidad?: number | null;
 
-  // Datos laborales
+  // Datos laborales. La base y el comando no se editan acá: se cambian registrando un destino.
+  // La situación tampoco: se cambia con POST /personas/:id/situacion, que abre una relación nueva como liquidación.
   @ApiPropertyOptional({ example: '2024-01-01', description: 'Fecha de alta de la relación laboral activa' }) @IsOptional() @IsDateString() fecha_inicio?: string;
   @ApiPropertyOptional({ example: 5, description: 'ID del nuevo grado/rango' }) @IsOptional() @IsInt() grado_id?: number;
-  @ApiPropertyOptional({ example: 2, description: 'ID de la unidad/destino' }) @IsOptional() @IsInt() unidad_id?: number;
-  @ApiPropertyOptional({ example: 1, description: 'ID de la situación/estado' }) @IsOptional() @IsInt() situacion_id?: number;
+  @ApiPropertyOptional({ example: 1, description: 'Solo se acepta la situación actual. Para cambiarla, POST /personas/:id/situacion.' }) @IsOptional() @IsInt() situacion_id?: number;
 
   @ApiPropertyOptional({
     example: '2026-08-30',
@@ -32,10 +50,10 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() regimen_id?: number;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() programa_id?: number;
   @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() escalafon_id?: number;
-  @ApiPropertyOptional({ example: 1 }) @IsOptional() @IsInt() sub_unidad_id?: number;
   @ApiPropertyOptional({ example: 'A' }) @IsOptional() @IsString() @MaxLength(10) prima_tecnica?: string;
   @ApiPropertyOptional({ example: true }) @IsOptional() @IsBoolean() tiene_mando?: boolean;
   @ApiPropertyOptional({ example: 'Sin novedades' }) @IsOptional() @IsString() observaciones_laborales?: string;
+  @ApiPropertyOptional({ example: '-1-4-7-8-', nullable: true, description: 'Códigos del legajo; van a la relación laboral vigente' }) @IsOptional() @IsString() @MaxLength(20) codigos_legajo?: string | null;
 
   // Legajo militar
   @ApiPropertyOptional({ enum: NIVELES_EDUCATIVOS, example: 'BACHILLERATO_TECNOLOGICO' }) @IsOptional() @IsIn([...NIVELES_EDUCATIVOS]) nivel_educativo?: string | null;
@@ -43,4 +61,8 @@ export class UpdatePersonalDto {
   @ApiPropertyOptional({ example: '2020-12-15' }) @IsOptional() @IsDateString() fecha_egreso_eta?: string | null;
   @ApiPropertyOptional({ example: 'O.C.G.F.A. N.º 12.345' }) @IsOptional() @IsString() @MaxLength(50) numero_orden_egreso_eta?: string | null;
   @ApiPropertyOptional({ example: 'Mutado de Servicios Generales a Aerotécnicos, O.D. 8.221', description: 'Mutación de escalafón; va a la relación laboral vigente' }) @IsOptional() @IsString() mutaciones?: string | null;
+  // Derecha y numor (exigen derecha.gestionar)
+  @ApiPropertyOptional({ example: 7, description: 'Derecha nueva, dentro del bloque de su grado. Corre al resto del grado.' }) @IsOptional() @IsInt() @Min(1) derecha?: number;
+  @ApiPropertyOptional({ example: 2, description: 'Numor nuevo dentro de su grado y escalafón. Corre al resto del grupo.' }) @IsOptional() @IsInt() @Min(1) numor?: number;
+  @ApiPropertyOptional({ example: 'Corrección según Boletín 12/2026' }) @IsOptional() @IsString() @MaxLength(500) motivo_derecha?: string;
 }

@@ -7,7 +7,8 @@
 -- arranque en producción: permisos, roles base, usuario administrador,
 -- y datos de auditoría.
 --
--- Idempotente: usa ON CONFLICT DO NOTHING / DO UPDATE en todos los inserts.
+-- Idempotente: usa ON CONFLICT DO NOTHING en todos los inserts que tocan tablas
+-- compartidas con liquidación (acciones, contextos, roles, usuarios): nunca pisa filas de ellos.
 -- ============================================================================
 
 BEGIN;
@@ -40,6 +41,8 @@ SELECT nombre, descripcion, 'personal' FROM (VALUES
   -- Destinos
   ('destinos.ver',                    'Consultar destinos y asignaciones'),
   ('destinos.gestionar',              'Crear y modificar destinos y asignaciones'),
+  ('comisiones.ver',                 'Consultar comisiones e integrantes'),
+  ('comisiones.gestionar',           'Gestionar comisiones y asignaciones'),
   -- Misiones
   ('misiones.ver',                    'Consultar misiones'),
   ('misiones.gestionar',              'Crear y modificar misiones'),
@@ -117,6 +120,7 @@ JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'reglas_ascenso.ver', 'reglas_ascenso.gestionar',
   'retiros.ver', 'retiros.registrar',
   'destinos.ver', 'destinos.gestionar',
+  'comisiones.ver', 'comisiones.gestionar',
   'misiones.ver', 'misiones.gestionar',
   'vuelos.ver', 'vuelos.gestionar',
   'cursos.ver', 'cursos.gestionar',
@@ -139,6 +143,7 @@ JOIN permisos p ON p.aplicacion = 'personal' AND p.nombre IN (
   'reglas_ascenso.ver',
   'retiros.ver',
   'destinos.ver',
+  'comisiones.ver',
   'misiones.ver',
   'vuelos.ver',
   'cursos.ver',
@@ -188,6 +193,8 @@ SELECT nombre, descripcion FROM (VALUES
   ('CAMBIAR_PASSWORD',  'Cambio de contraseña propia'),
   ('RESETEAR_PASSWORD', 'Reseteo de contraseña de otro usuario'),
   ('DESCARGAR',         'Descarga o exportación de datos'),
+  ('unidad.asignar',                 'Se asignó una unidad a un usuario del sistema'),
+  ('unidad.quitar',                  'Se quitó una unidad a un usuario del sistema'),
   ('unidad_rol.agregar',             'Se asignó un rol a una unidad'),
   ('unidad_rol.quitar',              'Se quitó un rol de una unidad'),
   ('relacion_laboral.cambio_unidad', 'Se cambió el destino de un funcionario'),
@@ -195,9 +202,14 @@ SELECT nombre, descripcion FROM (VALUES
   ('ascenso.anular',                 'Se anuló un ascenso puntual'),
   ('orden_ascenso.anular',           'Se anuló una orden de ascenso completa'),
   ('regla_ascenso.desactivar',       'Se desactivó una regla de ascenso'),
-  ('regla_ascenso.restaurar',        'Se restauraron las reglas de ascenso por defecto de la FAU')
+  ('regla_ascenso.restaurar',        'Se restauraron las reglas de ascenso por defecto de la FAU'),
+  ('retiro.anular',                  'Se anuló un retiro cargado por error'),
+  ('reincorporacion.anular',         'Se anuló una reincorporación cargada por error'),
+  ('derecha.reordenar',              'Se reordenó la derecha de un grado'),
+  ('derecha.cambios',                'Se aplicaron cambios de posición en la derecha'),
+  ('numor.reordenar',                'Se reordenó el numor de un grupo')
 ) AS t(nombre, descripcion)
-ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
+ON CONFLICT (nombre) DO NOTHING;  -- acciones/contextos son compartidos con liquidación: no se pisan los de ellos
 
 -- Contextos de auditoría
 INSERT INTO contextos (nombre, descripcion)
@@ -209,6 +221,7 @@ SELECT nombre, descripcion FROM (VALUES
   ('Personas',            'Gestión de personas'),
   ('Subalternos',         'Gestión de subalternos'),
   ('Misiones',            'Gestión de misiones'),
+  ('Comisiones',          'Gestión de comisiones y sus integrantes'),
   ('Cursos',              'Gestión de cursos, módulos y designaciones'),
   ('Historial de cursos', 'Registro histórico de cursos por funcionario'),
   ('Catálogos',           'Catálogos del sistema'),
@@ -217,9 +230,13 @@ SELECT nombre, descripcion FROM (VALUES
   ('Ascensos',            'Registro, consulta y anulación de ascensos y sus órdenes'),
   ('Reglas de ascenso',   'Reglas de ascenso y sus versiones'),
   ('Legajo militar',      'Nivel educativo y egreso de la ETA de un funcionario'),
-  ('Retiros',             'Registro de retiros, anulaciones y reincorporaciones')
+  ('Retiros',             'Registro de retiros, anulaciones y reincorporaciones'),
+  ('Destinos',            'Asignación de destinos y carga masiva de destinos'),
+  ('Reportes',            'Generación y descarga de reportes'),
+  ('Derecha',             'Cambios en la derecha y el numor del personal'),
+  ('Vuelos',              'Períodos, horas de vuelo y unidades de vuelo')
 ) AS t(nombre, descripcion)
-ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
+ON CONFLICT (nombre) DO NOTHING;  -- acciones/contextos son compartidos con liquidación: no se pisan los de ellos
 
 COMMIT;
 

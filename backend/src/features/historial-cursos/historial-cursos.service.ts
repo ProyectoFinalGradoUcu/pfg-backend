@@ -1,8 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
 import {
   AlcanceResuelto,
-  unidadIdDeAlcance,
 } from '../../lib/alcance/alcance.types';
 import {
   assertPersonaEnAlcance,
@@ -10,6 +9,7 @@ import {
 } from '../../lib/alcance/alcance.where';
 import { CreateHistorialCursoDto } from './dto/create-historial-curso.dto';
 import { ListHistorialCursosQueryDto } from './dto/list-historial-cursos-query.dto';
+import { crearCurso } from '../cursos/crear-curso';
 
 @Injectable()
 export class HistorialCursosService {
@@ -22,7 +22,7 @@ export class HistorialCursosService {
     // El historial es un dato del funcionario, asi que se segmenta por la unidad de la PERSONA
     // y no por la del curso, aunque el endpoint este protegido por permisos de cursos.
     const where =
-      alcance && unidadIdDeAlcance(alcance) !== null
+      alcance?.tipo === 'unidad'
         ? { personas: wherePersonasPorAlcance(alcance) }
         : {};
 
@@ -53,6 +53,10 @@ export class HistorialCursosService {
   }
 
   async create(dto: CreateHistorialCursoDto, alcance?: AlcanceResuelto) {
+    if (dto.fechaInicio && dto.fechaFin && new Date(dto.fechaFin) < new Date(dto.fechaInicio)) {
+      throw new BadRequestException('La fecha de fin no puede ser anterior a la fecha de inicio');
+    }
+
     if (alcance) {
       await assertPersonaEnAlcance(this.prisma, BigInt(dto.personaId), alcance);
     }
@@ -65,13 +69,12 @@ export class HistorialCursosService {
     }
 
     const registro = await this.prisma.$transaction(async (tx) => {
-      const curso = await tx.cursos.create({
-        data: {
-          nombre_curso: dto.nombre,
-          institucion: dto.institucion,
-          es_obligatorio: dto.tipo === 'obligatorio',
-        },
-      });
+      const curso = await crearCurso(tx, {
+        nombre_curso: dto.nombre,
+        institucion: dto.institucion,
+        es_obligatorio: dto.tipo === 'obligatorio',
+        sub_unidad_id: dto.sub_unidad_id,
+      }, alcance);
 
       const designacion = await tx.funcionarios_cursos.create({
         data: {

@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
@@ -43,6 +44,25 @@ export class FuncionarioDeOrdenDto {
   @IsOptional()
   @IsString()
   motivo_excepcion?: string;
+
+  @ApiPropertyOptional({
+    example: 2,
+    description:
+      'Posición en la derecha del grado destino. Si se omite, al final. Exige el permiso derecha.gestionar. Si varios ascienden al mismo grado, se aplica en el orden de la lista.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  posicion_derecha?: number;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description: 'Posición en el numor del grupo destino. Si se omite, al final. Exige el permiso derecha.gestionar.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  posicion_numor?: number;
 }
 
 export class CreateOrdenDto {
