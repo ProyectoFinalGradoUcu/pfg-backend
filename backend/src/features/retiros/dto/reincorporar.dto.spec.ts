@@ -22,7 +22,7 @@ describe('ReincorporarDto · número de orden y boletín', () => {
     const res = await validate(dto);
     expect(res.map((e) => e.property)).toEqual(['numero_orden']);
     expect(Object.values(res[0].constraints!)).toEqual([
-      'Indicá el número de orden o el boletín de la reincorporación',
+      'Indicá el número de orden o la resolución de la reincorporación',
     ]);
   });
 

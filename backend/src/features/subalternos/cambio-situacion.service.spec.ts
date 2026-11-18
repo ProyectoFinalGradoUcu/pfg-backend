@@ -177,7 +177,7 @@ describe('CambioSituacionService', () => {
       expect(prisma.movimientos_laborales.createMany).toHaveBeenCalledWith({
         data: [
           expect.objectContaining({ relacion_laboral_id: 500n, tipo_movimiento_id: 11n, usuario_id: 7n,
-            observaciones: 'Orden O.C.G.F.A. 13001 · Boletín B.M.D.N. 9 · Estudios' }),
+            observaciones: 'Orden O.C.G.F.A. 13001 · Resolución B.M.D.N. 9 · Estudios' }),
           expect.objectContaining({ relacion_laboral_id: 501n, tipo_movimiento_id: 12n }),
         ],
       });

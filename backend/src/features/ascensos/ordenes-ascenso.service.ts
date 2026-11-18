@@ -63,7 +63,7 @@ export class OrdenesAscensoService {
   ) {
     // La orden se identifica por el N.º de O.C.G.F.A. o por el boletín: al menos uno.
     if (!dto.numero_orden && !dto.boletin) {
-      throw new BadRequestException('Se requiere al menos número de orden o boletín');
+      throw new BadRequestException('Se requiere al menos número de orden o resolución');
     }
 
     const personaIds = dto.funcionarios.map((f) => f.persona_id);

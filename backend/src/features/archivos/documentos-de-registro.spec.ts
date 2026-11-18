@@ -258,9 +258,20 @@ describe('DocumentosDeRegistro', () => {
 
     it('404 si el slot no tiene documento', async () => {
       await expect(service.obtener(88n, 'boletin')).rejects.toThrow(
-        new NotFoundException('El destino no tiene documento de boletín'),
+        new NotFoundException('El destino no tiene documento de resolución'),
       );
       expect(archivos.obtener).not.toHaveBeenCalled();
+    });
+
+    it('usa la etiqueta propia del boletín si la config la trae', async () => {
+      const conEtiqueta = new (class extends DocumentosDeRegistro {})(
+        prisma as unknown as PrismaService,
+        archivos as unknown as ArchivosService,
+        { ...CONFIG, etiquetaBoletin: 'boletín' },
+      );
+      await expect(conEtiqueta.obtener(88n, 'boletin')).rejects.toThrow(
+        new NotFoundException('El destino no tiene documento de boletín'),
+      );
     });
   });
 
