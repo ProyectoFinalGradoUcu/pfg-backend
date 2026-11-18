@@ -5,7 +5,7 @@ import { PARAMETRO_CATEGORIA } from './_helpers';
 export const misionesOficialesReporte: DefinicionReporte = {
   clave: 'misiones-oficiales',
   titulo: 'Misiones / Oficiales',
-  descripcion: 'Historial de participaciones en convocatorias de misiones, con país, boletín, fechas de salida/regreso y orden.',
+  descripcion: 'Historial de participaciones en convocatorias de misiones, con país, resolución, fechas de salida/regreso y orden.',
   categoria: 'Personal',
   parametros: [
     {

@@ -22,10 +22,8 @@ const COLUMNAS: ColumnaReporte[] = [
   { clave: 'numero_destino', etiqueta: 'Des Num', tipo: 'texto' },
   { clave: 'numero_orden', etiqueta: 'N.º Orden', tipo: 'texto' },
   { clave: 'fecha_orden', etiqueta: 'Fecha orden', tipo: 'fecha' },
-  { clave: 'boletin', etiqueta: 'N.º Boletín', tipo: 'texto' },
-  { clave: 'fecha_boletin', etiqueta: 'Fecha boletín', tipo: 'fecha' },
-  { clave: 'numero_resolucion', etiqueta: 'N.º Resolución', tipo: 'texto' },
-  { clave: 'fecha_resolucion', etiqueta: 'Fecha resolución', tipo: 'fecha' },
+  { clave: 'boletin', etiqueta: 'N.º Resolución', tipo: 'texto' },
+  { clave: 'fecha_boletin', etiqueta: 'Fecha resolución', tipo: 'fecha' },
 ];
 
 export const destinosReporte: DefinicionReporte = {
@@ -76,8 +74,6 @@ export const destinosReporte: DefinicionReporte = {
         fecha_orden: fmtFecha(a.fecha_orden),
         boletin: a.boletin ?? '',
         fecha_boletin: fmtFecha(a.fecha_boletin),
-        numero_resolucion: a.numero_resolucion ?? '',
-        fecha_resolucion: fmtFecha(a.fecha_resolucion),
       };
     });
 

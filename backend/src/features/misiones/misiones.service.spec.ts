@@ -630,7 +630,7 @@ describe('MisionesService', () => {
     });
 
     it('crea convocatoria con solo boletin', async () => {
-      await service.crearConvocatoria(1, { boletin: 'BOL-2026-04' });
+      await service.crearConvocatoria(1, { boletin: 'RES-2026-04' });
 
       expect(prisma.convocatorias.create).toHaveBeenCalled();
     });
@@ -1379,7 +1379,7 @@ describe('MisionesService', () => {
         });
       });
 
-      it('filtra por número de orden o boletín', async () => {
+      it('filtra por número de orden o resolución', async () => {
         await service.listarPersonalEnMision({ orden: 'ORD-1' });
 
         expect(whereUsado()).toEqual({
@@ -1523,12 +1523,12 @@ describe('MisionesService', () => {
     });
 
     it('acepta solo boletin', async () => {
-      const errors = await validate(toDto({ boletin: 'BOL-2026' }));
+      const errors = await validate(toDto({ boletin: 'RES-2026' }));
       expect(errors).toHaveLength(0);
     });
 
     it('acepta ambos campos', async () => {
-      const errors = await validate(toDto({ numero_orden: 'ORD-001', boletin: 'BOL-2026' }));
+      const errors = await validate(toDto({ numero_orden: 'ORD-001', boletin: 'RES-2026' }));
       expect(errors).toHaveLength(0);
     });
 
@@ -1561,7 +1561,7 @@ describe('MisionesService', () => {
     });
 
     it('acepta persona_id con boletin', async () => {
-      const errors = await validate(toDto({ persona_id: 42, boletin: 'BOL-2026' }));
+      const errors = await validate(toDto({ persona_id: 42, boletin: 'RES-2026' }));
       expect(errors).toHaveLength(0);
     });
 

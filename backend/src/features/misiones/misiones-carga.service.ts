@@ -21,8 +21,8 @@ const COLUMNAS: ColumnaPlantilla[] = [
     ayuda: 'Elegí una misión de la lista o escribí el nombre de una nueva: se crea automáticamente (completá también el País).' },
   { clave: 'pais', titulo: 'País', ayuda: 'Solo hace falta si la misión es nueva.' },
   { clave: 'numero_orden', titulo: 'N.º de orden de la convocatoria',
-    ayuda: 'Identifica la convocatoria junto con el boletín. Las filas con la misma misión, orden y boletín van a la misma convocatoria.' },
-  { clave: 'boletin', titulo: 'Boletín de la convocatoria', ayuda: 'Hace falta el N.º de orden o el boletín (al menos uno).' },
+    ayuda: 'Identifica la convocatoria junto con la resolución. Las filas con la misma misión, orden y resolución van a la misma convocatoria.' },
+  { clave: 'boletin', titulo: 'Resolución de la convocatoria', alias: ['Boletín de la convocatoria'], ayuda: 'Hace falta el N.º de orden o la resolución (al menos uno).' },
   { clave: 'fecha_salida', titulo: 'Fecha de salida', tipo: 'fecha' },
   { clave: 'fecha_llegada', titulo: 'Fecha de llegada', tipo: 'fecha', ayuda: 'Vacía si todavía no volvió.' },
   { clave: 'cedula', titulo: 'Cédula', requerida: true, ayuda: 'Funcionario ya registrado en Personal. Sin puntos ni guión.' },
@@ -41,7 +41,7 @@ export class MisionesCargaService {
 
   /**
    * Cada fila es un participante. La misión se busca por nombre (y se crea si no existe) y la
-   * convocatoria por misión + N.º de orden + boletín (y se crea con la primera fila que la nombra).
+   * convocatoria por misión + N.º de orden + resolución (y se crea con la primera fila que la nombra).
    */
   async procesarCarga(buffer: Buffer): Promise<ResultadoCarga> {
     let misiones = await this.cargarMisiones();
@@ -60,7 +60,7 @@ export class MisionesCargaService {
       const persona = padron.militar(v['cedula']);
       if (!v['mision']) throw new Error('Falta la misión.');
       if (!v['numero_orden'] && !v['boletin']) {
-        throw new Error('Falta el N.º de orden o el boletín de la convocatoria (al menos uno).');
+        throw new Error('Falta el N.º de orden o la resolución de la convocatoria (al menos uno).');
       }
       const salida = parsearFecha(v['fecha_salida'], 'Fecha de salida');
       const llegada = parsearFecha(v['fecha_llegada'], 'Fecha de llegada');
@@ -87,7 +87,7 @@ export class MisionesCargaService {
         ((salida && convocatoria.fecha_salida && convocatoria.fecha_salida.toISOString().slice(0, 10) !== salida) ||
           (llegada && convocatoria.fecha_llegada && convocatoria.fecha_llegada.toISOString().slice(0, 10) !== llegada))
       ) {
-        throw new Error('Las fechas no coinciden con las de la convocatoria ya registrada con ese N.º de orden y boletín.');
+        throw new Error('Las fechas no coinciden con las de la convocatoria ya registrada con ese N.º de orden y resolución.');
       }
 
       // Antes de crear nada, para no dejar misiones ni convocatorias sin participantes.
@@ -191,7 +191,7 @@ export class MisionesCargaService {
       columnas: COLUMNAS,
       listas: [{ nombre: 'misiones', titulo: 'Misión', valores: misiones.etiquetas }],
       instrucciones: [
-        'Una fila por funcionario designado. Para varios funcionarios de la misma convocatoria, repetí la misión, el N.º de orden y el boletín.',
+        'Una fila por funcionario designado. Para varios funcionarios de la misma convocatoria, repetí la misión, el N.º de orden y la resolución.',
         'Si la misión no existe, escribí su nombre y el País: se crea con la primera fila. La convocatoria también se crea sola.',
         'Las fechas de salida y llegada son de la convocatoria: tienen que coincidir en todas sus filas.',
       ],
@@ -201,7 +201,7 @@ export class MisionesCargaService {
           fecha_salida: new Date('2019-03-01T00:00:00Z'), fecha_llegada: new Date('2019-09-30T00:00:00Z'), cedula: '12345678',
         },
         {
-          mision: 'Misión nueva de ejemplo', pais: 'Haití', numero_orden: 'ORD-2020-003', boletin: 'BOL-2020-02',
+          mision: 'Misión nueva de ejemplo', pais: 'Haití', numero_orden: 'ORD-2020-003', boletin: 'RES-2020-02',
           fecha_salida: new Date('2020-02-01T00:00:00Z'), cedula: '87654321', observaciones: 'Jefe de contingente',
         },
       ],

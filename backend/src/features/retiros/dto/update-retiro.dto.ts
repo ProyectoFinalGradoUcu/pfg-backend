@@ -31,7 +31,7 @@ export class UpdateRetiroDto {
   @MaxLength(50)
   numero_orden?: string;
 
-  @ApiPropertyOptional({ example: 'B.P. 8892' })
+  @ApiPropertyOptional({ example: 'R. 8892' })
   @IsOptional()
   @IsString()
   @MaxLength(50)

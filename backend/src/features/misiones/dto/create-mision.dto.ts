@@ -29,24 +29,24 @@ export class CreateMisionDto {
   @IsDateString()
   fecha_orden?: string;
 
-  @ApiPropertyOptional({ example: 'B.P. 04/2008', maxLength: 50 })
+  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50, description: 'Resolución' })
   @IsOptional()
   @IsString()
   @MaxLength(50)
   boletin?: string;
 
-  @ApiPropertyOptional({ example: '2026-08-20' })
+  @ApiPropertyOptional({ example: '2026-08-20', description: 'Fecha de la resolución' })
   @IsOptional()
   @IsDateString()
   fecha_boletin?: string;
 
-  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50 })
+  @ApiPropertyOptional({ maxLength: 50, deprecated: true, description: 'Sin uso: la resolución va en boletin' })
   @IsOptional()
   @IsString()
   @MaxLength(50)
   numero_resolucion?: string;
 
-  @ApiPropertyOptional({ example: '2026-08-20' })
+  @ApiPropertyOptional({ deprecated: true, description: 'Sin uso: la resolución va en boletin' })
   @IsOptional()
   @IsDateString()
   fecha_resolucion?: string;

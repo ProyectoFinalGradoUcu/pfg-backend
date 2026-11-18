@@ -237,17 +237,17 @@ describe('DestinosService', () => {
       await expect(service.crearDestino(dtoBase)).rejects.toThrow(ConflictException);
     });
 
-    it('rechaza cuando no se indica ni número de orden ni boletín', async () => {
+    it('rechaza cuando no se indica ni número de orden ni resolución', async () => {
       const { numero_orden, ...sinOrden } = dtoBase;
 
       await expect(service.crearDestino(sinOrden as any)).rejects.toThrow(BadRequestException);
     });
 
-    it('acepta boletín en lugar de número de orden', async () => {
+    it('acepta resolución en lugar de número de orden', async () => {
       const { numero_orden, ...sinOrden } = dtoBase;
 
       await expect(
-        service.crearDestino({ ...sinOrden, boletin: 'BOL-2026-04' }),
+        service.crearDestino({ ...sinOrden, boletin: 'RES-2026-04' }),
       ).resolves.toBeDefined();
     });
 
@@ -317,7 +317,7 @@ describe('DestinosService', () => {
       expect(result.stats.sub_unidades_con_personal).toBe(2);
     });
 
-    it('listarDestinos devuelve documentos con los metadatos de orden y boletín', async () => {
+    it('listarDestinos devuelve documentos con los metadatos de orden y resolución', async () => {
       const subido_en = new Date('2026-11-06T12:00:00Z');
       const boletin = { nombre_original: 'bol.pdf', content_type: 'application/pdf', tamanio_bytes: 9n, subido_en };
       prisma.destinos.count.mockResolvedValue(1);
@@ -464,7 +464,7 @@ describe('DestinosService', () => {
       );
     });
 
-    it('rechaza dejar la asignación sin número de orden ni boletín', async () => {
+    it('rechaza dejar la asignación sin número de orden ni resolución', async () => {
       prisma.destinos.findUnique.mockResolvedValue(
         makeAsignacion({ numero_orden: 'O.D. 1', boletin: null }),
       );
@@ -501,7 +501,7 @@ describe('DestinosService', () => {
       );
     });
 
-    it('permite reabrir un destino histórico que nunca tuvo número de orden ni boletín', async () => {
+    it('permite reabrir un destino histórico que nunca tuvo número de orden ni resolución', async () => {
       prisma.destinos.findUnique.mockResolvedValue(
         makeAsignacion({ id: 200n, fecha_fin: new Date('2026-01-01'), numero_orden: null, boletin: null }),
       );
@@ -805,13 +805,13 @@ describe('DTOs de destinos', () => {
       expect(await errores(CreateDestinoDto, valido)).toEqual([]);
     });
 
-    it('acepta un destino con boletín en lugar de número de orden', async () => {
+    it('acepta un destino con resolución en lugar de número de orden', async () => {
       const { numero_orden, ...sinOrden } = valido;
 
-      expect(await errores(CreateDestinoDto, { ...sinOrden, boletin: 'BOL-2026-04' })).toEqual([]);
+      expect(await errores(CreateDestinoDto, { ...sinOrden, boletin: 'RES-2026-04' })).toEqual([]);
     });
 
-    it('rechaza cuando no hay ni número de orden ni boletín', async () => {
+    it('rechaza cuando no hay ni número de orden ni resolución', async () => {
       const { numero_orden, ...sinOrden } = valido;
 
       expect(await errores(CreateDestinoDto, sinOrden)).toEqual(

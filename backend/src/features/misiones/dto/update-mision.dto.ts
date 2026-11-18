@@ -32,27 +32,27 @@ export class UpdateMisionDto {
   @IsDateString()
   fecha_orden?: string | null;
 
-  @ApiPropertyOptional({ example: 'B.P. 04/2008', maxLength: 50, nullable: true })
+  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50, nullable: true, description: 'Resolución' })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsString()
   @MaxLength(50)
   boletin?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-08-20', nullable: true })
+  @ApiPropertyOptional({ example: '2026-08-20', nullable: true, description: 'Fecha de la resolución' })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsDateString()
   fecha_boletin?: string | null;
 
-  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50, nullable: true })
+  @ApiPropertyOptional({ maxLength: 50, nullable: true, deprecated: true, description: 'Sin uso: la resolución va en boletin' })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsString()
   @MaxLength(50)
   numero_resolucion?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-08-20', nullable: true })
+  @ApiPropertyOptional({ nullable: true, deprecated: true, description: 'Sin uso: la resolución va en boletin' })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsDateString()

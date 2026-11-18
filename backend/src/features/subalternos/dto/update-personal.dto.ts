@@ -64,5 +64,5 @@ export class UpdatePersonalDto {
   // Derecha y numor (exigen derecha.gestionar)
   @ApiPropertyOptional({ example: 7, description: 'Derecha nueva, dentro del bloque de su grado. Corre al resto del grado.' }) @IsOptional() @IsInt() @Min(1) derecha?: number;
   @ApiPropertyOptional({ example: 2, description: 'Numor nuevo dentro de su grado y escalafón. Corre al resto del grupo.' }) @IsOptional() @IsInt() @Min(1) numor?: number;
-  @ApiPropertyOptional({ example: 'Corrección según Boletín 12/2026' }) @IsOptional() @IsString() @MaxLength(500) motivo_derecha?: string;
+  @ApiPropertyOptional({ example: 'Corrección según Resolución 12/2026' }) @IsOptional() @IsString() @MaxLength(500) motivo_derecha?: string;
 }

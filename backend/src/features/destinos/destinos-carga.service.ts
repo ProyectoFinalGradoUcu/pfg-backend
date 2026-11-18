@@ -24,8 +24,8 @@ const COLUMNAS: ColumnaPlantilla[] = [
   { clave: 'fecha_fin', titulo: 'Fecha de fin', tipo: 'fecha',
     ayuda: 'Vacía = es el destino actual del funcionario. Con fecha = destino anterior (historial).' },
   { clave: 'posicion_destino', titulo: 'Cargo / posición', ancho: 30 },
-  { clave: 'numero_orden', titulo: 'N.º de orden', ayuda: 'Hace falta el N.º de orden o el boletín (al menos uno).' },
-  { clave: 'boletin', titulo: 'Boletín', ayuda: 'Hace falta el N.º de orden o el boletín (al menos uno).' },
+  { clave: 'numero_orden', titulo: 'N.º de orden', ayuda: 'Hace falta el N.º de orden o la resolución (al menos uno).' },
+  { clave: 'boletin', titulo: 'Resolución', alias: ['Boletín'], ayuda: 'Hace falta el N.º de orden o la resolución (al menos uno).' },
   { clave: 'observaciones', titulo: 'Observaciones', ancho: 40 },
 ];
 
@@ -81,7 +81,7 @@ export class DestinosCargaService {
     if (!fechaInicio) throw new Error('Falta la fecha de inicio.');
     const fechaFin = parsearFecha(v['fecha_fin'], 'Fecha de fin');
     if (fechaFin && fechaFin < fechaInicio) throw new Error('La fecha de fin es anterior a la fecha de inicio.');
-    if (!v['numero_orden'] && !v['boletin']) throw new Error('Falta el N.º de orden o el boletín (al menos uno).');
+    if (!v['numero_orden'] && !v['boletin']) throw new Error('Falta el N.º de orden o la resolución (al menos uno).');
     return {
       destino,
       fechaInicio,

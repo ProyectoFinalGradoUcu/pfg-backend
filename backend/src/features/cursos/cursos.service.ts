@@ -457,7 +457,7 @@ export class CursosService {
       if (!actual) throw new NotFoundException('No existe la inscripción');
       if (actual.dado_de_baja) throw new ConflictException('La inscripción está dada de baja; reactivala antes de calificar o completar módulos');
 
-      // 2) Marcar/actualizar el detalle del módulo (hijo) con su orden/boletín.
+      // 2) Marcar/actualizar el detalle del módulo (hijo) con su orden/resolución.
       return tx.funcionarios_modulos_curso.upsert({
         where: {
           funcionario_curso_id_modulo_id: {
@@ -565,7 +565,7 @@ export class CursosService {
         where: { modulo_id: modulo.id },
         include: { funcionarios_cursos: { select: { id: true, numero_orden: true, boletin: true } } },
       });
-      // Si la inscripción no tiene orden ni boletín, se queda con los del módulo
+      // Si la inscripción no tiene orden ni resolución, se queda con los del módulo
       for (const p of participaciones) {
         const insc = p.funcionarios_cursos;
         if (insc.numero_orden || insc.boletin || (!p.numero_orden && !p.boletin)) continue;
@@ -677,7 +677,7 @@ export class CursosService {
           data: {
             persona_id: BigInt(personaId),
             curso_id: BigInt(cursoId),
-            // A nivel módulo, la orden/boletín van en las filas de módulo.
+            // A nivel módulo, la orden/resolución van en las filas de módulo.
             numero_orden: aNivelModulo ? null : (dto.numero_orden ?? null),
             boletin: aNivelModulo ? null : (dto.boletin ?? null),
             fecha_inicio: fechaInicio,

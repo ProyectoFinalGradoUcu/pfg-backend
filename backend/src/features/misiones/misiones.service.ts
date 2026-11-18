@@ -100,8 +100,6 @@ export class MisionesService {
         fecha_orden: m.fecha_orden ? m.fecha_orden.toISOString().split('T')[0] : null,
         boletin: m.boletin,
         fecha_boletin: m.fecha_boletin ? m.fecha_boletin.toISOString().split('T')[0] : null,
-        numero_resolucion: m.numero_resolucion,
-        fecha_resolucion: m.fecha_resolucion ? m.fecha_resolucion.toISOString().split('T')[0] : null,
         resolucion_cje: m.resolucion_cje,
         total_convocatorias: m._count.convocatorias,
       })),
@@ -131,8 +129,6 @@ export class MisionesService {
       fecha_orden: mision.fecha_orden ? mision.fecha_orden.toISOString().split('T')[0] : null,
       boletin: mision.boletin,
       fecha_boletin: mision.fecha_boletin ? mision.fecha_boletin.toISOString().split('T')[0] : null,
-      numero_resolucion: mision.numero_resolucion,
-      fecha_resolucion: mision.fecha_resolucion ? mision.fecha_resolucion.toISOString().split('T')[0] : null,
       resolucion_cje: mision.resolucion_cje,
       total_convocatorias: mision._count.convocatorias,
     };
@@ -204,8 +200,6 @@ export class MisionesService {
       fecha_orden: actualizado.fecha_orden ? actualizado.fecha_orden.toISOString().split('T')[0] : null,
       boletin: actualizado.boletin,
       fecha_boletin: actualizado.fecha_boletin ? actualizado.fecha_boletin.toISOString().split('T')[0] : null,
-      numero_resolucion: actualizado.numero_resolucion,
-      fecha_resolucion: actualizado.fecha_resolucion ? actualizado.fecha_resolucion.toISOString().split('T')[0] : null,
       resolucion_cje: actualizado.resolucion_cje,
     };
   }
@@ -316,7 +310,7 @@ export class MisionesService {
     if (!mision) throw new NotFoundException(`No existe misión con id ${misionId}`);
 
     if (!dto.numero_orden && !dto.boletin) {
-      throw new BadRequestException('Se requiere al menos número de orden o boletín');
+      throw new BadRequestException('Se requiere al menos número de orden o resolución');
     }
 
     const salida = aFecha(dto.fecha_salida);
@@ -385,7 +379,7 @@ export class MisionesService {
     const ordenFinal = dto.numero_orden !== undefined ? dto.numero_orden : conv.numero_orden;
     const boletinFinal = dto.boletin !== undefined ? dto.boletin : conv.boletin;
     if (!ordenFinal && !boletinFinal) {
-      throw new BadRequestException('La convocatoria debe conservar al menos número de orden o boletín');
+      throw new BadRequestException('La convocatoria debe conservar al menos número de orden o resolución');
     }
 
     const salida = dto.fecha_salida !== undefined ? aFecha(dto.fecha_salida) : conv.fecha_salida;
@@ -602,7 +596,7 @@ export class MisionesService {
     const ordenFinal = dto.numero_orden !== undefined ? dto.numero_orden : asignacion.numero_orden;
     const boletinFinal = dto.boletin !== undefined ? dto.boletin : asignacion.boletin;
     if (!ordenFinal && !boletinFinal) {
-      throw new BadRequestException('La asignación debe conservar al menos número de orden o boletín');
+      throw new BadRequestException('La asignación debe conservar al menos número de orden o resolución');
     }
 
     const actualizado = await this.prisma.funcionarios_convocatorias.update({

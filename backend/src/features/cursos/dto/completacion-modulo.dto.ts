@@ -40,7 +40,7 @@ export class MarcarCompletacionDto {
   @MaxLength(50)
   numero_orden?: string | null;
 
-  @ApiPropertyOptional({ example: 'BOL-2026-04', maxLength: 50, description: 'Boletín donde se publica la orden del módulo (opcional)' })
+  @ApiPropertyOptional({ example: 'RES-2026-04', maxLength: 50, description: 'Resolución de la orden del módulo (opcional)' })
   @IsOptional()
   @IsString()
   @MaxLength(50)

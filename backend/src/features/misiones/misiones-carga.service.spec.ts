@@ -2,7 +2,7 @@ import { Workbook } from 'exceljs';
 import { MisionesCargaService } from './misiones-carga.service';
 
 const ENCABEZADOS = [
-  'Misión *', 'País', 'N.º de orden de la convocatoria', 'Boletín de la convocatoria',
+  'Misión *', 'País', 'N.º de orden de la convocatoria', 'Resolución de la convocatoria',
   'Fecha de salida', 'Fecha de llegada', 'Cédula *', 'Observaciones del funcionario',
 ];
 
