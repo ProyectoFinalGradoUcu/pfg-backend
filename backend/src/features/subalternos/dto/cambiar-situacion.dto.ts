@@ -11,7 +11,7 @@ const textoOVacio = ({ value }: { value: unknown }) => {
   const recortado = value.trim();
   return recortado === '' ? undefined : recortado;
 };
-const FALTA_RESPALDO = 'Indicá el número de orden o el boletín del cambio de situación';
+const FALTA_RESPALDO = 'Indicá el número de orden o la resolución del cambio de situación';
 
 const TextoDeRespaldo = () =>
   ValidateBy({

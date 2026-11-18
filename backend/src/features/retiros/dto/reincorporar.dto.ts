@@ -21,7 +21,7 @@ const textoOVacio = ({ value }: { value: unknown }) => {
   const recortado = value.trim();
   return recortado === '' ? undefined : recortado;
 };
-const FALTA_RESPALDO = 'Indicá el número de orden o el boletín de la reincorporación';
+const FALTA_RESPALDO = 'Indicá el número de orden o la resolución de la reincorporación';
 
 /** Un solo chequeo, para devolver un solo mensaje de error. */
 const TextoDeRespaldo = () =>

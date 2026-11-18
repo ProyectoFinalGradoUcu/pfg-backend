@@ -105,7 +105,7 @@ export class ComisionesService {
     // Las importadas del Access pueden quedar sin fecha ni documento hasta que la FAU los complete.
     if (!original?.importada) {
       if (!fecha_inicio) throw new BadRequestException('Ingresá la fecha desde');
-      if (!numero_orden && !boletin) throw new BadRequestException('Ingresá al menos el N.º de orden o el boletín');
+      if (!numero_orden && !boletin) throw new BadRequestException('Ingresá al menos el N.º de orden o la resolución');
     }
     if (fecha_fin && fecha_inicio && fecha_fin < fecha_inicio) throw new BadRequestException('La fecha hasta no puede ser anterior a la fecha desde');
     return { fecha_inicio, fecha_fin, numero_orden, boletin, cargo };
