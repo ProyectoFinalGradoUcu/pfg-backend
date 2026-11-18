@@ -67,7 +67,7 @@ export class DesignacionesDocumentosController {
     return this.documentos.subirAVarios(ids, slot, archivo, BigInt(user.id));
   }
 
-  @ApiOperation({ summary: 'Adjuntar el documento de la orden o del boletín (PDF, JPG o PNG — máx 10 MB)' })
+  @ApiOperation({ summary: 'Adjuntar el documento de la orden o de la resolución (PDF, JPG o PNG — máx 10 MB)' })
   @ApiResponse({ status: 400, description: 'Falta el archivo, tipo o contenido inválido, o slot inválido.' })
   @ApiResponse({ status: 404, description: 'Designación no encontrada.' })
   @ApiResponse({ status: 409, description: 'La designación ya tiene documento en ese slot.' })
@@ -104,7 +104,7 @@ export class DesignacionesDocumentosController {
     res.status(200).end();
   }
 
-  @ApiOperation({ summary: 'Ver o descargar el documento de la orden o del boletín' })
+  @ApiOperation({ summary: 'Ver o descargar el documento de la orden o de la resolución' })
   @ApiQuery({
     name: 'download',
     required: false,
@@ -126,7 +126,7 @@ export class DesignacionesDocumentosController {
     return streamArchivo(res, archivo, { descarga: download === '1' || download === 'true' });
   }
 
-  @ApiOperation({ summary: 'Quitar el documento de la orden o del boletín' })
+  @ApiOperation({ summary: 'Quitar el documento de la orden o de la resolución' })
   @ApiResponse({ status: 404, description: 'La designación no existe o no tiene documento en ese slot.' })
   @RequireAlcance('cursos.gestionar')
   @HttpCode(HttpStatus.OK)

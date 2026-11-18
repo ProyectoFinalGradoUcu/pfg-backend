@@ -230,7 +230,7 @@ describe('OrdenesAscensoService', () => {
       expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
     });
 
-    it('sin número de orden ni boletín no crea nada', async () => {
+    it('sin número de orden ni resolución no crea nada', async () => {
       await expect(
         service.crear(
           { ...dtoBase(), numero_orden: undefined },
@@ -242,16 +242,16 @@ describe('OrdenesAscensoService', () => {
       expect(prisma.ascensos_ordenes.create).not.toHaveBeenCalled();
     });
 
-    it('con solo el boletín, el número de orden queda nulo', async () => {
+    it('con solo la resolución, el número de orden queda nulo', async () => {
       await service.crear(
-        { ...dtoBase(), numero_orden: undefined, boletin: 'BOL-2027-02' },
+        { ...dtoBase(), numero_orden: undefined, boletin: 'RES-2027-02' },
         8n,
         ['ascensos.registrar'],
       );
 
       const data = prisma.ascensos_ordenes.create.mock.calls[0][0].data;
       expect(data.numero_orden).toBeNull();
-      expect(data.boletin).toBe('BOL-2027-02');
+      expect(data.boletin).toBe('RES-2027-02');
       expect(registro.registrarEnTransaccion.mock.calls[0][1].numero_orden).toBeNull();
     });
 
@@ -925,7 +925,7 @@ describe('OrdenesAscensoService', () => {
       expect(errores.map((e) => e.property)).toContain('funcionarios');
     });
 
-    it('sin número de orden ni boletín se rechaza', async () => {
+    it('sin número de orden ni resolución se rechaza', async () => {
       const dto = plainToInstance(CreateOrdenDto, {
         numero_orden: '',
         fecha_orden: '2027-02-01',
@@ -945,9 +945,9 @@ describe('OrdenesAscensoService', () => {
       expect(await validate(dto)).toHaveLength(0);
     });
 
-    it('alcanza con el boletín', async () => {
+    it('alcanza con la resolución', async () => {
       const dto = plainToInstance(CreateOrdenDto, {
-        boletin: 'BOL-2027-02',
+        boletin: 'RES-2027-02',
         fecha_orden: '2027-02-01',
         funcionarios: [{ persona_id: 1 }],
       });
@@ -957,7 +957,7 @@ describe('OrdenesAscensoService', () => {
     it('se pueden mandar los dos', async () => {
       const dto = plainToInstance(CreateOrdenDto, {
         numero_orden: 'O.C.G.F.A. N.º 1',
-        boletin: 'BOL-2027-02',
+        boletin: 'RES-2027-02',
         fecha_orden: '2027-02-01',
         funcionarios: [{ persona_id: 1 }],
       });

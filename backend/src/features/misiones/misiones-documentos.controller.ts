@@ -44,7 +44,7 @@ const slotPipe = new ParseEnumPipe(SLOTS_DOCUMENTO);
 export class ConvocatoriasDocumentosController {
   constructor(private readonly documentos: ConvocatoriasDocumentosService) {}
 
-  @ApiOperation({ summary: 'Adjuntar el documento de la orden o del boletín (PDF, JPG o PNG — máx 10 MB)' })
+  @ApiOperation({ summary: 'Adjuntar el documento de la orden o de la resolución (PDF, JPG o PNG — máx 10 MB)' })
   @ApiResponse({ status: 400, description: 'Falta el archivo, tipo o contenido inválido, o slot inválido.' })
   @ApiResponse({ status: 404, description: 'Convocatoria no encontrada.' })
   @ApiResponse({ status: 409, description: 'La convocatoria ya tiene documento en ese slot.' })
@@ -75,7 +75,7 @@ export class ConvocatoriasDocumentosController {
     res.status(200).end();
   }
 
-  @ApiOperation({ summary: 'Ver o descargar el documento de la orden o del boletín' })
+  @ApiOperation({ summary: 'Ver o descargar el documento de la orden o de la resolución' })
   @ApiQuery({
     name: 'download',
     required: false,
@@ -94,7 +94,7 @@ export class ConvocatoriasDocumentosController {
     return streamArchivo(res, archivo, { descarga: download === '1' || download === 'true' });
   }
 
-  @ApiOperation({ summary: 'Quitar el documento de la orden o del boletín' })
+  @ApiOperation({ summary: 'Quitar el documento de la orden o de la resolución' })
   @ApiResponse({ status: 404, description: 'La convocatoria no existe o no tiene documento en ese slot.' })
   @RequirePermissions('misiones.gestionar')
   @HttpCode(HttpStatus.OK)
@@ -117,7 +117,7 @@ export class ConvocatoriasDocumentosController {
 export class AsignacionesMisionDocumentosController {
   constructor(private readonly documentos: AsignacionesMisionDocumentosService) {}
 
-  @ApiOperation({ summary: 'Adjuntar el documento de la orden o del boletín (PDF, JPG o PNG — máx 10 MB)' })
+  @ApiOperation({ summary: 'Adjuntar el documento de la orden o de la resolución (PDF, JPG o PNG — máx 10 MB)' })
   @ApiResponse({ status: 400, description: 'Falta el archivo, tipo o contenido inválido, o slot inválido.' })
   @ApiResponse({ status: 404, description: 'Asignación no encontrada.' })
   @ApiResponse({ status: 409, description: 'La asignación ya tiene documento en ese slot.' })
@@ -148,7 +148,7 @@ export class AsignacionesMisionDocumentosController {
     res.status(200).end();
   }
 
-  @ApiOperation({ summary: 'Ver o descargar el documento de la orden o del boletín' })
+  @ApiOperation({ summary: 'Ver o descargar el documento de la orden o de la resolución' })
   @ApiQuery({
     name: 'download',
     required: false,
@@ -167,7 +167,7 @@ export class AsignacionesMisionDocumentosController {
     return streamArchivo(res, archivo, { descarga: download === '1' || download === 'true' });
   }
 
-  @ApiOperation({ summary: 'Quitar el documento de la orden o del boletín' })
+  @ApiOperation({ summary: 'Quitar el documento de la orden o de la resolución' })
   @ApiResponse({ status: 404, description: 'La asignación no existe o no tiene documento en ese slot.' })
   @RequirePermissions('misiones.gestionar')
   @HttpCode(HttpStatus.OK)

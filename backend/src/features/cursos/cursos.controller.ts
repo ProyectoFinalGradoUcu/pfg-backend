@@ -137,7 +137,7 @@ export class CursosController {
   @ApiOperation({
     summary: 'Designar / dictar curso',
     description:
-      'Designa un grupo de personas a un curso (o a módulos puntuales) bajo una orden/boletín. Sirve para el primer dictado y para re-dictados.',
+      'Designa un grupo de personas a un curso (o a módulos puntuales) bajo una orden/resolución. Sirve para el primer dictado y para re-dictados.',
   })
   @ApiResponse({ status: 201, description: 'Designación registrada exitosamente.' })
   @ApiResponse({ status: 404, description: 'Curso o módulo no encontrado.' })

@@ -52,11 +52,11 @@ export interface RelacionNueva {
 
 /** Datos del acto del destino que el Access de oficiales trae en columnas propias. */
 export interface DatosActoDestino {
+  /** La resolución va en la columna boletin: la FAU dejó de usar el boletín. */
   boletin?: string | null;
+  fechaBoletin?: string | null;
   numeroDestino?: string | null;
   fechaOrden?: string | null;
-  numeroResolucion?: string | null;
-  fechaResolucion?: string | null;
 }
 
 export interface DestinoNuevo extends DatosActoDestino, Lugar {
@@ -364,7 +364,7 @@ export async function armarPlan(
     }
   }
 
-  // Comisiones de quien está en actividad: el módulo pide fecha de inicio y orden o boletín, y el Access
+  // Comisiones de quien está en actividad: el módulo pide fecha de inicio y orden o resolución, y el Access
   // casi nunca los trae juntos, así que no se cargan solas. Quedan en el informe para cargarlas a mano.
   function avisarComision(f: Fila, columnas: string[], origen: string, cedula: string, nombre: string) {
     const partes = columnas.map((c) => texto(f[c]) && `${c}: ${texto(f[c])}`).filter(Boolean);
@@ -735,12 +735,11 @@ export async function armarPlan(
         fechaInicio: normalizarFecha(f['Fecha Destino']), fechaFin: null,
         numeroOrden: texto(f['Numero OCGFA Destino'])?.slice(0, 50) ?? null,
         posicion: texto(f['Cargo'])?.slice(0, 200) ?? null,
-        boletin: texto(f['No_BolDES'])?.slice(0, 50) ?? null,
+        boletin: texto(f['Numero Resolucion Destino'])?.slice(0, 50) ?? null,
+        fechaBoletin: normalizarFecha(f['Fecha Resolucion Destino']),
         numeroDestino: normalizarEntero(f['Numero Destino'])?.toString() ?? null,
         fechaOrden: normalizarFecha(f['Fecha OCGFA Destino']),
-        numeroResolucion: texto(f['Numero Resolucion Destino'])?.slice(0, 50) ?? null,
-        fechaResolucion: normalizarFecha(f['Fecha Resolucion Destino']),
-        observaciones: '',
+        observaciones: observaciones('', { 'Boletín': f['No_BolDES'] }),
       },
     });
     if (op.comisiones) {
@@ -994,8 +993,8 @@ export async function armarPlan(
     destinoExiste.add(claveDestino(persona, { unidad: lugar.unidad, sub: lugar.subUnidad }, d.fechaInicio, d.fechaFin === null));
     if (d.fechaFin === null) destinoActivo.add(persona);
     plan.destinos.push({ persona, unidad: lugar.unidad, subUnidad: lugar.subUnidad, fechaInicio: d.fechaInicio, fechaFin: d.fechaFin, numeroOrden: d.numeroOrden,
-      posicion: d.posicion, boletin: d.boletin, numeroDestino: d.numeroDestino, fechaOrden: d.fechaOrden,
-      numeroResolucion: d.numeroResolucion, fechaResolucion: d.fechaResolucion, observaciones: observaciones(`Importado de ${origen}`, {}) + (d.observaciones ? `; ${d.observaciones}` : '') });
+      posicion: d.posicion, boletin: d.boletin, fechaBoletin: d.fechaBoletin, numeroDestino: d.numeroDestino, fechaOrden: d.fechaOrden,
+      observaciones: observaciones(`Importado de ${origen}`, {}) + (d.observaciones ? `; ${d.observaciones}` : '') });
     contar('destinos a crear');
   }
 

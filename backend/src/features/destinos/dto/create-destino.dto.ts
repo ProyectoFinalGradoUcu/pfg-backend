@@ -43,7 +43,7 @@ export class CreateDestinoDto {
   @ApiPropertyOptional({
     example: 'O.D. 12455',
     maxLength: 50,
-    description: 'Requerido si no se indica boletín',
+    description: 'Requerido si no se indica resolución',
   })
   @ValidateIf((o) => !o.boletin)
   @IsString()
@@ -52,9 +52,9 @@ export class CreateDestinoDto {
   numero_orden?: string;
 
   @ApiPropertyOptional({
-    example: 'BOL-2026-04',
+    example: 'RES-2026-04',
     maxLength: 50,
-    description: 'Requerido si no se indica número de orden',
+    description: 'Resolución. Requerido si no se indica número de orden',
   })
   @ValidateIf((o) => !o.numero_orden)
   @IsString()
@@ -73,18 +73,18 @@ export class CreateDestinoDto {
   @IsDateString()
   fecha_orden?: string;
 
-  @ApiPropertyOptional({ example: '2026-09-01' })
+  @ApiPropertyOptional({ example: '2026-09-01', description: 'Fecha de la resolución' })
   @IsOptional()
   @IsDateString()
   fecha_boletin?: string;
 
-  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50 })
+  @ApiPropertyOptional({ maxLength: 50, deprecated: true, description: 'Sin uso: la resolución va en boletin' })
   @IsOptional()
   @IsString()
   @MaxLength(50)
   numero_resolucion?: string;
 
-  @ApiPropertyOptional({ example: '2026-09-01' })
+  @ApiPropertyOptional({ deprecated: true, description: 'Sin uso: la resolución va en boletin' })
   @IsOptional()
   @IsDateString()
   fecha_resolucion?: string;

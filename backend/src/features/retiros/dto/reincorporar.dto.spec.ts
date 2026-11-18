@@ -2,8 +2,8 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ReincorporarDto } from './reincorporar.dto';
 
-// La API aceptaba orden y boletín vacíos o de solo espacios.
-describe('ReincorporarDto · número de orden y boletín', () => {
+// La API aceptaba orden y resolución vacíos o de solo espacios.
+describe('ReincorporarDto · número de orden y resolución', () => {
   const base = { fecha_reincorporacion: '2026-10-01', grado_reincorporacion_id: 3, sub_unidad_id: 5 };
 
   const errores = async (extra: Record<string, unknown>) => {
@@ -26,14 +26,14 @@ describe('ReincorporarDto · número de orden y boletín', () => {
     ]);
   });
 
-  it('acepta solo el número de orden, recortado, y no guarda un boletín de espacios', async () => {
+  it('acepta solo el número de orden, recortado, y no guarda una resolución de espacios', async () => {
     const { dto, campos } = await errores({ numero_orden: '  O.D. 1  ', boletin: '   ' });
     expect(campos).toEqual([]);
     expect(dto.numero_orden).toBe('O.D. 1');
     expect(dto.boletin).toBeUndefined();
   });
 
-  it('acepta solo el boletín', async () => {
+  it('acepta solo la resolución', async () => {
     const { campos } = await errores({ boletin: 'B.P. 9012' });
     expect(campos).toEqual([]);
   });
@@ -43,7 +43,7 @@ describe('ReincorporarDto · número de orden y boletín', () => {
     expect(campos).toEqual(['numero_orden']);
   });
 
-  it('rechaza un boletín que no es texto aunque venga el número de orden', async () => {
+  it('rechaza una resolución que no es texto aunque venga el número de orden', async () => {
     const { campos } = await errores({ numero_orden: 'O.D. 1', boletin: 5 });
     expect(campos).toEqual(['boletin']);
   });

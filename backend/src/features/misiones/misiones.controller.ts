@@ -195,7 +195,7 @@ export class MisionesController {
   }
 
   @Patch(':misionId/convocatorias/:convocatoriaId/funcionarios/:personaId')
-  @ApiOperation({ summary: 'Actualizar orden/boletín/observaciones de un funcionario en la convocatoria' })
+  @ApiOperation({ summary: 'Actualizar orden/resolución/observaciones de un funcionario en la convocatoria' })
   @RequirePermissions('misiones.gestionar')
   editarFuncionarioConvocatoria(
     @Param('misionId', ParseIntPipe) misionId: number,

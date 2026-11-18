@@ -43,7 +43,7 @@ describe('Reportes de misiones (SCRUM-165)', () => {
       pais: 'Congo', mision: 'Congo (MONUSCO)', boletin: 'BOL-PERSONA',
       numero_orden: 'ORD-PERSONA', fecha_salida: '01/03/2026', fecha_regreso: '30/09/2026',
       fecha_orden: '15/01/2026', fecha_boletin: '16/01/2026',
-      numero_resolucion: 'RES-1', fecha_resolucion: '17/01/2026', resolucion_cje: 'CJE-1',
+      resolucion_cje: 'CJE-1',
     }]);
     expect(prisma.funcionarios_misiones.findMany).not.toHaveBeenCalled();
   });
@@ -54,7 +54,7 @@ describe('Reportes de misiones (SCRUM-165)', () => {
     expect(misionesFuente.columnas).toEqual(result.columnas);
   });
 
-  it('usa orden y boletín de convocatoria cuando no hay valores por persona', async () => {
+  it('usa orden y resolución de convocatoria cuando no hay valores por persona', async () => {
     const r: any = makeParticipacion();
     r.numero_orden = null;
     r.boletin = null;

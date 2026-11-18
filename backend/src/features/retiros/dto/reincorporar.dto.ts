@@ -77,14 +77,14 @@ export class ReincorporarDto {
   @IsInt()
   sub_unidad_id: number;
 
-  @ApiPropertyOptional({ example: 'O.D. 13001', maxLength: 50, description: 'Requerido si no se indica boletín' })
+  @ApiPropertyOptional({ example: 'O.D. 13001', maxLength: 50, description: 'Requerido si no se indica resolución' })
   @Transform(textoOVacio)
   // Si no vino ninguno de los dos, el error queda acá y no se repite en boletin.
   @ValidateIf((o) => o.numero_orden != null || o.boletin == null)
   @TextoDeRespaldo()
   numero_orden?: string;
 
-  @ApiPropertyOptional({ example: 'B.P. 9012', maxLength: 50, description: 'Requerido si no se indica número de orden' })
+  @ApiPropertyOptional({ example: 'R. 9012', maxLength: 50, description: 'Requerido si no se indica número de orden' })
   @Transform(textoOVacio)
   @ValidateIf((o) => o.boletin != null)
   @TextoDeRespaldo()

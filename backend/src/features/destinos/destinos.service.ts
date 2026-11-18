@@ -96,8 +96,6 @@ export class DestinosService {
       numero_destino: a.numero_destino,
       fecha_orden: soloFecha(a.fecha_orden),
       fecha_boletin: soloFecha(a.fecha_boletin),
-      numero_resolucion: a.numero_resolucion,
-      fecha_resolucion: soloFecha(a.fecha_resolucion),
       observaciones: a.observaciones,
       activo: esActivo(a.fecha_fin),
       documentos: documentosDe(a),
@@ -112,7 +110,7 @@ export class DestinosService {
    */
   async crearDestino(dto: CreateDestinoDto) {
     if (!dto.numero_orden && !dto.boletin) {
-      throw new BadRequestException('Se requiere al menos número de orden o boletín');
+      throw new BadRequestException('Se requiere al menos número de orden o resolución');
     }
 
     const personaId = BigInt(dto.persona_id);
@@ -379,11 +377,11 @@ export class DestinosService {
     const ordenFinal = dto.numero_orden !== undefined ? dto.numero_orden : asignacion.numero_orden;
     const boletinFinal = dto.boletin !== undefined ? dto.boletin : asignacion.boletin;
     // Solo se valida si la edición cambia los documentos: hay destinos históricos sin
-    // número de orden ni boletín.
+    // número de orden ni resolución.
     const tocaDocumentos = dto.numero_orden !== undefined || dto.boletin !== undefined;
     if (tocaDocumentos && !ordenFinal && !boletinFinal) {
       throw new BadRequestException(
-        'El destino debe conservar al menos número de orden o boletín',
+        'El destino debe conservar al menos número de orden o resolución',
       );
     }
 

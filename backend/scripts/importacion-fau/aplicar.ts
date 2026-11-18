@@ -169,10 +169,10 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
   for (const d of plan.destinos) {
     await db.query(
       `INSERT INTO destinos (persona_id, unidad_id, sub_unidad_id, fecha_inicio, fecha_fin, numero_orden, posicion_destino, observaciones,
-         boletin, numero_destino, fecha_orden, numero_resolucion, fecha_resolucion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         boletin, fecha_boletin, numero_destino, fecha_orden)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [id(d.persona), id(d.unidad), id(d.subUnidad), d.fechaInicio, d.fechaFin, d.numeroOrden, d.posicion, d.observaciones,
-        d.boletin ?? null, d.numeroDestino ?? null, d.fechaOrden ?? null, d.numeroResolucion ?? null, d.fechaResolucion ?? null],
+        d.boletin ?? null, d.fechaBoletin ?? null, d.numeroDestino ?? null, d.fechaOrden ?? null],
     );
     res.destinos++;
   }
@@ -295,10 +295,10 @@ export async function aplicar(db: PoolClient, cat: Catalogos, plan: Plan, op: Op
       const c = m.campos;
       misionId = (await db.query(
         `INSERT INTO misiones (nombre_mision, pais, tipo_mision, fecha_salida, fecha_llegada, numero_orden, boletin,
-           fecha_orden, numero_resolucion, fecha_resolucion, resolucion_cje, observaciones)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id::text`,
+           fecha_boletin, fecha_orden, resolucion_cje, observaciones)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id::text`,
         [c.nombre_mision, c.pais, c.tipo_mision, c.fecha_salida, c.fecha_llegada, c.numero_orden, c.boletin,
-          c.fecha_orden, c.numero_resolucion, c.fecha_resolucion, c.resolucion_cje, c.observaciones],
+          c.fecha_boletin, c.fecha_orden, c.resolucion_cje, c.observaciones],
       )).rows[0].id;
       res.misiones++;
     }

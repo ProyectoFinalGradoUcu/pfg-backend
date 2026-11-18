@@ -47,7 +47,7 @@ export class OrdenesDocumentosController {
     private readonly ordenes: OrdenesAscensoService,
   ) {}
 
-  @ApiOperation({ summary: 'Adjuntar el documento de la orden o del boletín (PDF, JPG o PNG — máx 10 MB)' })
+  @ApiOperation({ summary: 'Adjuntar el documento de la orden o de la resolución (PDF, JPG o PNG — máx 10 MB)' })
   @ApiResponse({ status: 400, description: 'Falta el archivo, tipo o contenido inválido, o slot inválido.' })
   @ApiResponse({ status: 403, description: 'La orden incluye funcionarios fuera del alcance.' })
   @ApiResponse({ status: 404, description: 'Orden de ascenso no encontrada.' })
@@ -84,7 +84,7 @@ export class OrdenesDocumentosController {
     res.status(200).end();
   }
 
-  @ApiOperation({ summary: 'Ver o descargar el documento de la orden o del boletín' })
+  @ApiOperation({ summary: 'Ver o descargar el documento de la orden o de la resolución' })
   @ApiQuery({
     name: 'download',
     required: false,
@@ -105,7 +105,7 @@ export class OrdenesDocumentosController {
     return streamArchivo(res, archivo, { descarga: download === '1' || download === 'true' });
   }
 
-  @ApiOperation({ summary: 'Quitar el documento de la orden o del boletín' })
+  @ApiOperation({ summary: 'Quitar el documento de la orden o de la resolución' })
   @ApiResponse({ status: 403, description: 'La orden incluye funcionarios fuera del alcance.' })
   @ApiResponse({ status: 404, description: 'La orden no existe o no tiene documento en ese slot.' })
   @ApiResponse({ status: 409, description: 'La orden está anulada.' })

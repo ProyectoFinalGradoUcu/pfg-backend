@@ -2,7 +2,7 @@ import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateFuncionarioDto {
-  @ApiPropertyOptional({ example: 'BOL-123' })
+  @ApiPropertyOptional({ example: 'RES-123' })
   @IsOptional()
   @IsString()
   @MaxLength(50)

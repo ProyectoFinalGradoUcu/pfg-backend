@@ -108,7 +108,7 @@ export class DestinosController {
   }
 
   @Patch(':destinoId')
-  @ApiOperation({ summary: 'Editar cargo, fechas, orden, boletín u observaciones de un destino' })
+  @ApiOperation({ summary: 'Editar cargo, fechas, orden, resolución u observaciones de un destino' })
   @RequirePermissions('destinos.gestionar')
   editarDestino(
     @Param('destinoId', ParseIntPipe) destinoId: number,

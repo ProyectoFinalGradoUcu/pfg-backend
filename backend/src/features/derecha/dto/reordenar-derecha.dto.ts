@@ -37,7 +37,7 @@ export class ReordenarDerechaDto {
   @IsInt({ each: true })
   orden?: number[];
 
-  @ApiPropertyOptional({ example: 'Corrección según Boletín 12/2026' })
+  @ApiPropertyOptional({ example: 'Corrección según Resolución 12/2026' })
   @IsOptional()
   @IsString()
   @MaxLength(500)
