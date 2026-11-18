@@ -551,7 +551,7 @@ export class PersonalPerfilService {
       aprobado: r.aprobado,
       calificacion: r.calificacion,
       observacion: r.observacion_calificacion,
-      completado: r.fecha_fin != null,
+      completado: r.aprobado != null,
       documentos: documentosDe(r),
     }));
   }
