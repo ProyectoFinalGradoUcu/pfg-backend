@@ -613,7 +613,7 @@ describe('CursosService', () => {
       expect(result.curso_id).toBe('1');
     });
 
-    it('pasa la orden del módulo a la inscripción que no tiene orden ni boletín', async () => {
+    it('pasa la orden del módulo a la inscripción que no tiene orden ni resolución', async () => {
       prisma.cursos.findUnique.mockResolvedValue(makeCurso());
       prisma.modulos_curso.findFirst.mockResolvedValue(makeModulo());
       prisma.funcionarios_modulos_curso.findMany.mockResolvedValue([
@@ -665,7 +665,7 @@ describe('CursosService', () => {
       });
     });
 
-    it('designa con número de orden válido (sin boletín)', async () => {
+    it('designa con número de orden válido (sin resolución)', async () => {
       const result = await service.crearDesignacion(1, {
         ...baseDto,
         numero_orden: 'ORD-001',
@@ -677,13 +677,13 @@ describe('CursosService', () => {
       expect(result.boletin).toBeNull();
     });
 
-    it('designa con boletín válido (sin número de orden)', async () => {
+    it('designa con resolución válida (sin número de orden)', async () => {
       const result = await service.crearDesignacion(1, {
         ...baseDto,
-        boletin: 'BOL-2026-04',
+        boletin: 'RES-2026-04',
       });
 
-      expect(result.boletin).toBe('BOL-2026-04');
+      expect(result.boletin).toBe('RES-2026-04');
       expect(result.numero_orden).toBeNull();
     });
 
@@ -994,7 +994,7 @@ describe('CursosService', () => {
       calificacion: '8',
       observacion_calificacion: 'Buen desempeño',
       numero_orden: 'ORD-1',
-      boletin: 'BOL-1',
+      boletin: 'RES-1',
     };
 
     beforeEach(() => {
@@ -1344,26 +1344,26 @@ describe('CursosService', () => {
       });
     });
 
-    describe('CreateDesignacionDto — validador "al menos uno: N° Orden o Boletín"', () => {
+    describe('CreateDesignacionDto — validador "al menos uno: N° Orden o Resolución"', () => {
       const base = {
         persona_ids: [1],
         fecha_inicio: '2026-01-01',
         fecha_fin: '2026-06-30',
       };
 
-      it('es válido con número de orden (sin boletín)', async () => {
+      it('es válido con número de orden (sin resolución)', async () => {
         const dto = plainToInstance(CreateDesignacionDto, { ...base, numero_orden: 'ORD-001' });
         const errors = await validate(dto);
         expect(errors).toHaveLength(0);
       });
 
-      it('es válido con boletín (sin número de orden)', async () => {
-        const dto = plainToInstance(CreateDesignacionDto, { ...base, boletin: 'BOL-2026-04' });
+      it('es válido con resolución (sin número de orden)', async () => {
+        const dto = plainToInstance(CreateDesignacionDto, { ...base, boletin: 'RES-2026-04' });
         const errors = await validate(dto);
         expect(errors).toHaveLength(0);
       });
 
-      it('lanza error si N° Orden y Boletín vienen ambos ausentes', async () => {
+      it('lanza error si N° Orden y Resolución vienen ambos ausentes', async () => {
         const dto = plainToInstance(CreateDesignacionDto, base);
         const errors = await validate(dto);
         expect(errors.length).toBeGreaterThan(0);

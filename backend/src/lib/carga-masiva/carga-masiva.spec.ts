@@ -145,6 +145,16 @@ describe('carga masiva · plantilla y lector', () => {
     expect(await leerHoja(buffer, DEF)).toEqual([{ fila: 2, valores: { cedula: '11111111', fecha: '' } }]);
   });
 
+  it('acepta los títulos anteriores de una columna', async () => {
+    const conAlias: DefinicionPlantilla = {
+      ...DEF,
+      columnas: [...DEF.columnas, { clave: 'boletin', titulo: 'Resolución', alias: ['Boletín'] }],
+    };
+    const buffer = await libro(['Cédula', 'Boletín'], [['11111111', 'R. 12']]);
+
+    expect(await leerHoja(buffer, conAlias)).toEqual([{ fila: 2, valores: { cedula: '11111111', boletin: 'R. 12' } }]);
+  });
+
   it('una fecha que llega como número de serie se convierte', async () => {
     const buffer = await libro(['Cédula', 'Fecha de inicio'], [['1', 43845]]);
 

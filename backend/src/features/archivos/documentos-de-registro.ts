@@ -100,7 +100,6 @@ export interface ConfigDocumentos {
   articulo: 'El' | 'La';
   nombre: string;
   noEncontrado: string;
-  etiquetaBoletin?: string;
   bloqueo?: { campo: string; libre: null | boolean; mensaje: string };
 }
 
@@ -140,10 +139,6 @@ export class DocumentosDeRegistro {
     protected readonly config: ConfigDocumentos,
   ) {}
 
-  private etiqueta(slot: SlotDocumento): string {
-    return slot === 'boletin' ? (this.config.etiquetaBoletin ?? ETIQUETA.boletin) : ETIQUETA[slot];
-  }
-
   async subir(
     id: bigint,
     slot: SlotDocumento,
@@ -154,7 +149,7 @@ export class DocumentosDeRegistro {
     this.verificarBloqueo(registro);
     if (registro.archivoId !== null) {
       throw new ConflictException(
-        `${this.sujeto} ya tiene un documento de ${this.etiqueta(slot)}. Quitalo antes de adjuntar otro.`,
+        `${this.sujeto} ya tiene un documento de ${ETIQUETA[slot]}. Quitalo antes de adjuntar otro.`,
       );
     }
 
@@ -230,7 +225,7 @@ export class DocumentosDeRegistro {
     }
     if (existentes.some((fila) => fila[COLUMNA[slot]] != null)) {
       throw new ConflictException(
-        `Alguno de los registros ya tiene un documento de ${this.etiqueta(slot)}. Quitalo antes de adjuntar otro.`,
+        `Alguno de los registros ya tiene un documento de ${ETIQUETA[slot]}. Quitalo antes de adjuntar otro.`,
       );
     }
 
@@ -299,7 +294,7 @@ export class DocumentosDeRegistro {
 
   private sinDocumento(slot: SlotDocumento): NotFoundException {
     return new NotFoundException(
-      `${this.sujeto} no tiene documento de ${this.etiqueta(slot)}`,
+      `${this.sujeto} no tiene documento de ${ETIQUETA[slot]}`,
     );
   }
 

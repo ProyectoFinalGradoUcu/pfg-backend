@@ -594,7 +594,7 @@ describe('RetirosService', () => {
       await expect(service.obtener(999)).rejects.toThrow(NotFoundException);
     });
 
-    it('el detalle trae los documentos de orden y boletín', async () => {
+    it('el detalle trae los documentos de orden y resolución', async () => {
       const subido = new Date('2026-11-06T12:00:00Z');
       prisma.retiros.findUnique.mockResolvedValue(
         makeRetiro({

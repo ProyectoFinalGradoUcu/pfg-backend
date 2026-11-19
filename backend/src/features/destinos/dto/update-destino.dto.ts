@@ -31,7 +31,7 @@ export class UpdateDestinoDto {
   @MaxLength(50)
   numero_orden?: string | null;
 
-  @ApiPropertyOptional({ example: 'BOL-2026-04', maxLength: 50, nullable: true })
+  @ApiPropertyOptional({ example: 'RES-2026-04', maxLength: 50, nullable: true, description: 'Resolución' })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsString()
@@ -51,20 +51,20 @@ export class UpdateDestinoDto {
   @IsDateString()
   fecha_orden?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-09-01', nullable: true })
+  @ApiPropertyOptional({ example: '2026-09-01', nullable: true, description: 'Fecha de la resolución' })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsDateString()
   fecha_boletin?: string | null;
 
-  @ApiPropertyOptional({ example: 'R. 412/2026', maxLength: 50, nullable: true })
+  @ApiPropertyOptional({ maxLength: 50, nullable: true, deprecated: true, description: 'Sin uso: la resolución va en boletin' })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsString()
   @MaxLength(50)
   numero_resolucion?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-09-01', nullable: true })
+  @ApiPropertyOptional({ nullable: true, deprecated: true, description: 'Sin uso: la resolución va en boletin' })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsDateString()

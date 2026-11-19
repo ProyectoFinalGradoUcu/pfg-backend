@@ -166,8 +166,6 @@ describe('Reporte · destinos', () => {
         fecha_orden: '',
         boletin: '',
         fecha_boletin: '',
-        numero_resolucion: '',
-        fecha_resolucion: '',
       },
     ]);
   });

@@ -6,7 +6,7 @@ export class FuncionarioMisionDto {
   @IsString()
   persona_id: string;
 
-  @ApiPropertyOptional({ example: 'BOL-123' })
+  @ApiPropertyOptional({ example: 'RES-123' })
   @IsOptional()
   @IsString()
   @MaxLength(50)

@@ -18,7 +18,7 @@ export class ListConvocatoriasQueryDto {
   @Max(100)
   pageSize?: number;
 
-  @ApiPropertyOptional({ example: 'ORD-2026', description: 'Filtra por número de orden o boletín (parcial)' })
+  @ApiPropertyOptional({ example: 'ORD-2026', description: 'Filtra por número de orden o resolución (parcial)' })
   @IsOptional()
   @IsString()
   query?: string;

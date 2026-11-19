@@ -18,10 +18,10 @@ export interface MisionLeida {
     fecha_salida: string | null;
     fecha_llegada: string | null;
     numero_orden: string | null;
+    /** La resolución va en la columna boletin: la FAU dejó de usar el boletín. */
     boletin: string | null;
+    fecha_boletin: string | null;
     fecha_orden: string | null;
-    numero_resolucion: string | null;
-    fecha_resolucion: string | null;
     resolucion_cje: string | null;
     observaciones: string | null;
   };
@@ -50,11 +50,13 @@ export const claveComision = (s: string) => sinTildes(s).toUpperCase().replace(/
 
 const FECHA_COMISION = /\b\d{1,2}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{2,4}\b/g;
 const ORDEN_COMISION = /\b(?:O\.?\s?C\.?\s?G\.?\s?F\.?\s?A\.?|ORDEN)\s*(?:N\s*[º°O.]*\s*)?(\d[\d.]*\d|\d)/;
-const BOLETIN_COMISION = /\b(?:B\.?\s?M\.?\s?D\.?\s?N\.?|BOL(?:ETIN)?\.?)\s*(?:N\s*[º°O.]*\s*)?(\d[\d.]*\d|\d)/;
+// Con tildes también: el nombre se limpia sobre el texto original.
+const BOLETIN_COMISION = /\b(?:B\.?\s?M\.?\s?D\.?\s?N\.?|BOL(?:ET[IÍ]N)?\.?)\s*(?:N\s*[º°O.]*\s*)?(\d[\d.]*\d|\d)/;
+const RESOLUCION_COMISION = /\bRES(?:OL(?:UCI[OÓ]N)?)?[.,]?\s*(?:M\.?\s?D\.?\s?N\.?\s*)?(?:N\s*[º°O.]*\s*)?(\d[\d.]*\d|\d)/;
 
 /**
- * Comisión del Access: el nombre sale de su columna sin las fechas, la orden ni el boletín que a veces
- * vienen escritos ahí. Fechas solo si hay exactamente dos (desde y hasta): una sola no dice si es de
+ * Comisión del Access: el nombre sale de su columna sin las fechas, la orden, la resolución ni el boletín
+ * que a veces vienen escritos ahí. El boletín ya no se usa: queda solo en el texto original. Fechas solo si hay exactamente dos (desde y hasta): una sola no dice si es de
  * inicio o de fin. Un texto sin nombre ("OCGFA 8223") o que es una mutación no es una comisión.
  */
 export function leerComision(nombre: unknown, ...otros: unknown[]) {
@@ -63,15 +65,18 @@ export function leerComision(nombre: unknown, ...otros: unknown[]) {
     .map((m) => normalizarFecha(m[0].replace(/\s/g, '').replace(/[.-]/g, '/'))).filter(Boolean) as string[];
   const rango = fechas.length === 2 && fechas[1] >= fechas[0];
   const orden = ORDEN_COMISION.exec(todo)?.[1] ?? null;
-  const boletin = BOLETIN_COMISION.exec(todo)?.[1] ?? null;
+  const resolucion = RESOLUCION_COMISION.exec(todo)?.[1] ?? null;
   const limpio = (texto(nombre) ?? '')
     .replace(FECHA_COMISION, ' ').replace(new RegExp(ORDEN_COMISION.source, 'i'), ' ').replace(new RegExp(BOLETIN_COMISION.source, 'i'), ' ')
-    .replace(/\s+/g, ' ').replace(/^[\s.,;:/-]+|[\s,;:/-]+$/g, '').trim();
+    .replace(new RegExp(RESOLUCION_COMISION.source, 'i'), ' ')
+    .replace(/\s+/g, ' ').replace(/^[\s.,;:/-]+|[\s,;:/-]+$/g, '')
+    // "… RES. 123 DEL 01/02/19": al sacar el número y la fecha queda el "DEL" suelto.
+    .replace(/\s+(?:DEL?|EL)$/i, '').trim();
   const esNombre = (limpio.match(/[A-Za-zÁÉÍÓÚÑáéíóúñ]/g)?.length ?? 0) >= 2 && !/^MUT/i.test(sinTildes(limpio));
   return {
     nombre: esNombre ? limpio.slice(0, 200) : null,
     fechaInicio: rango ? fechas[0] : null, fechaFin: rango ? fechas[1] : null,
-    numeroOrden: orden ? `O.C.G.F.A. ${orden}`.slice(0, 50) : null, boletin: boletin?.slice(0, 50) ?? null,
+    numeroOrden: orden ? `O.C.G.F.A. ${orden}`.slice(0, 50) : null, boletin: resolucion?.slice(0, 50) ?? null,
   };
 }
 
@@ -111,14 +116,16 @@ export function leerMisiones(base: BaseAccess | undefined): { misiones: MisionLe
     vistas.add(k);
     // La fecha de la resolución del C. en Jefe no tiene campo propio.
     const fechaCje = texto(f['RESOL_CJEFE']) && normalizarFecha(f['FEC_RESOL_CJ']);
+    const boletinViejo = numero(f['BOLETIN'], 50);
+    const obs = [fechaCje && `Resolución C. en Jefe del ${fechaCje}`, boletinViejo && `Boletín: ${boletinViejo}`].filter(Boolean).join('; ');
     agregar({
       campos: {
         nombre_mision: corto(f['MISION'], 200) ?? `Salida al exterior${texto(f['PAIS']) ? ` (${texto(f['PAIS'])})` : ''}`,
         pais: corto(f['PAIS'], 100), tipo_mision: null, fecha_salida: sal, fecha_llegada: reg,
-        numero_orden: numero(f['ORDEN'], 50), boletin: numero(f['BOLETIN'], 50),
-        fecha_orden: normalizarFecha(f['FEC_ORD']), numero_resolucion: corto(f['RESOL'], 50),
-        fecha_resolucion: normalizarFecha(f['FEC_RESOL']), resolucion_cje: corto(f['RESOL_CJEFE'], 50),
-        observaciones: fechaCje ? `Resolución C. en Jefe del ${fechaCje}` : null,
+        numero_orden: numero(f['ORDEN'], 50), boletin: numero(f['RESOL'], 50),
+        fecha_boletin: normalizarFecha(f['FEC_RESOL']), fecha_orden: normalizarFecha(f['FEC_ORD']),
+        resolucion_cje: corto(f['RESOL_CJEFE'], 50),
+        observaciones: obs || null,
       },
       cedula: f['CEDIN'], origen: `${tabla} fila ${i + 1}`,
     });
@@ -133,14 +140,14 @@ export function leerMisiones(base: BaseAccess | undefined): { misiones: MisionLe
     const enPais = clave(f['en el país']);
     const obs = [texto(f['Observaciones']), texto(f['Fecha Sal y Reg']) && `Salida y regreso: ${texto(f['Fecha Sal y Reg'])}`,
       texto(f['Orden Modif']) && `Orden modificativa: ${texto(f['Orden Modif'])}`,
-      enPais === 'SI' ? 'En el país' : enPais === 'NO' ? 'En el exterior' : null].filter(Boolean).join('; ');
+      enPais === 'SI' ? 'En el país' : enPais === 'NO' ? 'En el exterior' : null,
+      numero(f['Bol-MDN'], 50) && `Boletín: ${numero(f['Bol-MDN'], 50)}`].filter(Boolean).join('; ');
     agregar({
       campos: {
         nombre_mision: corto(f['Misión'], 200) ?? `Misión${tipo ? ` ${tipo.toLowerCase()}` : ''}${texto(f['País']) ? ` (${texto(f['País'])})` : ''}`,
         pais: corto(f['País'], 100), tipo_mision: tipo ? tipo.slice(0, 100) : null, fecha_salida: sal, fecha_llegada: null,
-        numero_orden: numero(f['O-CGFA'], 50), boletin: numero(f['Bol-MDN'], 50),
-        fecha_orden: normalizarFecha(f['F-Orden']), numero_resolucion: numero(f['Resol'], 50),
-        fecha_resolucion: normalizarFecha(f['F-Resol']), resolucion_cje: null,
+        numero_orden: numero(f['O-CGFA'], 50), boletin: numero(f['Resol'], 50),
+        fecha_boletin: normalizarFecha(f['F-Resol']), fecha_orden: normalizarFecha(f['F-Orden']), resolucion_cje: null,
         observaciones: obs || null,
       },
       cedula: f['CEDIN'], origen: `Misiones fila ${i + 1}`,

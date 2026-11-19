@@ -55,8 +55,10 @@ export function motivoBaja(v: unknown): MotivoLeido | null {
   if (NO_ES_RETIRO.test(s)) return { tipo: 'no_es_retiro' };
   const regla = REGLAS.find(([re]) => re.test(s));
   if (!regla) return { tipo: 'desconocido' };
-  // "BMDN Nº 10.000" / "BOL. 1234" → boletín; "ACTA 10.000" / "OCGFA Nº 1234" → número de orden.
-  const boletin = /\b(?:B\.?\s?M\.?\s?D\.?\s?N|BDMN|BOL)\.?\s*(?:MDN\s*)?N?[º°]?\s*([\d.]+\d)/.exec(s)?.[1] ?? null;
+  // "RESOL. Nº 1234" / "RES. M.D.N. Nº 1234" → resolución, que va en la columna boletin;
+  // "ACTA 10.000" / "OCGFA Nº 1234" → número de orden.
+  // El boletín ("BMDN Nº 10.000") ya no se usa: queda solo en el texto del motivo.
+  const boletin = /\bRES(?:OL(?:UCION)?)?[.,]?\s*(?:M\.?\s?D\.?\s?N\.?\s*)?N?\s*[º°]?\s*([\d.]+\d)/.exec(s)?.[1] ?? null;
   const orden = /\b(ACTA|O\.?\s?C\.?\s?G\.?\s?F\.?\s?A)\.?\s*N?[º°]?\s*([\d.]+\d)/.exec(s);
   return {
     tipo: 'motivo', codigo: regla[1], boletin,

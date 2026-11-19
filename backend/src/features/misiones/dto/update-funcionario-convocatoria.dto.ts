@@ -8,7 +8,7 @@ export class UpdateFuncionarioConvocatoriaDto {
   @MaxLength(50)
   numero_orden?: string | null;
 
-  @ApiPropertyOptional({ example: 'BOL-2026-04', maxLength: 50, nullable: true })
+  @ApiPropertyOptional({ example: 'RES-2026-04', maxLength: 50, nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(50)

@@ -37,7 +37,7 @@ export class ListPersonalMisionQueryDto {
   @Min(1, { each: true })
   misionIds?: number[];
 
-  @ApiPropertyOptional({ example: 'ORD-2026', description: 'Número de orden o boletín (parcial)' })
+  @ApiPropertyOptional({ example: 'ORD-2026', description: 'Número de orden o resolución (parcial)' })
   @IsOptional()
   @IsString()
   @MaxLength(100)

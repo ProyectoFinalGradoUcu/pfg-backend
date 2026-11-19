@@ -543,7 +543,7 @@ export class PersonalPerfilService {
       nombre_curso: r.cursos.nombre_curso,
       institucion: r.cursos.institucion,
       es_obligatorio: r.cursos.es_obligatorio,
-      // El boletín/orden ahora viven en la inscripción (no en la definición del curso).
+      // La resolución/orden ahora viven en la inscripción (no en la definición del curso).
       boletin: r.boletin,
       numero_orden: r.numero_orden,
       fecha_inicio: r.fecha_inicio,

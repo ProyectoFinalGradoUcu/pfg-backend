@@ -17,14 +17,14 @@ export class FuncionarioConvocatoriaItemDto {
   @IsInt()
   persona_id: number;
 
-  @ApiPropertyOptional({ example: 'ORD-2026-001', maxLength: 50, description: 'Requerido si no se indica boletín' })
+  @ApiPropertyOptional({ example: 'ORD-2026-001', maxLength: 50, description: 'Requerido si no se indica resolución' })
   @ValidateIf((o) => !o.boletin)
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
   numero_orden?: string;
 
-  @ApiPropertyOptional({ example: 'BOL-2026-04', maxLength: 50, description: 'Requerido si no se indica número de orden' })
+  @ApiPropertyOptional({ example: 'RES-2026-04', maxLength: 50, description: 'Requerido si no se indica número de orden' })
   @ValidateIf((o) => !o.numero_orden)
   @IsString()
   @IsNotEmpty()

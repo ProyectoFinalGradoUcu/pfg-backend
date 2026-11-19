@@ -88,7 +88,7 @@ export class ComisionesService {
       include: { relaciones_laborales: { select: { fecha_inicio: true, fecha_fin: true } } },
     });
     if (otras.some(a => periodosSolapados(a, { ...valores, relaciones_laborales: periodo }))) {
-      throw new ConflictException('La persona ya tiene una pertenencia en esta comisión con fechas solapadas. El fin de la anterior debe ser menor que el inicio de la siguiente, aunque cambien cargo, orden o boletín.');
+      throw new ConflictException('La persona ya tiene una pertenencia en esta comisión con fechas solapadas. El fin de la anterior debe ser menor que el inicio de la siguiente, aunque cambien cargo, orden o resolución.');
     }
   }
   private async bloquear(tx: Prisma.TransactionClient, id: bigint) {

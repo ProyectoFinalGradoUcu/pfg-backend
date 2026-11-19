@@ -68,7 +68,7 @@ export class CreateRetiroDto {
   @MaxLength(50)
   numero_orden?: string;
 
-  @ApiPropertyOptional({ example: 'B.P. 8891' })
+  @ApiPropertyOptional({ example: 'R. 8891' })
   @IsOptional()
   @IsString()
   @MaxLength(50)

@@ -69,7 +69,7 @@ export class CreateOrdenDto {
   @ApiPropertyOptional({
     example: 'O.C.G.F.A. N.º 12.345',
     maxLength: 50,
-    description: 'Requerido si no se indica boletín',
+    description: 'Requerido si no se indica resolución',
   })
   @ValidateIf((o) => !o.boletin)
   @IsString()
@@ -82,7 +82,7 @@ export class CreateOrdenDto {
   fecha_orden: string;
 
   @ApiPropertyOptional({
-    example: 'BOL-2027-02',
+    example: 'RES-2027-02',
     maxLength: 50,
     description: 'Requerido si no se indica número de orden',
   })

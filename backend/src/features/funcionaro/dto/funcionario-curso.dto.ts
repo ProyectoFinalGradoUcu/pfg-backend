@@ -51,7 +51,7 @@ export class FuncionarioCursoDto {
   @MaxLength(50)
   numero_orden?: string;
 
-  @ApiPropertyOptional({ example: 'BOL-2026-04', maxLength: 50, description: 'Boletín de la orden (opcional)' })
+  @ApiPropertyOptional({ example: 'RES-2026-04', maxLength: 50, description: 'Resolución de la orden (opcional)' })
   @IsOptional()
   @IsString()
   @MaxLength(50)

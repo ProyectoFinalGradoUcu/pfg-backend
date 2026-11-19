@@ -23,7 +23,7 @@ Sirve tanto para estos archivos como para exportaciones futuras con el mismo for
 | Motivo de baja (`MOTIVO`) | `relaciones_laborales.motivo_baja_id` y un registro en `retiros` por período de baja | En los períodos de baja. Si el período ya estaba sin motivo, se le completa. Los motivos que faltan en el catálogo se crean vigentes, solo con `--crear-catalogos`. |
 | Familia de los oficiales (esposa e hijos con cédula) | `relaciones_familiares` y, para hijos civiles, `personas` con `es_civil` | Si el vínculo no existe. Ver "Familiares". |
 | Cargo (oficiales) | `destinos.posicion_destino` | En el destino actual que crea. |
-| Datos del acto del destino (oficiales): número de destino (`Numero Destino`), fecha de la orden, número y fecha de resolución, boletín | `destinos.numero_destino`, `fecha_orden`, `numero_resolucion`, `fecha_resolucion`, `boletin` | En los destinos que crea. |
+| Datos del acto del destino (oficiales): número de destino (`Numero Destino`), fecha de la orden, número y fecha de resolución | `destinos.numero_destino`, `fecha_orden`, `boletin` (la resolución), `fecha_boletin` | En los destinos que crea. El boletín (`No_BolDES`) ya no se usa: va en observaciones. |
 | Sub-unidad (subalternos) | Observaciones del destino | En los destinos que crea. |
 | Seccional (`Secc_Jud_`, oficiales) | `personas.seccional` | Si está vacía. |
 | Credencial cívica (`CCSERIE` y `CCNUM` en subalternos, `Cred_Civ_` en oficiales) | `personas.credencial_civica`, como "SERIE NÚMERO" | Si está vacía. La que no tiene tres letras y un número va al informe. |
@@ -175,14 +175,15 @@ El importador se desarrolló y se probó con copias anonimizadas de los archivos
   - Si la fila no trae texto, el nombre se arma: "Salida al exterior (País)".
   - Si la misión ya está en la base (mismo nombre, país y fechas), se le agregan los participantes que falten.
 - **`OFICIALES EN MISION`** es una versión vieja de `xsalida`: solo se toman sus filas que no estén en `xsalida`.
-- La fecha de la orden, el número y la fecha de resolución y la resolución del C. en Jefe van a sus campos de `misiones` (de `xsalida` y de `Misiones`). La fecha de la resolución del C. en Jefe no tiene campo: va en observaciones.
+- La fecha de la orden y la resolución del C. en Jefe van a sus campos de `misiones` (de `xsalida` y de `Misiones`). El número y la fecha de la resolución van en `boletin` y `fecha_boletin`, que la app muestra como Resolución. La fecha de la resolución del C. en Jefe no tiene campo: va en observaciones.
+- La FAU dejó de usar el boletín (`BOLETIN` y `Bol-MDN`; en `xsalida`, solo boletín hasta 2002, los dos entre 2003 y 2020, solo resolución desde 2021). No se carga como resolución: va en observaciones ("Boletín: …").
 - **`Misiones`** trae las misiones largas (de paz, diplomáticas, oficiales). Va en el tipo de misión. Si está en el país, la orden modificativa y la resolución van en observaciones.
 - **Una persona sin nombre en ningún archivo no se crea** (pasa con muchos retirados que solo aparecen en las salidas). Sus participaciones van al informe. Si ya existe en la base (por ejemplo, cargada por liquidación), se le asignan.
 - Con las copias anonimizadas no se pudo verificar cómo se agrupan los participantes: la anonimización corre las fechas de cada persona por separado y vacía el texto de la misión. Con los archivos reales, revisar en la simulación que el número de misiones sea razonable.
 
 ## Comisiones
 
-El módulo de comisiones registra cada asignación con fecha de inicio y número de orden o boletín, que la base exige. El Access casi nunca los trae: en subalternos, `COMISIONES` es casi siempre solo el nombre o la sigla (de 561 filas, 20 traen alguna fecha y 31 una orden); `DURACION DE LA COMISION` trae fechas sueltas; en oficiales, `Nombre de la Comisión` y `Fechas de la Comisión` no traen orden ni boletín. Además, el mismo nombre aparece escrito de varias formas (con y sin puntos), así que armar el catálogo de comisiones solo sería adivinar cuáles son la misma.
+El módulo de comisiones registra cada asignación con fecha de inicio y número de orden o resolución, que la base exige. El Access casi nunca los trae: en subalternos, `COMISIONES` es casi siempre solo el nombre o la sigla (de 561 filas, 20 traen alguna fecha y 31 una orden); `DURACION DE LA COMISION` trae fechas sueltas; en oficiales, `Nombre de la Comisión` y `Fechas de la Comisión` no traen orden ni boletín. Además, el mismo nombre aparece escrito de varias formas (con y sin puntos), así que armar el catálogo de comisiones solo sería adivinar cuáles son la misma.
 
 Por eso, **sin opciones las comisiones no se cargan en el módulo**:
 - Quedan como texto en las observaciones de los períodos que crea, como antes.
@@ -191,9 +192,9 @@ Por eso, **sin opciones las comisiones no se cargan en el módulo**:
 
 **Con `--comisiones`** se cargan en el módulo como importadas. El módulo las acepta sin fecha ni orden (las que se cargan desde la aplicación siguen exigiendo las dos cosas), y la FAU las completa después:
 - Cada una queda ligada al **período** en que estaba anotada, con el texto original del Access. Si el período ya terminó, la comisión figura cerrada; si sigue en actividad, figura abierta. Que una comisión anotada en un período en actividad sea la actual es lo que hay que confirmar con la FAU antes de usar la opción.
-- **Nombre:** el de la columna, sin las fechas, la orden o el boletín que a veces vienen escritos ahí. Los que solo cambian en puntos, espacios o mayúsculas son la misma comisión ("D.G.A.C." y "DGAC"); queda el nombre más común. Las comisiones nuevas del catálogo quedan vigentes si alguien en actividad la tiene, y no vigentes si solo aparecen en períodos terminados.
+- **Nombre:** el de la columna, sin las fechas, la orden, la resolución o el boletín que a veces vienen escritos ahí. Los que solo cambian en puntos, espacios o mayúsculas son la misma comisión ("D.G.A.C." y "DGAC"); queda el nombre más común. Las comisiones nuevas del catálogo quedan vigentes si alguien en actividad la tiene, y no vigentes si solo aparecen en períodos terminados.
 - **Fechas:** solo si el texto trae exactamente dos (desde y hasta). Una fecha suelta no se usa: no dice si es de inicio o de fin. Queda en el texto original.
-- **Orden y boletín:** solo si vienen escritos en el texto ("O.C.G.F.A. Nº 7682", "B.M.D.N. Nº …").
+- **Orden y resolución:** solo si vienen escritos en el texto ("O.C.G.F.A. Nº 7682", "RESOL. Nº …", "RES. M.D.N. Nº …"). El boletín ("B.M.D.N. Nº …") ya no se usa: queda solo en el texto original.
 - No se cargan los textos que no son una comisión: solo una orden ("OCGFA 8223"), solo una fecha o una mutación ("MUTO A (S.G.)…"). Van al informe.
 - Las de quien está en actividad que quedan sin fecha de inicio o sin orden van al informe, para completarlas en el módulo.
 - Se puede correr más de una vez: una comisión ya cargada para la misma persona y período no se repite.
@@ -246,7 +247,7 @@ El sistema no tiene un campo de especialidad, y la especialidad se obtiene aprob
 - Motivos nuevos, **vigentes** (se siguen usando): `BAJA_SOLICITADA`, `CUMPLIDO_SOLICITADA`, `NO_ADAPTACION` (no adaptarse a la vida militar, no asimilar la instrucción) y `NO_APTO` (examen psicofísico). Aparecen para elegir al dar una baja, en este sistema y en el de liquidación.
 - "Ascenso a Alférez" y el cambio de unidad ejecutora **no son retiros**: el período queda de baja, sin retiro.
 - Lo que no se reconoce ("EGRESO", "CUERPO ALUMNO", "RETIRO" sin más) va al informe y no se crea el retiro.
-- El retiro lleva la fecha de baja, el motivo, el texto original, el acta u O.C.G.F.A. como número de orden y el B.M.D.N. como boletín.
+- El retiro lleva la fecha de baja, el motivo, el texto original, el acta u O.C.G.F.A. como número de orden y la resolución ("RESOL. Nº …" o "RES. M.D.N. Nº …") si viene escrita. El boletín (B.M.D.N.) queda solo en el texto del motivo.
 - **Ningún cálculo cambia según el motivo**, ni en liquidación ni acá: solo RETIRO_OBL / RETIRO_VOL se registran como movimiento "Retiro" (el resto, "Baja"), y el aguinaldo por baja sale de `movimientos_laborales`, que el importador no crea.
 
 ## Familiares
