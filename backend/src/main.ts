@@ -7,6 +7,13 @@ import { ServiceResponseExceptionFilter } from './lib/http/service-response-exce
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 
+// En producción Swagger va apagado salvo que se prenda por variable
+function swaggerHabilitado(): boolean {
+  const valor = process.env.SWAGGER_ENABLED?.trim().toLowerCase();
+  if (valor) return valor === 'true';
+  return process.env.NODE_ENV !== 'production';
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
@@ -33,17 +40,19 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ServiceResponseInterceptor());
   app.useGlobalFilters(new ServiceResponseExceptionFilter());
 
-  const config = new DocumentBuilder()
-    .setTitle('PFG API')
-    .setDescription('Documentación de la API del Proyecto Final de Grado')
-    .setVersion('1.0')
-    .addCookieAuth('auth_token')
-    .build();
+  if (swaggerHabilitado()) {
+    const config = new DocumentBuilder()
+      .setTitle('PFG API')
+      .setDescription('Documentación de la API del Proyecto Final de Grado')
+      .setVersion('1.0')
+      .addCookieAuth('auth_token')
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: { withCredentials: true },
-  });
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: { withCredentials: true },
+    });
+  }
 
   // `??` solo cubre null/undefined: con PORT="" en el .env pasaba la cadena vacía a listen()
   // y Node tiraba ERR_SOCKET_BAD_PORT. Number('') e Number('abc') son falsy, así que cualquier

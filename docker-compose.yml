@@ -92,6 +92,7 @@ services:
       DATABASE_URL: "postgresql://pfg_user:pfg_password@postgres:5432/pfg_database?schema=public"
       NODE_OPTIONS: "--dns-result-order=ipv4first"
       NODE_ENV: production
+      SWAGGER_ENABLED: "true"
       JWT_EXPIRES_IN: "4h"
       MAX_LOGIN_ATTEMPTS: "5"
       LOCK_DURATION_MIN: "15"
