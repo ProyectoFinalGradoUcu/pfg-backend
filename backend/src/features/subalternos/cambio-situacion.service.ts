@@ -17,6 +17,7 @@ import {
   TIPO_MOVIMIENTO_CIERRE,
 } from '../ascensos/ascensos.constants.js';
 import type { CambiarSituacionDto, CambioSituacion } from './dto/cambiar-situacion.dto.js';
+import { hoyUruguay } from '../../lib/fechas';
 
 type Categoria = 'oficial' | 'subalterno';
 
@@ -59,8 +60,7 @@ export class CambioSituacionService {
     if (alcance) await assertPersonaEnAlcance(this.prisma, id, alcance);
 
     const fecha = new Date(dto.fecha);
-    const hoy = new Date();
-    hoy.setUTCHours(0, 0, 0, 0);
+    const hoy = hoyUruguay();
     if (fecha > hoy) {
       throw new UnprocessableEntityException(
         'La fecha del cambio de situación no puede ser futura: liquidación lo aplica en el próximo cálculo',

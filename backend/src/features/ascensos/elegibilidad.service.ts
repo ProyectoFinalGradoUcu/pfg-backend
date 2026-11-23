@@ -17,6 +17,7 @@ import {
 } from './dto/list-pasibles-query.dto.js';
 import { SimularImpactoDto } from './dto/simular-impacto.dto.js';
 import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
+import { hoyUruguay } from '../../lib/fechas';
 
 const listaDeEnv = (nombre: string, porDefecto: string[]): string[] => {
   const crudo = process.env[nombre];
@@ -558,7 +559,7 @@ export class ElegibilidadService {
   // ─── Auxiliares ───────────────────────────────────────────────────────────
 
   private fechaDeReferencia(valor?: string): Date {
-    return inicioDelDia(valor ? new Date(valor) : new Date());
+    return valor ? inicioDelDia(new Date(valor)) : hoyUruguay();
   }
 
   private contarPorEstado(evaluados: ResultadoElegibilidad[]) {

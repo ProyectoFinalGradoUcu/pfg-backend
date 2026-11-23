@@ -135,12 +135,16 @@ export class AuditoriaService {
    * pide otro permiso que quien consulta la auditoría puede no tener.
    */
   async filtros() {
+    // Solo las acciones y contextos usados por personal
+    const usadasEnPersonal = { bitacora_auditoria: { some: { aplicacion: APLICACION } } };
     const [acciones, contextos, usuarios] = await Promise.all([
       this.prisma.acciones.findMany({
+        where: usadasEnPersonal,
         orderBy: { nombre: 'asc' },
         select: { id: true, nombre: true },
       }),
       this.prisma.contextos.findMany({
+        where: usadasEnPersonal,
         orderBy: { nombre: 'asc' },
         select: { id: true, nombre: true },
       }),
