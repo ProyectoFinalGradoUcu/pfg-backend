@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../lib/prisma.service';
+import { hoyUruguay } from '../../lib/fechas';
 import {
   AlcanceResuelto,
   subUnidadIdsDeAlcance,
@@ -811,6 +812,15 @@ export class CursosService {
           throw new BadRequestException('Indicá si aprobó o no antes de cargar la nota u observación');
         }
         Object.assign(data, this.camposNota(dto));
+      }
+
+      // El resultado solo se carga con el curso terminado: fecha de fin anterior a hoy (igual que "Cargar resultado").
+      const aprobadoFinal = dto.aprobado !== undefined ? dto.aprobado : actual.aprobado;
+      const tocaResultado = [dto.aprobado, dto.calificacion, dto.observacion, dto.fecha_fin].some((v) => v !== undefined);
+      if (tocaResultado && aprobadoFinal !== null && !(fin && fin < hoyUruguay())) {
+        throw new BadRequestException(
+          'El curso todavía no terminó: el resultado se carga cuando pasa la fecha de fin',
+        );
       }
 
       const r = await tx.funcionarios_cursos.update({ where: { id: BigInt(designacionId) }, data });
