@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { hoyUruguay } from '../../lib/fechas';
 
 export const MSG_INICIO_ANTES_DE_NACIMIENTO =
   'La fecha de inicio no puede ser anterior a la fecha de nacimiento';
@@ -31,8 +32,7 @@ export function assertFechaFallecimientoValida(
   const fallecimiento = aFecha(fechaFallecimiento);
   if (!fallecimiento) return;
 
-  const hoy = new Date();
-  hoy.setUTCHours(0, 0, 0, 0);
+  const hoy = hoyUruguay();
   if (fallecimiento.getTime() > hoy.getTime()) {
     throw new BadRequestException('La fecha de fallecimiento no puede ser futura');
   }

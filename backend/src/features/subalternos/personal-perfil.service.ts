@@ -33,6 +33,7 @@ import {
   documentosDe,
 } from '../archivos/documentos-de-registro.js';
 import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
+import { hoyUruguay } from '../../lib/fechas';
 
 @Injectable()
 export class PersonalPerfilService {
@@ -594,7 +595,7 @@ export class PersonalPerfilService {
       boletin: r.boletin,
       finalizada:
         r.convocatorias.fecha_llegada !== null &&
-        r.convocatorias.fecha_llegada <= new Date(),
+        r.convocatorias.fecha_llegada <= hoyUruguay(),
       documentos: documentosDe(r),
       documentos_convocatoria: documentosDe(r.convocatorias),
     }));

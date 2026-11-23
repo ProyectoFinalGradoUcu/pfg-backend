@@ -25,6 +25,7 @@ import {
 } from '../archivos/documentos-de-registro';
 import { SELECT_DOCUMENTO_RETIRO, aDocumentoRetiro } from './retiros-documentos.service';
 import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
+import { hoyUruguay } from '../../lib/fechas';
 
 export type Impacto = {
   persona: any;
@@ -262,8 +263,7 @@ export class RetirosService {
       );
     }
 
-    const hoy = new Date();
-    hoy.setUTCHours(0, 0, 0, 0);
+    const hoy = hoyUruguay();
     if (fecha > hoy) {
       bloqueos.push('La fecha de retiro no puede ser futura.');
     }
@@ -722,8 +722,7 @@ export class RetirosService {
     },
     fecha: Date,
   ) {
-    const hoy = new Date();
-    hoy.setUTCHours(0, 0, 0, 0);
+    const hoy = hoyUruguay();
     if (fecha > hoy) throw new BadRequestException('La fecha de retiro no puede ser futura');
 
     const [relacion, ultimoMovimiento, siguiente] = await Promise.all([
@@ -1403,8 +1402,7 @@ export class RetirosService {
     const tipoMovimiento = e.tipoMovimiento!;
 
     const fecha = new Date(dto.fecha_reincorporacion);
-    const hoy = new Date();
-    hoy.setUTCHours(0, 0, 0, 0);
+    const hoy = hoyUruguay();
     if (fecha <= retiro.fecha_retiro) {
       throw new UnprocessableEntityException(
         'La fecha de reincorporación tiene que ser posterior a la del retiro',

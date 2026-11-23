@@ -28,10 +28,11 @@ import {
   documentosDe,
 } from '../archivos/documentos-de-registro';
 import { CAMPOS_PERSONA, whereBusqueda } from '../../lib/query/busqueda';
+import { hoyUruguay } from '../../lib/fechas';
 
 // Computed: una convocatoria está finalizada cuando tiene fecha de llegada y ya pasó
 const esFinalizada = (fechaLlegada: Date | null) =>
-  fechaLlegada !== null && fechaLlegada <= new Date();
+  fechaLlegada !== null && fechaLlegada <= hoyUruguay();
 
 const aFecha = (valor?: string | null) => (valor ? new Date(valor) : null);
 

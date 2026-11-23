@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { hoyUruguay } from '../../lib/fechas';
 
 type Periodo = { fecha_inicio: Date | null; fecha_fin: Date | null };
 type Pertenencia = Periodo & { relaciones_laborales?: Periodo | null };
@@ -11,13 +12,8 @@ export function personaPuedeIntegrar(persona: { retiros: { anulado: boolean }[];
   return !persona.retiros.some(r => !r.anulado) || persona.relaciones_laborales.some(r => r.fecha_fin === null);
 }
 
-/** Las columnas DATE se comparan con el día civil de Uruguay, no con la hora del servidor. */
 export function hoyComisiones(): Date {
-  const partes = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Montevideo', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date());
-  const valor = (tipo: string) => partes.find(p => p.type === tipo)!.value;
-  return new Date(`${valor('year')}-${valor('month')}-${valor('day')}T00:00:00Z`);
+  return hoyUruguay();
 }
 
 export function periodoPertenencia(a: Pertenencia): Periodo {
