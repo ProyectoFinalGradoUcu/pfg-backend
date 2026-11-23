@@ -1195,6 +1195,28 @@ describe('CursosService', () => {
       await expect(service.editarInscripcion(1, 1, { fecha_fin: '2026-02-01' })).rejects.toThrow(BadRequestException);
     });
 
+    it('no deja cargar resultado si el curso no terminó', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue({ ...inscripcion, fecha_fin: new Date('2999-12-31') });
+      await expect(service.editarInscripcion(1, 1, { aprobado: true })).rejects.toThrow(BadRequestException);
+    });
+
+    it('no deja correr la fecha de fin al futuro si ya tiene resultado', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue({ ...inscripcion, aprobado: true });
+      await expect(service.editarInscripcion(1, 1, { fecha_fin: '2999-12-31' })).rejects.toThrow(BadRequestException);
+    });
+
+    it('con el curso sin terminar igual se puede quitar el resultado', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue({ ...inscripcion, aprobado: true, fecha_fin: new Date('2999-12-31') });
+      await service.editarInscripcion(1, 1, { aprobado: null });
+      expect(dataEnviada()).toEqual({ aprobado: null, calificacion: null, observacion_calificacion: null });
+    });
+
+    it('corregir orden en un curso en marcha no exige resultado', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue({ ...inscripcion, fecha_fin: new Date('2999-12-31') });
+      await service.editarInscripcion(1, 1, { numero_orden: 'ORD-9' });
+      expect(dataEnviada()).toEqual({ numero_orden: 'ORD-9' });
+    });
+
     it('carga el resultado con nota', async () => {
       await service.editarInscripcion(1, 1, { aprobado: true, calificacion: 9 });
       expect(dataEnviada()).toEqual({ aprobado: true, calificacion: '9' });
