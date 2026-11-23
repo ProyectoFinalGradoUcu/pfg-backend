@@ -48,6 +48,14 @@ describe('AuditoriaService', () => {
       );
     });
 
+    it('ofrece solo acciones y contextos usados en la bitácora de personal', async () => {
+      await service.filtros();
+
+      const where = { bitacora_auditoria: { some: { aplicacion: 'personal' } } };
+      expect(prisma.acciones.findMany).toHaveBeenCalledWith(expect.objectContaining({ where }));
+      expect(prisma.contextos.findMany).toHaveBeenCalledWith(expect.objectContaining({ where }));
+    });
+
     it('solo expone id y username', async () => {
       await service.filtros();
 

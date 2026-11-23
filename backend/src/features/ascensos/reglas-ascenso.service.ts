@@ -11,14 +11,12 @@ import { UpdateReglaDto } from './dto/update-regla.dto.js';
 import { ListReglasQueryDto } from './dto/list-reglas-query.dto.js';
 import { ReglaRequisitoDto } from './dto/regla-requisito.dto.js';
 import { ESCALERA_FAU } from './ascensos.constants.js';
+import { hoyUruguay } from '../../lib/fechas';
 
 const soloFecha = (fecha: Date | null | undefined) =>
   fecha ? fecha.toISOString().split('T')[0] : null;
 
-const hoy = () => {
-  const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-};
+const hoy = () => hoyUruguay();
 
 const includeRegla = {
   grado_origen: { select: { id: true, codigo: true, denominacion: true, orden: true } },

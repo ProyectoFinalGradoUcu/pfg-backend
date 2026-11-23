@@ -4,13 +4,14 @@ import { PrismaService } from '../../lib/prisma.service.js';
 import { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 import { EstadisticasQueryDto } from './dto/estadisticas-query.dto.js';
 import { ESCALERA_FAU } from './ascensos.constants.js';
+import { anioUruguay } from '../../lib/fechas';
 
 @Injectable()
 export class EstadisticasAscensoService {
   constructor(private readonly prisma: PrismaService) {}
 
   async estadisticas(query: EstadisticasQueryDto = {}, alcance?: AlcanceResuelto) {
-    const anioHasta = query.anio_hasta ?? new Date().getUTCFullYear();
+    const anioHasta = query.anio_hasta ?? anioUruguay();
     const anioDesde = query.anio_desde ?? anioHasta - 9;
     const desde = new Date(Date.UTC(anioDesde, 0, 1));
     const hasta = new Date(Date.UTC(anioHasta + 1, 0, 1));

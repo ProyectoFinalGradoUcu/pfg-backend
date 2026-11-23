@@ -16,6 +16,7 @@ import {
   resumir,
   separarRepetidas,
 } from '../../lib/carga-masiva';
+import { hoyUruguay } from '../../lib/fechas';
 
 const RESULTADOS = { Aprobado: true, Desaprobado: false, 'En curso': null } as const;
 
@@ -97,7 +98,7 @@ export class CursosCargaService {
         const boletin = datos.boletin ?? existente?.boletin;
         if (!orden?.trim() && !boletin?.trim()) throw new Error('Falta el N.º de orden o la resolución.');
         const finVigente = datos.fecha_fin ?? existente?.fecha_fin;
-        if (aprobado !== null && finVigente && finVigente > new Date()) {
+        if (aprobado !== null && finVigente && finVigente > hoyUruguay()) {
           throw new Error('El curso todavía no terminó: solo se puede cargar "En curso".');
         }
         const registro = existente

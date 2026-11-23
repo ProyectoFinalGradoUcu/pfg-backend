@@ -22,6 +22,7 @@ import { CreateOrdenDto } from './dto/create-orden.dto.js';
 import { ListOrdenesQueryDto } from './dto/list-ordenes-query.dto.js';
 import { DetalleOrdenQueryDto } from './dto/detalle-orden-query.dto.js';
 import { ResultadoElegibilidad } from './elegibilidad.evaluador.js';
+import { anioUruguay } from '../../lib/fechas';
 
 const soloFecha = (fecha: Date | null | undefined) =>
   fecha ? fecha.toISOString().split('T')[0] : null;
@@ -296,10 +297,10 @@ export class OrdenesAscensoService {
     // Por defecto el año en curso; una orden vieja se busca con el filtro.
     const desde = query.desde
       ? new Date(query.desde)
-      : new Date(Date.UTC(query.anio ?? new Date().getUTCFullYear(), 0, 1));
+      : new Date(Date.UTC(query.anio ?? anioUruguay(), 0, 1));
     const hasta = query.hasta
       ? new Date(query.hasta)
-      : new Date(Date.UTC((query.anio ?? new Date().getUTCFullYear()) + 1, 0, 1));
+      : new Date(Date.UTC((query.anio ?? anioUruguay()) + 1, 0, 1));
     where.fecha_orden = { gte: desde, lt: hasta };
 
     if (query.numero_orden) {
