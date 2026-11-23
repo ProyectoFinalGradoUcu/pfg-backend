@@ -36,6 +36,7 @@ import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { EditarInscripcionDto } from './dto/editar-inscripcion.dto';
 import { CalificarDesignacionesDto } from './dto/calificar-designaciones.dto';
 import { BajaDesignacionDto } from './dto/baja-designacion.dto';
 import { RequireAlcance, Alcance } from '../../lib/alcance/alcance.decorator';
@@ -177,6 +178,23 @@ export class CursosController {
     @Alcance() alcance: AlcanceResuelto,
   ) {
     return this.cursosService.actualizarDesignacion(cursoId, designacionId, dto, alcance);
+  }
+
+  @Patch(':cursoId/designaciones/:designacionId/datos')
+  @RequireAlcance('cursos.gestionar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Editar inscripción', description: 'Corrige número de orden, resolución, fechas y resultado de una inscripción. Un campo ausente no se toca; en null se vacía.' })
+  @ApiResponse({ status: 200, description: 'Inscripción actualizada.' })
+  @ApiResponse({ status: 400, description: 'Datos inválidos (fechas invertidas, sin orden ni resolución, nota sin resultado).' })
+  @ApiResponse({ status: 404, description: 'Designación no encontrada.' })
+  @ApiResponse({ status: 409, description: 'La inscripción está dada de baja.' })
+  async editarInscripcion(
+    @Param('cursoId', ParseIntPipe) cursoId: number,
+    @Param('designacionId', ParseIntPipe) designacionId: number,
+    @Body() dto: EditarInscripcionDto,
+    @Alcance() alcance: AlcanceResuelto,
+  ) {
+    return this.cursosService.editarInscripcion(cursoId, designacionId, dto, alcance);
   }
 
   @Patch(':cursoId/designaciones/:designacionId/baja')

@@ -1141,6 +1141,85 @@ describe('CursosService', () => {
     it.todo('lanza error si se intenta calificar un curso aún no finalizado (fecha_fin futura)');
   });
 
+  // ─── editarInscripcion ────────────────────────────────────────────────────
+
+  describe('editarInscripcion', () => {
+    const inscripcion = {
+      id: 1n,
+      persona_id: 10n,
+      curso_id: 1n,
+      numero_orden: 'ORD-1',
+      boletin: null,
+      fecha_inicio: new Date('2026-03-01'),
+      fecha_fin: new Date('2026-06-30'),
+      aprobado: null,
+      calificacion: null,
+      observacion_calificacion: null,
+      dado_de_baja: false,
+    };
+
+    beforeEach(() => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(inscripcion);
+      prisma.funcionarios_cursos.update.mockImplementation(({ data }: any) => Promise.resolve({ ...inscripcion, ...data }));
+    });
+
+    const dataEnviada = () => prisma.funcionarios_cursos.update.mock.calls[0][0].data;
+
+    it('corrige orden, resolución y fechas', async () => {
+      const r = await service.editarInscripcion(1, 1, {
+        numero_orden: 'ORD-2',
+        boletin: 'RES-9',
+        fecha_inicio: '2026-04-01',
+        fecha_fin: '2026-07-31',
+      });
+
+      expect(dataEnviada()).toEqual({
+        numero_orden: 'ORD-2',
+        boletin: 'RES-9',
+        fecha_inicio: new Date('2026-04-01'),
+        fecha_fin: new Date('2026-07-31'),
+      });
+      expect(r.numero_orden).toBe('ORD-2');
+    });
+
+    it('un campo ausente no se toca', async () => {
+      await service.editarInscripcion(1, 1, { boletin: 'RES-9' });
+      expect(dataEnviada()).toEqual({ boletin: 'RES-9' });
+    });
+
+    it('no deja la inscripción sin orden ni resolución', async () => {
+      await expect(service.editarInscripcion(1, 1, { numero_orden: '  ' })).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza una fecha de fin anterior a la de inicio, también contra la guardada', async () => {
+      await expect(service.editarInscripcion(1, 1, { fecha_fin: '2026-02-01' })).rejects.toThrow(BadRequestException);
+    });
+
+    it('carga el resultado con nota', async () => {
+      await service.editarInscripcion(1, 1, { aprobado: true, calificacion: 9 });
+      expect(dataEnviada()).toEqual({ aprobado: true, calificacion: '9' });
+    });
+
+    it('quitar el resultado borra también la nota y la observación', async () => {
+      await service.editarInscripcion(1, 1, { aprobado: null, calificacion: 8 });
+      expect(dataEnviada()).toEqual({ aprobado: null, calificacion: null, observacion_calificacion: null });
+    });
+
+    it('no acepta nota sin resultado', async () => {
+      await expect(service.editarInscripcion(1, 1, { calificacion: 7 })).rejects.toThrow(BadRequestException);
+    });
+
+    it('no edita una inscripción dada de baja', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue({ ...inscripcion, dado_de_baja: true });
+      await expect(service.editarInscripcion(1, 1, { boletin: 'X' })).rejects.toThrow(ConflictException);
+    });
+
+    it('lanza NotFoundException si la designación no existe', async () => {
+      prisma.funcionarios_cursos.findFirst.mockResolvedValue(null);
+      await expect(service.editarInscripcion(1, 999, { boletin: 'X' })).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ─── calificarDesignaciones ───────────────────────────────────────────────
 
   describe('calificarDesignaciones', () => {
