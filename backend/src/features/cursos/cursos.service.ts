@@ -26,6 +26,7 @@ import { CursosPorFuncionarioQueryDto } from './dto/cursos-por-funcionario-query
 import { CreateDesignacionDto } from './dto/create-designacion.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 import { UpdateDesignacionDto } from './dto/update-designacion.dto';
+import { EditarInscripcionDto } from './dto/editar-inscripcion.dto';
 import { CalificarDesignacionesDto } from './dto/calificar-designaciones.dto';
 import { wherePersonaPorCategoria } from '../../lib/personal/categoria-personal';
 import {
@@ -750,6 +751,81 @@ export class CursosService {
     });
 
     return this.toCalificacionResponse(actualizado);
+    });
+  }
+
+  // ─── Editar inscripción ────────────────────────────────────────────────────
+  // Corrige orden, resolución, fechas y resultado. Un campo ausente no se toca; en null se vacía.
+  async editarInscripcion(cursoId: number, designacionId: number, dto: EditarInscripcionDto, alcance?: AlcanceResuelto) {
+    if (alcance) {
+      await assertCursoGestionableEnAlcance(this.prisma, BigInt(cursoId), alcance);
+    }
+
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM funcionarios_cursos WHERE id = ${BigInt(designacionId)} AND curso_id = ${BigInt(cursoId)} FOR UPDATE`;
+      const actual = await tx.funcionarios_cursos.findFirst({
+        where: { id: BigInt(designacionId), curso_id: BigInt(cursoId) },
+      });
+      if (!actual) {
+        throw new NotFoundException(`No existe designación con id ${designacionId} para el curso ${cursoId}`);
+      }
+      await assertPersonasCursos(tx, [actual.persona_id], alcance);
+      if (actual.dado_de_baja) {
+        throw new ConflictException('La inscripción está dada de baja; reactivala antes de editarla');
+      }
+
+      const texto = (v: string | null | undefined) => (v == null ? null : v.trim() || null);
+      const fecha = (v: string | null | undefined) => (v ? new Date(v) : null);
+      const data: Prisma.funcionarios_cursosUpdateInput = {};
+
+      if (dto.numero_orden !== undefined) data.numero_orden = texto(dto.numero_orden);
+      if (dto.boletin !== undefined) data.boletin = texto(dto.boletin);
+      // Igual que al designar: si se tocan, tiene que quedar al menos uno de los dos.
+      if (dto.numero_orden !== undefined || dto.boletin !== undefined) {
+        const orden = dto.numero_orden !== undefined ? data.numero_orden : actual.numero_orden;
+        const boletin = dto.boletin !== undefined ? data.boletin : actual.boletin;
+        if (!orden && !boletin) {
+          throw new BadRequestException('Indicá el número de orden o la resolución');
+        }
+      }
+
+      if (dto.fecha_inicio !== undefined) data.fecha_inicio = fecha(dto.fecha_inicio);
+      if (dto.fecha_fin !== undefined) data.fecha_fin = fecha(dto.fecha_fin);
+      const inicio = dto.fecha_inicio !== undefined ? fecha(dto.fecha_inicio) : actual.fecha_inicio;
+      const fin = dto.fecha_fin !== undefined ? fecha(dto.fecha_fin) : actual.fecha_fin;
+      if (inicio && fin && fin < inicio) {
+        throw new BadRequestException('La fecha de fin no puede ser anterior a la de inicio');
+      }
+
+      if (dto.aprobado !== undefined) {
+        data.aprobado = dto.aprobado;
+        if (dto.aprobado === null) {
+          // Sin resultado no queda nota ni observación colgando.
+          data.calificacion = null;
+          data.observacion_calificacion = null;
+        }
+      }
+      if (dto.aprobado !== null) {
+        const aprobado = dto.aprobado !== undefined ? dto.aprobado : actual.aprobado;
+        if (aprobado === null && (dto.calificacion != null || dto.observacion != null)) {
+          throw new BadRequestException('Indicá si aprobó o no antes de cargar la nota u observación');
+        }
+        Object.assign(data, this.camposNota(dto));
+      }
+
+      const r = await tx.funcionarios_cursos.update({ where: { id: BigInt(designacionId) }, data });
+      return {
+        id: r.id.toString(),
+        curso_id: r.curso_id.toString(),
+        persona_id: r.persona_id.toString(),
+        numero_orden: r.numero_orden,
+        boletin: r.boletin,
+        fecha_inicio: r.fecha_inicio,
+        fecha_fin: r.fecha_fin,
+        aprobado: r.aprobado,
+        calificacion: r.calificacion != null ? Number(r.calificacion) : null,
+        observacion: r.observacion_calificacion,
+      };
     });
   }
 
