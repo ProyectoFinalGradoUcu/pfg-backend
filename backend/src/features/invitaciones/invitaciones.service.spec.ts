@@ -159,4 +159,59 @@ describe('InvitacionesService.crear', () => {
     ).rejects.toThrow(/roles\.gestionar/);
     expect(prisma.invitaciones.create).not.toHaveBeenCalled();
   });
+
+  it('guarda el funcionario si quien invita puede verlo', async () => {
+    const { service, prisma } = makeService();
+    prisma.personas.findUnique.mockResolvedValue({ id: 9n });
+
+    await service.crear({ email: 'x@fau.mil.uy', personaId: '9' }, { ...GESTOR, permisos: ['personas.ver'] });
+
+    expect(prisma.invitaciones.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ persona_id: 9n }) }),
+    );
+  });
+
+  it('no invita vinculando a un funcionario que ya tiene otra cuenta', async () => {
+    const { service, prisma } = makeService();
+    prisma.personas.findUnique.mockResolvedValue({ id: 9n });
+    prisma.usuarios.findFirst.mockResolvedValueOnce({ username: 'otro@fau.mil.uy' });
+
+    await expect(
+      service.crear({ email: 'x@fau.mil.uy', personaId: '9' }, { ...GESTOR, permisos: ['personas.ver'] }),
+    ).rejects.toThrow(/otro@fau\.mil\.uy/);
+    expect(prisma.invitaciones.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('InvitacionesService.aceptar', () => {
+  it('si el funcionario ya tomó otra cuenta mientras tanto, crea el usuario sin vincular', async () => {
+    process.env.BCRYPT_ROUNDS = '4';
+    const tx = {
+      usuarios: { create: jest.fn().mockResolvedValue({ id: 7n }) },
+      roles: { findMany: jest.fn() },
+      usuarios_roles: { createMany: jest.fn() },
+      invitaciones: { update: jest.fn() },
+    };
+    const prisma = {
+      invitaciones: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 1n,
+          email: 'x@fau.mil.uy',
+          estado: 'pendiente',
+          expira_en: new Date(Date.now() + 60_000),
+          roles: [],
+          persona_id: 9n,
+        }),
+      },
+      usuarios: { findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 3n }) },
+      $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new InvitacionesService(prisma as never, {} as never, { registrar: jest.fn() } as never);
+
+    await service.aceptar({ token: 't', password: 'x' } as never);
+
+    expect(tx.usuarios.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ persona_id: null }) }),
+    );
+  });
 });

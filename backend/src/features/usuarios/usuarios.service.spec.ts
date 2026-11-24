@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -134,6 +135,42 @@ describe('UsuariosService', () => {
       await service.findAll({ page: 1, pageSize: 10 });
 
       expect(Object.keys(argsDelListado().where)).toEqual(['aplicacion']);
+    });
+
+    it('devuelve el id de la foto del funcionario vinculado, o null si no tiene', async () => {
+      const persona = (foto: bigint | null) => ({
+        id: 9n,
+        cedula: '1234567',
+        primer_nombre: 'Juan',
+        primer_apellido: 'Pérez',
+        email: null,
+        foto_archivo_id: foto,
+        relaciones_laborales: [],
+      });
+      prisma.usuarios.findMany.mockResolvedValue([
+        makeUsuarioConRelaciones({ id: 1n, personas: persona(55n) }),
+        makeUsuarioConRelaciones({ id: 2n, personas: persona(null) }),
+      ]);
+
+      const { items } = await service.findAll({ page: 1, pageSize: 10 });
+
+      expect(argsDelListado().include.personas.select.foto_archivo_id).toBe(true);
+      expect(items.map((u) => u.persona?.fotoId)).toEqual(['55', null]);
+    });
+
+    it('del funcionario vinculado no expone más que id, cédula, nombre y foto', async () => {
+      prisma.usuarios.findMany.mockResolvedValue([
+        makeUsuarioConRelaciones({
+          personas: { id: 9n, cedula: '1234567', primer_nombre: 'Juan', primer_apellido: 'Pérez', foto_archivo_id: null },
+        }),
+      ]);
+
+      const { items } = await service.findAll({ page: 1, pageSize: 10 });
+
+      expect(items[0].persona).toEqual({ id: '9', cedula: '1234567', nombre: 'Juan Pérez', fotoId: null });
+      const select = argsDelListado().include.personas.select;
+      expect(select.email).toBeUndefined();
+      expect(select.relaciones_laborales).toBeUndefined();
     });
 
     const condicionDe = (palabra: string) => {
@@ -362,6 +399,57 @@ describe('UsuariosService', () => {
       await expect(
         service.update('99', { estado: 'activo' }, ADMIN),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    describe('funcionario vinculado', () => {
+      const gestor = { ...ADMIN, id: '99', permisos: ['personas.ver'] };
+
+      beforeEach(() => {
+        prisma.personas.findUnique.mockResolvedValue({ id: 9n });
+      });
+
+      it('vincula al funcionario indicado', async () => {
+        prisma.usuarios.findFirst
+          .mockResolvedValueOnce(makeUsuario())
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(makeUsuarioConRelaciones());
+
+        await service.update('1', { personaId: '9' }, gestor);
+
+        expect(prisma.usuarios.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ persona_id: 9n }) }),
+        );
+      });
+
+      it('no lo vincula si ya está vinculado a otra cuenta', async () => {
+        prisma.usuarios.findFirst
+          .mockResolvedValueOnce(makeUsuario())
+          .mockResolvedValueOnce({ username: 'otro@fau.mil.uy' });
+
+        await expect(service.update('1', { personaId: '9' }, gestor)).rejects.toThrow(ConflictException);
+        expect(prisma.usuarios.update).not.toHaveBeenCalled();
+      });
+
+      it('sin permiso para ver personal no deja vincular', async () => {
+        prisma.usuarios.findFirst.mockResolvedValueOnce(makeUsuario());
+
+        await expect(
+          service.update('1', { personaId: '9' }, { ...gestor, permisos: [] }),
+        ).rejects.toThrow(ForbiddenException);
+        expect(prisma.usuarios.update).not.toHaveBeenCalled();
+      });
+
+      it('con null desvincula sin validar nada', async () => {
+        prisma.usuarios.findFirst
+          .mockResolvedValueOnce(makeUsuario({ persona_id: 9n }))
+          .mockResolvedValueOnce(makeUsuarioConRelaciones());
+
+        await service.update('1', { personaId: null }, { ...gestor, permisos: [] });
+
+        expect(prisma.usuarios.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ persona_id: null }) }),
+        );
+      });
     });
   });
 

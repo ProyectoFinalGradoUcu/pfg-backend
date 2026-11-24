@@ -19,6 +19,7 @@ import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ListUsuariosQueryDto } from './dto/list-usuarios-query.dto';
 import { whereBusqueda } from '../../lib/query/busqueda';
+import { assertPersonaVinculable } from './persona-vinculable';
 
 const DEFAULT_BCRYPT_ROUNDS = 12;
 
@@ -53,21 +54,7 @@ const USUARIO_INCLUDE = {
       cedula: true,
       primer_nombre: true,
       primer_apellido: true,
-      email: true,
-      relaciones_laborales: {
-        where: { fecha_fin: null },
-        orderBy: { fecha_inicio: 'desc' as const },
-        take: 1,
-        select: {
-          id: true,
-          fecha_inicio: true,
-          tipo_funcionario: true,
-          unidades: { select: { id: true, codigo: true, denominacion: true } },
-          grados: { select: { id: true, codigo: true, denominacion: true } },
-          escalafones: { select: { id: true, codigo: true, denominacion: true } },
-          situaciones: { select: { id: true, codigo: true, denominacion: true } },
-        },
-      },
+      foto_archivo_id: true,
     },
   },
 } as const;
@@ -102,21 +89,7 @@ const USUARIO_INCLUDE_DETAIL = {
       cedula: true,
       primer_nombre: true,
       primer_apellido: true,
-      email: true,
-      relaciones_laborales: {
-        where: { fecha_fin: null },
-        orderBy: { fecha_inicio: 'desc' as const },
-        take: 1,
-        select: {
-          id: true,
-          fecha_inicio: true,
-          tipo_funcionario: true,
-          unidades: { select: { id: true, codigo: true, denominacion: true } },
-          grados: { select: { id: true, codigo: true, denominacion: true } },
-          escalafones: { select: { id: true, codigo: true, denominacion: true } },
-          situaciones: { select: { id: true, codigo: true, denominacion: true } },
-        },
-      },
+      foto_archivo_id: true,
     },
   },
 } as const;
@@ -173,12 +146,9 @@ export class UsuariosService {
     });
     if (existente) throw new ConflictException('Ya existe un usuario con ese username');
 
-    if (dto.personaId) {
-      const persona = await this.prisma.personas.findUnique({
-        where: { id: BigInt(dto.personaId) },
-      });
-      if (!persona) throw new BadRequestException('La persona indicada no existe');
-    }
+    const personaId = dto.personaId
+      ? await assertPersonaVinculable(this.prisma, dto.personaId, actor)
+      : null;
 
     // Se valida todo antes de escribir y el alta va en una transacción, para no dejar el
     // usuario creado a medias.
@@ -209,7 +179,7 @@ export class UsuariosService {
           password_hash: passwordHash,
           estado: 'activo',
           aplicacion: APLICACION,
-          persona_id: dto.personaId ? BigInt(dto.personaId) : null,
+          persona_id: personaId,
         },
       });
       if (roles.length > 0) {
@@ -237,23 +207,16 @@ export class UsuariosService {
       await this.assertPuedeGestionar(actor, usuario.id, 'modificar a este usuario');
     }
 
-    if (dto.personaId !== undefined && dto.personaId !== null) {
-      const persona = await this.prisma.personas.findUnique({
-        where: { id: BigInt(dto.personaId) },
-      });
-      if (!persona) throw new BadRequestException('La persona indicada no existe');
-    }
+    const personaId =
+      dto.personaId === undefined || dto.personaId === null
+        ? dto.personaId
+        : await assertPersonaVinculable(this.prisma, dto.personaId, actor, usuario.id);
 
     await this.prisma.usuarios.update({
       where: { id: usuario.id },
       data: {
         estado: dto.estado,
-        persona_id:
-          dto.personaId === undefined
-            ? undefined
-            : dto.personaId === null
-              ? null
-              : BigInt(dto.personaId),
+        persona_id: personaId,
         bloqueado_hasta: dto.estado === 'activo' ? null : undefined,
         intentos_fallidos: dto.estado === 'activo' ? 0 : undefined,
       },
@@ -506,20 +469,10 @@ export class UsuariosService {
           cedula: string;
           primer_nombre: string;
           primer_apellido: string;
-          email: string | null;
-          relaciones_laborales: {
-            id: bigint;
-            fecha_inicio: Date;
-            tipo_funcionario: string | null;
-            unidades: { id: bigint; codigo: string; denominacion: string } | null;
-            grados: { id: bigint; codigo: string; denominacion: string } | null;
-            escalafones: { id: bigint; codigo: string; denominacion: string } | null;
-            situaciones: { id: bigint; codigo: string; denominacion: string } | null;
-          }[];
+          foto_archivo_id: bigint | null;
         }
       | null;
   }) {
-    const relacion = usuario.personas?.relaciones_laborales[0] ?? null;
     return {
       id: usuario.id.toString(),
       username: usuario.username,
@@ -531,42 +484,7 @@ export class UsuariosService {
             id: usuario.personas.id.toString(),
             cedula: usuario.personas.cedula,
             nombre: `${usuario.personas.primer_nombre} ${usuario.personas.primer_apellido}`.trim(),
-            email: usuario.personas.email,
-            relacionLaboral: relacion
-              ? {
-                  id: relacion.id.toString(),
-                  fechaInicio: relacion.fecha_inicio,
-                  tipoFuncionario: relacion.tipo_funcionario,
-                  unidad: relacion.unidades
-                    ? {
-                        id: relacion.unidades.id.toString(),
-                        codigo: relacion.unidades.codigo,
-                        denominacion: relacion.unidades.denominacion,
-                      }
-                    : null,
-                  grado: relacion.grados
-                    ? {
-                        id: relacion.grados.id.toString(),
-                        codigo: relacion.grados.codigo,
-                        denominacion: relacion.grados.denominacion,
-                      }
-                    : null,
-                  escalafon: relacion.escalafones
-                    ? {
-                        id: relacion.escalafones.id.toString(),
-                        codigo: relacion.escalafones.codigo,
-                        denominacion: relacion.escalafones.denominacion,
-                      }
-                    : null,
-                  situacion: relacion.situaciones
-                    ? {
-                        id: relacion.situaciones.id.toString(),
-                        codigo: relacion.situaciones.codigo,
-                        denominacion: relacion.situaciones.denominacion,
-                      }
-                    : null,
-                }
-              : null,
+            fotoId: usuario.personas.foto_archivo_id?.toString() ?? null,
           }
         : null,
       roles: usuario.usuarios_roles.map((ur) => ({
@@ -608,19 +526,9 @@ export class UsuariosService {
       cedula: string;
       primer_nombre: string;
       primer_apellido: string;
-      email: string | null;
-      relaciones_laborales: {
-        id: bigint;
-        fecha_inicio: Date;
-        tipo_funcionario: string | null;
-        unidades: { id: bigint; codigo: string; denominacion: string } | null;
-        grados: { id: bigint; codigo: string; denominacion: string } | null;
-        escalafones: { id: bigint; codigo: string; denominacion: string } | null;
-        situaciones: { id: bigint; codigo: string; denominacion: string } | null;
-      }[];
+      foto_archivo_id: bigint | null;
     } | null;
   }) {
-    const relacion = usuario.personas?.relaciones_laborales[0] ?? null;
 
     // — Computar permisos efectivos con desglose de origen —
     const permisosMap = new Map<string, {
@@ -677,42 +585,7 @@ export class UsuariosService {
             id: usuario.personas.id.toString(),
             cedula: usuario.personas.cedula,
             nombre: `${usuario.personas.primer_nombre} ${usuario.personas.primer_apellido}`.trim(),
-            email: usuario.personas.email,
-            relacionLaboral: relacion
-              ? {
-                  id: relacion.id.toString(),
-                  fechaInicio: relacion.fecha_inicio,
-                  tipoFuncionario: relacion.tipo_funcionario,
-                  unidad: relacion.unidades
-                    ? {
-                        id: relacion.unidades.id.toString(),
-                        codigo: relacion.unidades.codigo,
-                        denominacion: relacion.unidades.denominacion,
-                      }
-                    : null,
-                  grado: relacion.grados
-                    ? {
-                        id: relacion.grados.id.toString(),
-                        codigo: relacion.grados.codigo,
-                        denominacion: relacion.grados.denominacion,
-                      }
-                    : null,
-                  escalafon: relacion.escalafones
-                    ? {
-                        id: relacion.escalafones.id.toString(),
-                        codigo: relacion.escalafones.codigo,
-                        denominacion: relacion.escalafones.denominacion,
-                      }
-                    : null,
-                  situacion: relacion.situaciones
-                    ? {
-                        id: relacion.situaciones.id.toString(),
-                        codigo: relacion.situaciones.codigo,
-                        denominacion: relacion.situaciones.denominacion,
-                      }
-                    : null,
-                }
-              : null,
+            fotoId: usuario.personas.foto_archivo_id?.toString() ?? null,
           }
         : null,
       roles: usuario.usuarios_roles.map((ur) => ({
