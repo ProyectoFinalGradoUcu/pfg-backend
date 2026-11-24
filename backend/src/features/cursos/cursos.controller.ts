@@ -47,7 +47,7 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Cursos')
 @ApiCookieAuth('auth_token')
-@Auditar({ contexto: 'Cursos', entidad: 'Curso' })
+@Auditar({ contexto: 'Cursos', entidad: 'Curso', foto: 'curso' })
 @Controller('cursos')
 export class CursosController {
   constructor(
@@ -133,6 +133,7 @@ export class CursosController {
     return this.cursosService.editarCurso(id, dto, alcance);
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Designación de curso', foto: 'curso', idParam: 'cursoId' })
   @Post(':cursoId/designaciones')
   @RequireAlcance('cursos.gestionar')
   @ApiOperation({
@@ -150,6 +151,7 @@ export class CursosController {
     return this.cursosService.crearDesignacion(cursoId, dto, alcance);
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Calificación de curso', foto: 'resultados_curso', idParam: 'cursoId' })
   @Patch(':cursoId/designaciones')
   @RequireAlcance('cursos.gestionar')
   @HttpCode(HttpStatus.OK)
@@ -165,6 +167,7 @@ export class CursosController {
     return this.cursosService.calificarDesignaciones(cursoId, dto, alcance);
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Designación de curso', foto: 'designacion', idParam: 'designacionId' })
   @Patch(':cursoId/designaciones/:designacionId')
   @RequireAlcance('cursos.gestionar')
   @HttpCode(HttpStatus.OK)
@@ -180,6 +183,7 @@ export class CursosController {
     return this.cursosService.actualizarDesignacion(cursoId, designacionId, dto, alcance);
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Designación de curso', foto: 'designacion', idParam: 'designacionId' })
   @Patch(':cursoId/designaciones/:designacionId/datos')
   @RequireAlcance('cursos.gestionar')
   @HttpCode(HttpStatus.OK)
@@ -197,6 +201,7 @@ export class CursosController {
     return this.cursosService.editarInscripcion(cursoId, designacionId, dto, alcance);
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Designación de curso', foto: 'designacion', idParam: 'designacionId' })
   @Patch(':cursoId/designaciones/:designacionId/baja')
   @RequireAlcance('cursos.gestionar')
   @HttpCode(HttpStatus.OK)
@@ -223,6 +228,7 @@ export class CursosController {
     );
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Designación de curso', foto: 'designacion', idParam: 'designacionId' })
   @Patch(':cursoId/designaciones/:designacionId/reactivar')
   @RequireAlcance('cursos.gestionar')
   @HttpCode(HttpStatus.OK)
@@ -241,6 +247,7 @@ export class CursosController {
     return this.cursosService.reactivarDesignacion(cursoId, designacionId, alcance);
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Módulo de curso', foto: 'modulo_curso', idParam: 'moduloId' })
   @Post(':cursoId/modulos')
   @RequireAlcance('cursos.gestionar')
   @ApiOperation({ summary: 'Agregar módulo a un curso', description: 'Crea un nuevo módulo dentro del curso indicado.' })
@@ -267,6 +274,7 @@ export class CursosController {
     return this.cursosService.removeCurso(id, alcance);
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Completación de módulo', foto: 'modulo_curso', idParam: 'moduloId' })
   @Post(':cursoId/modulos/:moduloId/completaciones')
   @RequireAlcance('cursos.gestionar')
   @ApiOperation({ summary: 'Marcar completación de módulo', description: 'Registra o actualiza la completación de un módulo para un funcionario.' })
@@ -294,6 +302,7 @@ export class CursosController {
     return this.cursosService.getCompletacionesModulo(cursoId, moduloId, alcance);
   }
 
+  @Auditar({ contexto: 'Cursos', entidad: 'Módulo de curso', foto: 'modulo_curso', idParam: 'moduloId' })
   @Delete(':cursoId/modulos/:moduloId')
   @HttpCode(HttpStatus.OK)
   @RequireAlcance('cursos.gestionar')

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DestinosService } from './destinos.service';
 import { DestinosCargaService } from './destinos-carga.service';
 import { DestinosController } from './destinos.controller';
+import { DestinosAuditoria } from './destinos.auditoria';
 import { PrismaModule } from '../../lib/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { ArchivosModule } from '../archivos/archivos.module';
@@ -11,6 +12,6 @@ import { DestinosDocumentosService } from './destinos-documentos.service';
 @Module({
   imports: [PrismaModule, AuthModule, ArchivosModule],
   controllers: [DestinosController, DestinosDocumentosController],
-  providers: [DestinosService, DestinosCargaService, DestinosDocumentosService],
+  providers: [DestinosService, DestinosCargaService, DestinosDocumentosService, DestinosAuditoria],
 })
 export class DestinosModule {}

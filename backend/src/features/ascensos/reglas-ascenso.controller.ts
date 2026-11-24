@@ -81,6 +81,7 @@ export class ReglasAscensoController {
     contexto: 'Reglas de ascenso',
     entidad: 'Regla de ascenso',
     incluirRespuesta: true,
+    foto: 'regla_ascenso',
   })
   crear(@Body() dto: CreateReglaDto, @CurrentUser() user: AuthenticatedUser) {
     return this.reglasService.crear(dto, idDeUsuario(user));
@@ -112,6 +113,7 @@ export class ReglasAscensoController {
     contexto: 'Reglas de ascenso',
     entidad: 'Regla de ascenso',
     incluirRespuesta: true,
+    foto: 'regla_ascenso',
   })
   editar(
     @Param('id', ParseIntPipe) id: number,
@@ -130,6 +132,7 @@ export class ReglasAscensoController {
     contexto: 'Reglas de ascenso',
     entidad: 'Regla de ascenso',
     accion: 'regla_ascenso.desactivar',
+    foto: 'regla_ascenso',
   })
   desactivar(
     @Param('id', ParseIntPipe) id: number,
@@ -146,6 +149,8 @@ export class ReglasAscensoController {
   })
   @ApiParam({ name: 'id', type: Number })
   @RequirePermissions('reglas_ascenso.gestionar')
+  // Simular no guarda nada, no se audita
+  @Auditar({ contexto: 'Reglas de ascenso', registroManual: true })
   simularImpacto(@Param('id', ParseIntPipe) id: number, @Body() dto: SimularImpactoDto) {
     return this.elegibilidad.simularImpacto(id, dto);
   }
@@ -155,6 +160,13 @@ export class ReglasAscensoController {
   @ApiOperation({ summary: 'Volver a activar una regla desactivada' })
   @ApiParam({ name: 'id', type: Number })
   @RequirePermissions('reglas_ascenso.gestionar')
+  // Activar se audita como una edición
+  @Auditar({
+    contexto: 'Reglas de ascenso',
+    entidad: 'Regla de ascenso',
+    accion: 'ACTUALIZAR',
+    foto: 'regla_ascenso',
+  })
   activar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {
     return this.reglasService.activar(id, idDeUsuario(user));
   }

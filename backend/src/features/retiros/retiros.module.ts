@@ -4,6 +4,7 @@ import { CierreCarreraService } from './cierre-carrera.service';
 import { RetirosController } from './retiros.controller';
 import { RetirosDocumentosController } from './retiros-documentos.controller';
 import { RetirosDocumentosService } from './retiros-documentos.service';
+import { RetirosAuditoria } from './retiros.auditoria';
 import { PrismaModule } from '../../lib/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { SesionesModule } from '../../lib/sesiones/sesiones.module';
@@ -13,7 +14,7 @@ import { ArchivosModule } from '../archivos/archivos.module';
 @Module({
   imports: [PrismaModule, AuthModule, SesionesModule, DerechaModule, ArchivosModule],
   controllers: [RetirosController, RetirosDocumentosController],
-  providers: [RetirosService, CierreCarreraService, RetirosDocumentosService],
+  providers: [RetirosService, CierreCarreraService, RetirosDocumentosService, RetirosAuditoria],
   exports: [RetirosService, CierreCarreraService],
 })
 export class RetirosModule {}

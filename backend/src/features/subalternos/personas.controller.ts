@@ -80,7 +80,7 @@ export class PersonasController {
   @ApiResponse({ status: 400 })
   @ApiResponse({ status: 409, description: 'Cédula duplicada.' })
   @RequireAlcance('personas.crear')
-  @Auditar({ contexto: 'Personas', entidad: 'Persona', incluirRespuesta: true })
+  @Auditar({ contexto: 'Personas', entidad: 'Persona', incluirRespuesta: true, foto: 'persona' })
   @Post()
   create(
     @Body() dto: CreatePersonalDto,
@@ -143,6 +143,8 @@ export class PersonasController {
   @ApiOperation({ summary: 'Vincular un familiar ya registrado (civil o militar)' })
   @ApiParam({ name: 'id', type: Number })
   @RequireAlcance('personas.editar')
+  // La foto sale del id que devuelve el alta
+  @Auditar({ contexto: 'Personas', entidad: 'Familiar', accion: 'ASIGNAR', incluirRespuesta: true, foto: 'familiar', idParam: 'familiarId' })
   @Post(':id/familiares')
   addFamiliar(
     @Param('id', ParseIntPipe) id: number,
@@ -158,6 +160,7 @@ export class PersonasController {
   @ApiResponse({ status: 200, description: 'Familiar desvinculado.' })
   @ApiResponse({ status: 404, description: 'No existe ese vínculo familiar.' })
   @RequireAlcance('personas.editar')
+  @Auditar({ contexto: 'Personas', entidad: 'Familiar', accion: 'DESASIGNAR', foto: 'familiar', idParam: 'familiarId' })
   @Delete(':id/familiares/:familiarId')
   removeFamiliar(
     @Param('id', ParseIntPipe) id: number,
@@ -219,7 +222,7 @@ export class PersonasController {
   })
   @ApiParam({ name: 'id', type: Number })
   @RequireAlcance('personas.editar')
-  @Auditar({ contexto: 'Legajo militar', entidad: 'Legajo militar', accion: 'ACTUALIZAR' })
+  @Auditar({ contexto: 'Legajo militar', entidad: 'Legajo militar', accion: 'ACTUALIZAR', foto: 'legajo_militar' })
   @Put(':id/legajo-militar')
   guardarLegajoMilitar(
     @Param('id', ParseIntPipe) id: number,
@@ -254,7 +257,7 @@ export class PersonasController {
   })
   @ApiParam({ name: 'id', type: Number })
   @RequireAlcance('personas.editar')
-  @Auditar({ contexto: 'Personas', entidad: 'Persona', accion: 'ACTUALIZAR', incluirRespuesta: true })
+  @Auditar({ contexto: 'Personas', entidad: 'Persona', accion: 'ACTUALIZAR', incluirRespuesta: true, foto: 'persona' })
   @Post(':id/situacion')
   cambiarSituacion(
     @Param('id', ParseIntPipe) id: number,
@@ -271,6 +274,7 @@ export class PersonasController {
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: 200, description: 'Devuelve el perfil actualizado completo.' })
   @RequireAlcance('personas.editar')
+  @Auditar({ contexto: 'Personas', entidad: 'Persona', foto: 'persona' })
   @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,

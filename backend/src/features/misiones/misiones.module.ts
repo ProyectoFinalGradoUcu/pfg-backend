@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MisionesService } from './misiones.service';
 import { MisionesCargaService } from './misiones-carga.service';
 import { MisionesController } from './misiones.controller';
+import { MisionesAuditoria } from './misiones.auditoria';
 import { PrismaModule } from '../../lib/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { ArchivosModule } from '../archivos/archivos.module';
@@ -27,6 +28,7 @@ import {
     MisionesCargaService,
     ConvocatoriasDocumentosService,
     AsignacionesMisionDocumentosService,
+    MisionesAuditoria,
   ],
 })
 export class MisionesModule {}
