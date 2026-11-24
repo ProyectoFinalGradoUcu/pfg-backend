@@ -12,6 +12,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { assertPermisosDelActor } from '../auth/privilegios';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { assertPersonaVinculable } from '../usuarios/persona-vinculable';
 import { CrearInvitacionDto } from './dto/crear-invitacion.dto';
 import { AceptarInvitacionDto } from './dto/aceptar-invitacion.dto';
 import { ListInvitacionesQueryDto } from './dto/list-invitaciones-query.dto';
@@ -61,15 +62,9 @@ export class InvitacionesService {
   ) {}
 
   async crear(dto: CrearInvitacionDto, actor: AuthenticatedUser) {
-    if (dto.personaId) {
-      const persona = await this.prisma.personas.findUnique({
-        where: { id: BigInt(dto.personaId) },
-        select: { id: true },
-      });
-      if (!persona) {
-        throw new BadRequestException(`Persona con id ${dto.personaId} no encontrada`);
-      }
-    }
+    const personaId = dto.personaId
+      ? await assertPersonaVinculable(this.prisma, dto.personaId, actor)
+      : null;
 
     if (dto.roles?.length) {
       const nombres = Array.from(new Set(dto.roles));
@@ -135,7 +130,7 @@ export class InvitacionesService {
       data: {
         email: dto.email.trim().toLowerCase(),
         token_hash: tokenHash,
-        persona_id: dto.personaId ? BigInt(dto.personaId) : null,
+        persona_id: personaId,
         roles: dto.roles ?? [],
         estado: 'pendiente',
         creado_por: BigInt(actor.id),
@@ -239,6 +234,14 @@ export class InvitacionesService {
       throw new ConflictException('Ya existe un usuario con ese email');
     }
 
+    // Si mientras tanto otra cuenta tomó al funcionario, la nueva queda sin vincular.
+    const personaTomada =
+      invitacion.persona_id !== null &&
+      (await this.prisma.usuarios.findFirst({
+        where: { persona_id: invitacion.persona_id, aplicacion: APLICACION },
+        select: { id: true },
+      })) !== null;
+
     const rounds = Number(process.env.BCRYPT_ROUNDS ?? DEFAULT_BCRYPT_ROUNDS);
     const passwordHash = await bcrypt.hash(dto.password, rounds);
     const ahora = new Date();
@@ -248,7 +251,7 @@ export class InvitacionesService {
         data: {
           username: invitacion.email,
           password_hash: passwordHash,
-          persona_id: invitacion.persona_id ?? null,
+          persona_id: personaTomada ? null : (invitacion.persona_id ?? null),
           estado: 'activo',
           intentos_fallidos: 0,
           aplicacion: APLICACION,
