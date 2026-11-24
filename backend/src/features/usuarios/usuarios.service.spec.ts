@@ -391,7 +391,7 @@ describe('UsuariosService', () => {
       jest.spyOn(service, 'findOne').mockResolvedValue({} as any);
     });
 
-    it('audita el cambio con las bases anteriores y las nuevas, legibles y con su comando', async () => {
+    it('audita el cambio de bases con frase y diff, sin la lista cruda', async () => {
       prisma.usuarios_sub_unidades.findMany
         .mockResolvedValueOnce([bai])
         .mockResolvedValueOnce([eta]);
@@ -406,12 +406,8 @@ describe('UsuariosService', () => {
         entidadId: 10n,
         detalle: {
           usuario: 'jefe@fau.mil.uy',
-          unidadesAnteriores: [
-            { id: '1', codigo: 'BAI', denominacion: 'B.A.I.', comando: 'Comando Aéreo de Operaciones' },
-          ],
-          unidadesNuevas: [
-            { id: '4', codigo: 'ETA', denominacion: 'E.T.A.', comando: 'Comando Aéreo de Personal' },
-          ],
+          descripcion: 'Asignó las bases E.T.A. al usuario jefe@fau.mil.uy',
+          cambios: [{ campo: 'bases', anterior: ['B.A.I.'], nuevo: ['E.T.A.'] }],
         },
       });
     });

@@ -44,7 +44,7 @@ export class CatalogosController {
   @Post('unidades')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermissions('catalogos.gestionar')
-  @Auditar({ contexto: 'Catálogos', entidad: 'Comando', incluirRespuesta: true })
+  @Auditar({ contexto: 'Catálogos', entidad: 'Comando', incluirRespuesta: true, foto: 'comando' })
   crearComando(@Body('service_request') dto: CreateComandoDto) {
     return this.catalogoUnidades.crearComando(dto);
   }
@@ -52,7 +52,7 @@ export class CatalogosController {
   @ApiOperation({ summary: 'Editar la denominación de un comando, darlo de baja o reactivarlo' })
   @Patch('unidades/:unidadId')
   @RequirePermissions('catalogos.gestionar')
-  @Auditar({ contexto: 'Catálogos', entidad: 'Comando' })
+  @Auditar({ contexto: 'Catálogos', entidad: 'Comando', foto: 'comando', idParam: 'unidadId' })
   editarComando(
     @Param('unidadId', ParseIntPipe) unidadId: number,
     @Body('service_request') dto: UpdateComandoDto,
@@ -64,7 +64,7 @@ export class CatalogosController {
   @Post('sub-unidades')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermissions('catalogos.gestionar')
-  @Auditar({ contexto: 'Catálogos', entidad: 'Base', incluirRespuesta: true })
+  @Auditar({ contexto: 'Catálogos', entidad: 'Base', incluirRespuesta: true, foto: 'base' })
   crearBase(@Body('service_request') dto: CreateBaseDto) {
     return this.catalogoUnidades.crearBase(dto);
   }
@@ -72,7 +72,7 @@ export class CatalogosController {
   @ApiOperation({ summary: 'Editar una base, moverla de comando (si nunca se usó), darla de baja o reactivarla' })
   @Patch('sub-unidades/:subUnidadId')
   @RequirePermissions('catalogos.gestionar')
-  @Auditar({ contexto: 'Catálogos', entidad: 'Base' })
+  @Auditar({ contexto: 'Catálogos', entidad: 'Base', foto: 'base', idParam: 'subUnidadId' })
   editarBase(
     @Param('subUnidadId', ParseIntPipe) subUnidadId: number,
     @Body('service_request') dto: UpdateBaseDto,

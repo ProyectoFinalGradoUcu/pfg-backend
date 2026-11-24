@@ -12,6 +12,7 @@ import { ElegibilidadService } from './elegibilidad.service.js';
 import { AscensosController } from './ascensos.controller.js';
 import { OrdenesAscensoService } from './ordenes-ascenso.service.js';
 import { EstadisticasAscensoService } from './estadisticas-ascenso.service.js';
+import { AscensosAuditoria } from './ascensos.auditoria.js';
 
 /**
  * `AscensoRegistroService` se exporta porque es el único punto de escritura
@@ -27,6 +28,7 @@ import { EstadisticasAscensoService } from './estadisticas-ascenso.service.js';
     ElegibilidadService,
     OrdenesAscensoService,
     EstadisticasAscensoService,
+    AscensosAuditoria,
   ],
   exports: [
     AscensoRegistroService,

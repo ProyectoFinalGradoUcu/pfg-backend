@@ -21,7 +21,7 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 
 @ApiTags('Roles')
 @ApiCookieAuth('auth_token')
-@Auditar({ contexto: 'Roles', entidad: 'Rol' })
+@Auditar({ contexto: 'Roles', entidad: 'Rol', foto: 'rol' })
 @Controller('roles')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}

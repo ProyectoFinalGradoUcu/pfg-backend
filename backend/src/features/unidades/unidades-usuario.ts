@@ -1,4 +1,5 @@
 import { PrismaService } from '../../lib/prisma.service';
+import { detalleLegible } from '../auditoria/auditoria-frases';
 
 export interface UnidadLegible {
   id: string;
@@ -38,4 +39,20 @@ export async function unidadesDeUsuario(
     denominacion: b.denominacion,
     comando: b.unidades.denominacion,
   }));
+}
+
+// Frase y diff del cambio de bases
+export function detalleCambioBases(
+  accion: 'unidad.asignar' | 'unidad.quitar',
+  username: string,
+  anteriores: UnidadLegible[],
+  nuevas: UnidadLegible[],
+): Record<string, unknown> {
+  const crudo = { usuario: username, unidadesAnteriores: anteriores, unidadesNuevas: nuevas };
+  const legible = detalleLegible(
+    { accion, entidad: 'Usuario', entidadNombre: username, detalle: crudo },
+    { bases: anteriores.map((u) => u.denominacion) },
+    { bases: nuevas.map((u) => u.denominacion) },
+  );
+  return legible.descripcion ? { usuario: username, ...legible } : { ...crudo, ...legible };
 }

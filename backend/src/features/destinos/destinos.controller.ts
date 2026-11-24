@@ -31,7 +31,7 @@ import { ListFuncionariosUnidadQueryDto } from './dto/list-funcionarios-unidad-q
 
 @ApiTags('Destinos')
 @ApiCookieAuth('auth_token')
-@Auditar({ contexto: 'Destinos', entidad: 'Destino' })
+@Auditar({ contexto: 'Destinos', entidad: 'Destino', foto: 'destino', idParam: 'destinoId' })
 @Controller('destinos')
 export class DestinosController {
   constructor(

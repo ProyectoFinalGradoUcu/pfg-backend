@@ -237,6 +237,24 @@ describe('AuthService', () => {
         expect(prisma.usuarios.updateMany).not.toHaveBeenCalled();
       });
 
+      it('el login fallido queda con su frase guardada', async () => {
+        prisma.usuarios.update.mockResolvedValueOnce({ intentos_fallidos: 3 });
+        const auditoria = (service as unknown as { auditoria: { registrar: jest.Mock } }).auditoria;
+
+        await expect(login()).rejects.toThrow(UnauthorizedException);
+
+        expect(auditoria.registrar).toHaveBeenCalledWith(
+          expect.objectContaining({
+            accion: 'LOGIN_FALLIDO',
+            detalle: {
+              username: 'jperez',
+              motivo: 'contraseña incorrecta',
+              descripcion: 'Intento fallido de inicio de sesión con el usuario jperez',
+            },
+          }),
+        );
+      });
+
       it('al llegar al máximo bloquea la cuenta', async () => {
         prisma.usuarios.update.mockResolvedValueOnce({ intentos_fallidos: 5 });
 

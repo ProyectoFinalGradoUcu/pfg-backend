@@ -17,7 +17,7 @@ import type { AlcanceResuelto } from '../../lib/alcance/alcance.types.js';
 
 @ApiTags('Subalternos')
 @ApiCookieAuth('auth_token')
-@Auditar({ contexto: 'Subalternos', entidad: 'Subalterno' })
+@Auditar({ contexto: 'Subalternos', entidad: 'Subalterno', foto: 'persona' })
 @Controller('subalternos')
 export class SubalternosController {
   constructor(private readonly subalternosService: SubalternosService) {}

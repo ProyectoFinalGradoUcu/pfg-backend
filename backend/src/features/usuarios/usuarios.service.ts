@@ -10,7 +10,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { unidadesDeUsuario } from '../unidades/unidades-usuario';
+import { detalleCambioBases, unidadesDeUsuario } from '../unidades/unidades-usuario';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { assertPermisosDelActor, assertPuedeGestionarA, ROL_ADMIN } from '../auth/privilegios';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
@@ -411,17 +411,14 @@ export class UsuariosService {
     // nueva (aunque a la vez salga otra), una asignación.
     const nuevas = await unidadesDeUsuario(this.prisma, usuario.id);
     const soloQuito = nuevas.every((n) => anteriores.some((a) => a.id === n.id));
+    const accion = soloQuito ? 'unidad.quitar' : 'unidad.asignar';
     void this.auditoria.registrar({
       usuarioId: actorId,
-      accion: soloQuito ? 'unidad.quitar' : 'unidad.asignar',
+      accion,
       contexto: 'Usuarios',
       entidad: 'Usuario',
       entidadId: usuario.id,
-      detalle: {
-        usuario: usuario.username,
-        unidadesAnteriores: anteriores,
-        unidadesNuevas: nuevas,
-      },
+      detalle: detalleCambioBases(accion, usuario.username, anteriores, nuevas),
     });
 
     return this.findOne(id);

@@ -284,7 +284,12 @@ export class InvitacionesService {
       contexto: 'Usuarios',
       entidad: 'Usuario',
       entidadId: usuarioCreado.id,
-      detalle: { email: invitacion.email, viaInvitacion: true, invitacionId: invitacion.id },
+      detalle: {
+        email: invitacion.email,
+        viaInvitacion: true,
+        invitacionId: invitacion.id,
+        descripcion: `Aceptó la invitación y creó el usuario ${invitacion.email}`,
+      },
     });
 
     return { ok: true };
