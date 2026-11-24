@@ -106,6 +106,8 @@ describe('DestinosController · permisos', () => {
     expect(Reflect.getMetadata(AUDITAR_KEY, DestinosController)).toEqual({
       contexto: 'Destinos',
       entidad: 'Destino',
+      foto: 'destino',
+      idParam: 'destinoId',
     });
   });
 });

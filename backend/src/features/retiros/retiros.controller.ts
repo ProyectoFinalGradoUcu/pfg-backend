@@ -69,6 +69,7 @@ export class RetirosController {
   @ApiResponse({ status: 422, description: 'El funcionario no puede retirarse; ver bloqueos en la previa.' })
   @ApiBody({ type: CreateRetiroRequestDto })
   @RequirePermissions('retiros.registrar')
+  @Auditar({ contexto: 'Retiros', entidad: 'Retiro', foto: 'retiro', idParam: 'retiroId' })
   registrar(
     @Body('service_request') dto: CreateRetiroDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -98,6 +99,7 @@ export class RetirosController {
   @ApiResponse({ status: 409, description: 'El retiro está anulado.' })
   @ApiBody({ type: UpdateRetiroRequestDto })
   @RequirePermissions('retiros.registrar')
+  @Auditar({ contexto: 'Retiros', entidad: 'Retiro', foto: 'retiro', idParam: 'retiroId' })
   corregir(
     @Param('retiroId', ParseIntPipe) retiroId: number,
     @Body('service_request') dto: UpdateRetiroDto,
@@ -120,7 +122,7 @@ export class RetirosController {
   })
   @ApiBody({ type: AnularRetiroRequestDto })
   @RequirePermissions('retiros.registrar')
-  @Auditar({ contexto: 'Retiros', entidad: 'Retiro', accion: 'retiro.anular' })
+  @Auditar({ contexto: 'Retiros', entidad: 'Retiro', accion: 'retiro.anular', foto: 'retiro', idParam: 'retiroId' })
   anular(
     @Param('retiroId', ParseIntPipe) retiroId: number,
     @Body('service_request') dto: AnularRetiroDto,
@@ -155,6 +157,7 @@ export class RetirosController {
   @ApiResponse({ status: 422, description: 'Datos inválidos; ver bloqueos en la previa.' })
   @ApiBody({ type: ReincorporarRequestDto })
   @RequirePermissions('retiros.registrar')
+  @Auditar({ contexto: 'Retiros', entidad: 'Reincorporación', foto: 'reincorporacion', idParam: 'retiroId' })
   reincorporar(
     @Param('retiroId', ParseIntPipe) retiroId: number,
     @Body('service_request') dto: ReincorporarDto,
@@ -178,7 +181,13 @@ export class RetirosController {
   })
   @ApiBody({ type: AnularRetiroRequestDto })
   @RequirePermissions('retiros.registrar')
-  @Auditar({ contexto: 'Retiros', entidad: 'Reincorporación', accion: 'reincorporacion.anular' })
+  @Auditar({
+    contexto: 'Retiros',
+    entidad: 'Reincorporación',
+    accion: 'reincorporacion.anular',
+    foto: 'reincorporacion',
+    idParam: 'retiroId',
+  })
   anularReincorporacion(
     @Param('retiroId', ParseIntPipe) retiroId: number,
     @Body('service_request') dto: AnularRetiroDto,
@@ -200,6 +209,7 @@ export class RetirosController {
   @ApiResponse({ status: 422, description: 'Haber sin porcentaje o al revés, grado inválido, o la relación posterior no es SIT16/SIT17.' })
   @ApiBody({ type: ActualizarReincorporacionRequestDto })
   @RequirePermissions('retiros.registrar')
+  @Auditar({ contexto: 'Retiros', entidad: 'Reincorporación', foto: 'reincorporacion', idParam: 'retiroId' })
   actualizarReincorporacion(
     @Param('retiroId', ParseIntPipe) retiroId: number,
     @Body('service_request') dto: ActualizarReincorporacionDto,

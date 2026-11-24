@@ -39,7 +39,7 @@ export const CACHE_FOTO_VERSIONADA = 'private, max-age=86400';
 @ApiTags('Personas')
 @ApiCookieAuth('auth_token')
 @ApiParam({ name: 'id', type: Number })
-@Auditar({ contexto: 'Personas', entidad: 'Foto de personal' })
+@Auditar({ contexto: 'Personas', entidad: 'Foto de personal', foto: 'foto_persona' })
 @UseGuards(PersonaAccesibleGuard)
 @Controller('personas/:id/foto')
 export class PersonasFotoController {

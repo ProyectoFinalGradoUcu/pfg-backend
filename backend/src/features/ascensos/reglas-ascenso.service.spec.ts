@@ -152,7 +152,7 @@ describe('ReglasAscensoService', () => {
 
       const res = await service.listarEscalera();
 
-      const otros = res.grupos.find((g) => g.clave === 'OTROS')!;
+      const otros = res.grupos.find((g) => (g.clave as string) === 'OTROS')!;
       expect(otros.escalones).toHaveLength(1);
     });
 

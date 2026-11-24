@@ -10,6 +10,7 @@ import { LegajoMilitarService } from './legajo-militar.service.js';
 import { CambioSituacionService } from './cambio-situacion.service.js';
 import { PersonasDocumentosService } from './personas-documentos.service.js';
 import { PersonasFotoService } from './personas-foto.service.js';
+import { SubalternosAuditoria } from './subalternos.auditoria';
 import { AuthModule } from '../auth/auth.module';
 import { RetirosModule } from '../retiros/retiros.module.js';
 import { ArchivosModule } from '../archivos/archivos.module';
@@ -31,6 +32,7 @@ import { DerechaModule } from '../derecha/derecha.module';
     PersonasDocumentosService,
     PersonasFotoService,
     CambioSituacionService,
+    SubalternosAuditoria,
   ],
 })
 export class SubalternosModule {}

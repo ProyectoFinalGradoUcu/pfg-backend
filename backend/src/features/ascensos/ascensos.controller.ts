@@ -127,6 +127,7 @@ export class AscensosController {
     entidad: 'Orden de ascenso',
     accion: 'ascenso.registrar',
     incluirRespuesta: true,
+    foto: 'orden_ascenso',
   })
   crearOrden(
     @Body() dto: CreateOrdenDto,
@@ -150,7 +151,7 @@ export class AscensosController {
   @RequirePermissions('ascensos.anular')
   // Además del permiso de anular: los funcionarios tienen que estar en su alcance.
   @RequireAlcance('ascensos.ver')
-  @Auditar({ contexto: 'Ascensos', entidad: 'Orden de ascenso', accion: 'orden_ascenso.anular' })
+  @Auditar({ contexto: 'Ascensos', entidad: 'Orden de ascenso', accion: 'orden_ascenso.anular', foto: 'orden_ascenso' })
   anularOrden(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AnularDto,
@@ -171,7 +172,13 @@ export class AscensosController {
   @ApiParam({ name: 'ascensoId', type: Number })
   @RequirePermissions('ascensos.anular')
   @RequireAlcance('ascensos.ver')
-  @Auditar({ contexto: 'Ascensos', entidad: 'Ascenso', accion: 'ascenso.anular' })
+  @Auditar({
+    contexto: 'Ascensos',
+    entidad: 'Ascenso',
+    accion: 'ascenso.anular',
+    foto: 'ascenso',
+    idParam: 'ascensoId',
+  })
   anularAscenso(
     @Param('ascensoId', ParseIntPipe) ascensoId: number,
     @Body() dto: AnularDto,

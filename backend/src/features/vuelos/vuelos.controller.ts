@@ -60,7 +60,7 @@ export class VuelosController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Crear una unidad de vuelo' })
   @RequirePermissions('vuelos.gestionar')
-  @Auditar({ contexto: 'Vuelos', entidad: 'Unidad de vuelo', incluirRespuesta: true })
+  @Auditar({ contexto: 'Vuelos', entidad: 'Unidad de vuelo', incluirRespuesta: true, foto: 'unidad_vuelo' })
   crearUnidad(@Body() dto: CreateUnidadVueloDto) {
     return this.vuelosService.crearUnidad(dto);
   }
@@ -68,7 +68,7 @@ export class VuelosController {
   @Patch('unidades/:unidadId')
   @ApiOperation({ summary: 'Renombrar, dar de baja o reactivar una unidad de vuelo' })
   @RequirePermissions('vuelos.gestionar')
-  @Auditar({ contexto: 'Vuelos', entidad: 'Unidad de vuelo' })
+  @Auditar({ contexto: 'Vuelos', entidad: 'Unidad de vuelo', foto: 'unidad_vuelo', idParam: 'unidadId' })
   editarUnidad(@Param('unidadId', ParseIntPipe) unidadId: number, @Body() dto: UpdateUnidadVueloDto) {
     return this.vuelosService.editarUnidad(unidadId, dto);
   }
@@ -88,7 +88,7 @@ export class VuelosController {
     summary: 'Abrir un período: genera una fila por cada oficial y subalterno en actividad',
   })
   @RequirePermissions('vuelos.gestionar')
-  @Auditar({ contexto: 'Vuelos', entidad: 'Período de vuelo', incluirRespuesta: true })
+  @Auditar({ contexto: 'Vuelos', entidad: 'Período de vuelo', incluirRespuesta: true, foto: 'periodo_vuelo' })
   crearPeriodo(@Body() dto: CreatePeriodoVueloDto, @CurrentUser() user: AuthenticatedUser) {
     return this.vuelosService.crearPeriodo(dto, usuarioId(user));
   }
@@ -97,7 +97,14 @@ export class VuelosController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Agregar al período al personal que entró en actividad después de abrirlo' })
   @RequirePermissions('vuelos.gestionar')
-  @Auditar({ contexto: 'Vuelos', entidad: 'Período de vuelo', accion: 'ACTUALIZAR', incluirRespuesta: true })
+  @Auditar({
+    contexto: 'Vuelos',
+    entidad: 'Período de vuelo',
+    accion: 'ACTUALIZAR',
+    incluirRespuesta: true,
+    foto: 'periodo_vuelo',
+    idParam: 'periodoId',
+  })
   sincronizarPeriodo(@Param('periodoId', ParseIntPipe) periodoId: number) {
     return this.vuelosService.sincronizarPeriodo(periodoId);
   }
@@ -105,7 +112,7 @@ export class VuelosController {
   @Patch('periodos/:periodoId')
   @ApiOperation({ summary: 'Cerrar o reabrir un período' })
   @RequirePermissions('vuelos.gestionar')
-  @Auditar({ contexto: 'Vuelos', entidad: 'Período de vuelo' })
+  @Auditar({ contexto: 'Vuelos', entidad: 'Período de vuelo', foto: 'periodo_vuelo', idParam: 'periodoId' })
   actualizarPeriodo(
     @Param('periodoId', ParseIntPipe) periodoId: number,
     @Body() dto: UpdatePeriodoVueloDto,
@@ -116,7 +123,7 @@ export class VuelosController {
   @Delete('periodos/:periodoId')
   @ApiOperation({ summary: 'Eliminar un período abierto por error (solo si no tiene nada cargado)' })
   @RequirePermissions('vuelos.gestionar')
-  @Auditar({ contexto: 'Vuelos', entidad: 'Período de vuelo' })
+  @Auditar({ contexto: 'Vuelos', entidad: 'Período de vuelo', foto: 'periodo_vuelo', idParam: 'periodoId' })
   eliminarPeriodo(@Param('periodoId', ParseIntPipe) periodoId: number) {
     return this.vuelosService.eliminarPeriodo(periodoId);
   }
@@ -149,6 +156,7 @@ export class VuelosController {
   @Patch('registros/:registroId')
   @ApiOperation({ summary: 'Cargar unidad de vuelo, aeronaves y horas de una persona en un período' })
   @RequireAlcance('vuelos.gestionar')
+  @Auditar({ contexto: 'Vuelos', entidad: 'Registro de vuelo', foto: 'registro_vuelo', idParam: 'registroId' })
   editarRegistro(
     @Param('registroId', ParseIntPipe) registroId: number,
     @Body() dto: UpdateRegistroVueloDto,

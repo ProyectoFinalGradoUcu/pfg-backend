@@ -150,9 +150,9 @@ describe('LimiteDeTamanioInterceptor', () => {
   it('traduce el 413 de multer a un mensaje en español, sin cambiar el status', async () => {
     const interceptor = new LimiteDeTamanioInterceptor();
 
-    const error = await lastValueFrom(
+    const error = (await lastValueFrom(
       interceptor.intercept(contexto, fallaCon(new PayloadTooLargeException('File too large'))),
-    ).catch((e) => e);
+    ).catch((e: unknown) => e)) as PayloadTooLargeException;
 
     expect(error).toBeInstanceOf(PayloadTooLargeException);
     expect(error.getStatus()).toBe(413);
@@ -162,9 +162,9 @@ describe('LimiteDeTamanioInterceptor', () => {
   it('usa el mensaje que se le pasa', async () => {
     const interceptor = new LimiteDeTamanioInterceptor('El archivo supera el tamaño máximo de 2 MB');
 
-    const error = await lastValueFrom(
+    const error = (await lastValueFrom(
       interceptor.intercept(contexto, fallaCon(new PayloadTooLargeException('File too large'))),
-    ).catch((e) => e);
+    ).catch((e: unknown) => e)) as PayloadTooLargeException;
 
     expect(error.message).toBe('El archivo supera el tamaño máximo de 2 MB');
   });

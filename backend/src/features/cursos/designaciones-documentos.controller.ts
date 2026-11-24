@@ -39,7 +39,7 @@ const slotPipe = new ParseEnumPipe(SLOTS_DOCUMENTO);
 @ApiCookieAuth('auth_token')
 @ApiParam({ name: 'cursoId', type: Number })
 @ApiParam({ name: 'slot', enum: Object.values(SLOTS_DOCUMENTO) })
-@Auditar({ contexto: 'Cursos', entidad: 'Documento de designación' })
+@Auditar({ contexto: 'Cursos', entidad: 'Documento de designación', foto: 'documento_designacion' })
 @Controller('cursos/:cursoId/designaciones')
 export class DesignacionesDocumentosController {
   constructor(private readonly documentos: DesignacionesDocumentosService) {}

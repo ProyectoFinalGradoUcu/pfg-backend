@@ -20,7 +20,7 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Historial Cursos')
 @ApiCookieAuth('auth_token')
-@Auditar({ contexto: 'Historial de cursos', entidad: 'Historial de curso' })
+@Auditar({ contexto: 'Historial de cursos', entidad: 'Historial de curso', foto: 'designacion' })
 @Controller('historial-cursos')
 export class HistorialCursosController {
   constructor(private readonly historialCursosService: HistorialCursosService) {}

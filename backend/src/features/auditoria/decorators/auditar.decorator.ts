@@ -24,6 +24,10 @@ export interface AuditarOptions {
    * o va un registro por afectado, cosas que el interceptor no ve.
    */
   registroManual?: boolean;
+  // Tipo de foto para armar el diff y guardar lo borrado
+  foto?: string;
+  // Param con el id para la foto, por defecto 'id'
+  idParam?: string;
 }
 
 /**

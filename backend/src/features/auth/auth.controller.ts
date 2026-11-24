@@ -105,6 +105,7 @@ export class AuthController {
       contexto: 'Autenticación',
       entidad: 'Usuario',
       entidadId: user.id,
+      detalle: { descripcion: 'Cambió su contraseña' },
       host: this.getHost(req),
     });
     return result;

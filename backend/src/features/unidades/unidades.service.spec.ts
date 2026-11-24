@@ -272,6 +272,8 @@ describe('UnidadesService', () => {
             rolesAnteriores: [],
             rolesResultantes: ['Control de cursos'],
             usuariosAfectados: 14,
+            descripcion: 'Agregó el rol Control de cursos a la base B.A.I.',
+            cambios: [{ campo: 'roles', anterior: [], nuevo: ['Control de cursos'] }],
           }),
         }),
       );
@@ -353,6 +355,8 @@ describe('UnidadesService', () => {
               }),
             ],
             rolesResultantes: [],
+            descripcion: 'Quitó el rol Control de cursos de la base B.A.I.',
+            cambios: [{ campo: 'roles', anterior: ['Control de cursos'], nuevo: [] }],
           }),
         }),
       );
@@ -395,7 +399,7 @@ describe('UnidadesService', () => {
       expect(result).toEqual({ asignados: 1, yaEstaban: 1, noEncontrados: 0 });
     });
 
-    it('audita un evento por usuario asignado, con sus bases antes y después', async () => {
+    it('audita un evento por usuario asignado, con frase y diff de bases', async () => {
       const eta = {
         sub_unidades: {
           id: 2n,
@@ -429,13 +433,8 @@ describe('UnidadesService', () => {
         entidadId: 10n,
         detalle: {
           usuario: 'jefe@fau.mil.uy',
-          unidadesAnteriores: [
-            { id: '2', codigo: 'ETA', denominacion: 'E.T.A.', comando: 'Comando Aéreo de Personal' },
-          ],
-          unidadesNuevas: [
-            { id: '2', codigo: 'ETA', denominacion: 'E.T.A.', comando: 'Comando Aéreo de Personal' },
-            { id: '1', codigo: 'BAI', denominacion: 'B.A.I.', comando: 'Comando Aéreo de Operaciones' },
-          ],
+          descripcion: 'Asignó las bases E.T.A., B.A.I. al usuario jefe@fau.mil.uy',
+          cambios: [{ campo: 'bases', anterior: ['E.T.A.'], nuevo: ['B.A.I.', 'E.T.A.'] }],
         },
       });
     });
@@ -511,10 +510,8 @@ describe('UnidadesService', () => {
           entidadId: '10',
           detalle: {
             usuario: 'jefe@fau.mil.uy',
-            unidadesAnteriores: [
-              { id: '1', codigo: 'BAI', denominacion: 'B.A.I.', comando: 'Comando Aéreo de Operaciones' },
-            ],
-            unidadesNuevas: [],
+            descripcion: 'Quitó bases al usuario jefe@fau.mil.uy',
+            cambios: [{ campo: 'bases', anterior: ['B.A.I.'], nuevo: [] }],
           },
         }),
       );

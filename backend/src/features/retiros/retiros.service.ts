@@ -77,6 +77,48 @@ const validarParCalculo = (dto: { haber_retiro?: number; porcentaje_progresivo?:
 const ref = (x: { id: bigint; denominacion: string } | null) =>
   x ? { id: x.id.toString(), denominacion: x.denominacion } : null;
 
+// Relaciones abiertas después del retiro y antes del siguiente
+export async function relacionesDeLaReincorporacion(
+  prisma: PrismaService,
+  retiro: { persona_id: bigint; fecha_retiro: Date },
+) {
+  const siguiente = await prisma.retiros.findFirst({
+    where: { persona_id: retiro.persona_id, anulado: false, fecha_retiro: { gt: retiro.fecha_retiro } },
+    orderBy: { fecha_retiro: 'asc' },
+    select: { fecha_retiro: true },
+  });
+  const relaciones: any[] = await prisma.relaciones_laborales.findMany({
+    where: {
+      persona_id: retiro.persona_id,
+      fecha_inicio: {
+        gt: retiro.fecha_retiro,
+        ...(siguiente ? { lte: siguiente.fecha_retiro } : {}),
+      },
+    },
+    orderBy: [{ fecha_inicio: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true,
+      estado: true,
+      fecha_inicio: true,
+      fecha_fin: true,
+      haber_retiro: true,
+      porcentaje_progresivo: true,
+      situaciones: { select: { codigo: true, denominacion: true } },
+      grados_relaciones_laborales_grado_reincorporacion_idTogrados: {
+        select: { id: true, denominacion: true },
+      },
+    },
+  });
+  if (relaciones.length === 0) return null;
+
+  const actual =
+    relaciones.find((rel) => rel.estado === 'activo') ??
+    relaciones.reduce((a, b) =>
+      (b.fecha_fin?.getTime() ?? 0) > (a.fecha_fin?.getTime() ?? 0) ? b : a,
+    );
+  return { primera: relaciones[0], actual };
+}
+
 @Injectable()
 export class RetirosService {
   constructor(
@@ -469,46 +511,8 @@ export class RetirosService {
     archivo_boletin: { select: SELECT_DOCUMENTO_RETIRO },
   };
 
-  /**
-   * Las relaciones que empezaron después del retiro y antes del retiro siguiente. Con un ascenso de
-   * por medio son varias: `actual` es la activa o, si ninguna lo está, la que cerró última.
-   */
-  private async relacionesDeLaReincorporacion(retiro: { persona_id: bigint; fecha_retiro: Date }) {
-    const siguiente = await this.prisma.retiros.findFirst({
-      where: { persona_id: retiro.persona_id, anulado: false, fecha_retiro: { gt: retiro.fecha_retiro } },
-      orderBy: { fecha_retiro: 'asc' },
-      select: { fecha_retiro: true },
-    });
-    const relaciones: any[] = await this.prisma.relaciones_laborales.findMany({
-      where: {
-        persona_id: retiro.persona_id,
-        fecha_inicio: {
-          gt: retiro.fecha_retiro,
-          ...(siguiente ? { lte: siguiente.fecha_retiro } : {}),
-        },
-      },
-      orderBy: [{ fecha_inicio: 'asc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        estado: true,
-        fecha_inicio: true,
-        fecha_fin: true,
-        haber_retiro: true,
-        porcentaje_progresivo: true,
-        situaciones: { select: { codigo: true, denominacion: true } },
-        grados_relaciones_laborales_grado_reincorporacion_idTogrados: {
-          select: { id: true, denominacion: true },
-        },
-      },
-    });
-    if (relaciones.length === 0) return null;
-
-    const actual =
-      relaciones.find((rel) => rel.estado === 'activo') ??
-      relaciones.reduce((a, b) =>
-        (b.fecha_fin?.getTime() ?? 0) > (a.fecha_fin?.getTime() ?? 0) ? b : a,
-      );
-    return { primera: relaciones[0], actual };
+  private relacionesDeLaReincorporacion(retiro: { persona_id: bigint; fecha_retiro: Date }) {
+    return relacionesDeLaReincorporacion(this.prisma, retiro);
   }
 
   private async buscarReincorporacion(r: any) {

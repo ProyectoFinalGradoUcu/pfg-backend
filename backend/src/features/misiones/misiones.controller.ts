@@ -36,7 +36,7 @@ import { ListPersonalMisionQueryDto } from './dto/list-personal-mision-query.dto
 
 @ApiTags('Misiones')
 @ApiCookieAuth('auth_token')
-@Auditar({ contexto: 'Misiones', entidad: 'Misión' })
+@Auditar({ contexto: 'Misiones', entidad: 'Misión', foto: 'mision', idParam: 'misionId' })
 @Controller('misiones')
 export class MisionesController {
   constructor(
@@ -141,6 +141,7 @@ export class MisionesController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Crear convocatoria (con asignación opcional de personas)' })
   @RequirePermissions('misiones.gestionar')
+  @Auditar({ contexto: 'Misiones', entidad: 'Convocatoria', foto: 'convocatoria', idParam: 'convocatoriaId' })
   crearConvocatoria(
     @Param('misionId', ParseIntPipe) misionId: number,
     @Body('service_request') dto: CreateConvocatoriaDto,
@@ -151,6 +152,7 @@ export class MisionesController {
   @Patch(':misionId/convocatorias/:convocatoriaId')
   @ApiOperation({ summary: 'Editar campos de una convocatoria' })
   @RequirePermissions('misiones.gestionar')
+  @Auditar({ contexto: 'Misiones', entidad: 'Convocatoria', foto: 'convocatoria', idParam: 'convocatoriaId' })
   editarConvocatoria(
     @Param('misionId', ParseIntPipe) misionId: number,
     @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
@@ -162,6 +164,7 @@ export class MisionesController {
   @Delete(':misionId/convocatorias/:convocatoriaId')
   @ApiOperation({ summary: 'Eliminar una convocatoria y sus asignaciones' })
   @RequirePermissions('misiones.gestionar')
+  @Auditar({ contexto: 'Misiones', entidad: 'Convocatoria', foto: 'convocatoria', idParam: 'convocatoriaId' })
   eliminarConvocatoria(
     @Param('misionId', ParseIntPipe) misionId: number,
     @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
@@ -186,6 +189,7 @@ export class MisionesController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Agregar funcionarios a una convocatoria' })
   @RequirePermissions('misiones.gestionar')
+  @Auditar({ contexto: 'Misiones', entidad: 'Asignación a misión', foto: 'convocatoria', idParam: 'convocatoriaId' })
   agregarFuncionarios(
     @Param('misionId', ParseIntPipe) misionId: number,
     @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
@@ -197,6 +201,7 @@ export class MisionesController {
   @Patch(':misionId/convocatorias/:convocatoriaId/funcionarios/:personaId')
   @ApiOperation({ summary: 'Actualizar orden/resolución/observaciones de un funcionario en la convocatoria' })
   @RequirePermissions('misiones.gestionar')
+  @Auditar({ contexto: 'Misiones', entidad: 'Asignación a misión', foto: 'asignacion_mision', idParam: 'personaId' })
   editarFuncionarioConvocatoria(
     @Param('misionId', ParseIntPipe) misionId: number,
     @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
@@ -209,6 +214,7 @@ export class MisionesController {
   @Delete(':misionId/convocatorias/:convocatoriaId/funcionarios/:personaId')
   @ApiOperation({ summary: 'Quitar un funcionario de la convocatoria' })
   @RequirePermissions('misiones.gestionar')
+  @Auditar({ contexto: 'Misiones', entidad: 'Asignación a misión', foto: 'asignacion_mision', idParam: 'personaId' })
   quitarFuncionario(
     @Param('misionId', ParseIntPipe) misionId: number,
     @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,
@@ -220,6 +226,7 @@ export class MisionesController {
   @Delete(':misionId/convocatorias/:convocatoriaId/funcionarios')
   @ApiOperation({ summary: 'Quitar todos los funcionarios de una convocatoria' })
   @RequirePermissions('misiones.gestionar')
+  @Auditar({ contexto: 'Misiones', entidad: 'Asignación a misión', foto: 'convocatoria', idParam: 'convocatoriaId' })
   quitarTodosFuncionarios(
     @Param('misionId', ParseIntPipe) misionId: number,
     @Param('convocatoriaId', ParseIntPipe) convocatoriaId: number,

@@ -14,7 +14,7 @@ function idSeguro(id: string): bigint {
 
 @ApiTags('Comisiones')
 @ApiCookieAuth('auth_token')
-@Auditar({ contexto: 'Comisiones', entidad: 'Comisión', incluirRespuesta: true })
+@Auditar({ contexto: 'Comisiones', entidad: 'Comisión', incluirRespuesta: true, foto: 'comision' })
 @Controller('comisiones')
 export class ComisionesController {
   constructor(private readonly service: ComisionesService) {}
@@ -26,19 +26,20 @@ export class ComisionesController {
   asignacion(@Param('id') id: string, @Alcance() alcance: AlcanceResuelto) { return this.service.obtenerAsignacion(idSeguro(id), alcance); }
 
   @Post('asignaciones') @RequireAlcance('comisiones.gestionar')
-  @Auditar({ contexto: 'Comisiones', entidad: 'Asignación de comisión', incluirRespuesta: true })
+  @Auditar({ contexto: 'Comisiones', entidad: 'Asignación de comisión', incluirRespuesta: true, foto: 'asignacion_comision' })
   crearAsignacion(@Body('service_request') dto: CreateAsignacionComisionDto, @Alcance() alcance: AlcanceResuelto) { return this.service.crearAsignacion(dto, alcance); }
 
   @Post('asignaciones/lote') @RequireAlcance('comisiones.gestionar')
-  @Auditar({ contexto: 'Comisiones', entidad: 'Asignación de comisión', incluirRespuesta: true })
+  // Sin la respuesta, la frase ya dice quiénes y en qué comisión
+  @Auditar({ contexto: 'Comisiones', entidad: 'Asignación de comisión' })
   crearLote(@Body('service_request') dto: CreateLoteAsignacionesComisionDto, @Alcance() alcance: AlcanceResuelto) { return this.service.crearLote(dto, alcance); }
 
   @Patch('asignaciones/:id') @RequireAlcance('comisiones.gestionar')
-  @Auditar({ contexto: 'Comisiones', entidad: 'Asignación de comisión', incluirRespuesta: true })
+  @Auditar({ contexto: 'Comisiones', entidad: 'Asignación de comisión', incluirRespuesta: true, foto: 'asignacion_comision' })
   editarAsignacion(@Param('id') id: string, @Body('service_request') dto: UpdateAsignacionComisionDto, @Alcance() alcance: AlcanceResuelto) { return this.service.editarAsignacion(idSeguro(id), dto, alcance); }
 
   @Delete('asignaciones/:id') @RequireAlcance('comisiones.gestionar')
-  @Auditar({ contexto: 'Comisiones', entidad: 'Asignación de comisión', incluirRespuesta: true })
+  @Auditar({ contexto: 'Comisiones', entidad: 'Asignación de comisión', incluirRespuesta: true, foto: 'asignacion_comision' })
   eliminarAsignacion(@Param('id') id: string, @Alcance() alcance: AlcanceResuelto) { return this.service.eliminarAsignacion(idSeguro(id), alcance); }
 
   @Get() @RequireAlcance('comisiones.ver')

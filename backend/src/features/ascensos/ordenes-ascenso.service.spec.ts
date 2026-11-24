@@ -35,6 +35,7 @@ const makeEvaluacion = (
   estado: 'PASIBLE',
   fecha_cumpliria: null,
   motivo: null,
+  tipo_ascenso: null,
   antiguedad_dias: 900,
   edad: 36,
   requisitos: [],

@@ -54,7 +54,7 @@ const esVerdadero = (valor?: string) => valor === '1' || valor === 'true';
 @ApiTags('Personas')
 @ApiCookieAuth('auth_token')
 @ApiParam({ name: 'personaId', type: Number })
-@Auditar({ contexto: 'Personas', entidad: 'Documento de personal' })
+@Auditar({ contexto: 'Personas', entidad: 'Documento de personal', foto: 'documento_persona' })
 @UseGuards(PersonaAccesibleGuard)
 @Controller('personas/:personaId/documentos')
 export class PersonasDocumentosController {
@@ -81,7 +81,7 @@ export class PersonasDocumentosController {
   })
   @ApiResponse({ status: 413, description: 'El archivo supera los 10 MB.' })
   @RequireAlcance('personas.editar')
-  @Auditar({ contexto: 'Personas', entidad: 'Documento de personal', incluirRespuesta: true })
+  @Auditar({ contexto: 'Personas', entidad: 'Documento de personal', incluirRespuesta: true, foto: 'documento_persona' })
   @SubidaDeArchivo('archivo', { descripcion: { type: 'string', maxLength: 200 } })
   @Post()
   subir(

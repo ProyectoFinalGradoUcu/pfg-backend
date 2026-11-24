@@ -63,7 +63,7 @@ describe('ComisionesService', () => {
         { fecha_fin: null }, { fecha_fin: { gte: expect.any(Date) } },
       ]);
     });
-    it.each([
+    it.each<[Date | null, string]>([
       [null, 'pertenencia abierta'],
       [new Date('2026-03-01'), 'día límite compartido'],
       [new Date('2026-04-01'), 'período parcial'],
