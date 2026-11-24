@@ -4,6 +4,8 @@ import { PrismaService } from '../../lib/prisma.service';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { CAMPOS_SENSIBLES } from './auditoria.constants';
 import { ListAuditoriaQueryDto } from './dto/list-auditoria-query.dto';
+import { AuditoriaNombres } from './auditoria-nombres';
+import { armarResumen } from './auditoria-frases';
 
 export interface RegistrarAuditoriaInput {
   usuarioId: string | bigint;
@@ -27,7 +29,10 @@ export class AuditoriaService {
   private readonly accionesCache = new Map<string, bigint>();
   private readonly contextosCache = new Map<string, bigint>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly nombres: AuditoriaNombres,
+  ) {}
 
   /**
    * Registra un evento de auditoría. 
@@ -108,25 +113,61 @@ export class AuditoriaService {
       }),
     ]);
 
+    const items = registros.map((r) => ({
+      id: r.id.toString(),
+      fecha: r.fecha,
+      accion: r.acciones.nombre,
+      contexto: r.contextos.nombre,
+      entidad: r.entidad,
+      entidadId: r.entidad_id?.toString() ?? null,
+      host: r.host,
+      detalle: r.detalle,
+      usuario: {
+        id: r.usuarios.id.toString(),
+        username: r.usuarios.username,
+      },
+    }));
+
+    // Nombres de toda la página de una
+    const resueltos = await this.resolverNombres(items);
+
     return {
-      items: registros.map((r) => ({
-        id: r.id.toString(),
-        fecha: r.fecha,
-        accion: r.acciones.nombre,
-        contexto: r.contextos.nombre,
-        entidad: r.entidad,
-        entidadId: r.entidad_id?.toString() ?? null,
-        host: r.host,
-        detalle: r.detalle,
-        usuario: {
-          id: r.usuarios.id.toString(),
-          username: r.usuarios.username,
-        },
-      })),
+      items: items.map((item, i) => {
+        const { nombres, entidadNombre } = resueltos[i];
+        return { ...item, resumen: this.resumen(item, entidadNombre, nombres), nombres, entidadNombre };
+      }),
       total,
       page,
       pageSize,
     };
+  }
+
+  private async resolverNombres(
+    items: { entidad: string | null; entidadId: string | null; detalle: unknown }[],
+  ) {
+    try {
+      return await this.nombres.resolver(items);
+    } catch (error) {
+      // Sin nombres se ve como antes
+      const mensaje = error instanceof Error ? error.message : String(error);
+      this.logger.error(`No se pudieron resolver los nombres de la bitácora: ${mensaje}`);
+      return items.map(() => ({ nombres: {}, entidadNombre: null }));
+    }
+  }
+
+  private resumen(
+    item: { accion: string; entidad: string | null; detalle: unknown },
+    entidadNombre: string | null,
+    nombres: Record<string, string>,
+  ): string | null {
+    const detalle = item.detalle as Record<string, unknown> | null;
+    const descripcion = detalle && typeof detalle === 'object' ? detalle.descripcion : undefined;
+    if (typeof descripcion === 'string' && descripcion.trim()) return descripcion;
+    try {
+      return armarResumen({ accion: item.accion, entidad: item.entidad, entidadNombre, detalle: item.detalle, nombres });
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -244,7 +285,14 @@ export class AuditoriaService {
     if (Array.isArray(valor)) return valor.map((v) => this.limpiar(v));
     if (valor !== null && typeof valor === 'object') {
       const salida: Record<string, unknown> = {};
+      // Los campos sensibles tampoco muestran el cambio
+      const campo = (valor as Record<string, unknown>).campo;
+      const cambioSensible = typeof campo === 'string' && CAMPOS_SENSIBLES.includes(campo);
       for (const [clave, val] of Object.entries(valor)) {
+        if (cambioSensible && (clave === 'anterior' || clave === 'nuevo')) {
+          salida[clave] = '***';
+          continue;
+        }
         if (CAMPOS_SENSIBLES.includes(clave)) {
           salida[clave] = '***';
           continue;
