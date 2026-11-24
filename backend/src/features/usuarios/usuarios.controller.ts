@@ -29,7 +29,7 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Usuarios')
 @ApiCookieAuth('auth_token')
-@Auditar({ contexto: 'Usuarios', entidad: 'Usuario' })
+@Auditar({ contexto: 'Usuarios', entidad: 'Usuario', foto: 'usuario' })
 @Controller('usuarios')
 export class UsuariosController {
   constructor(private readonly usuariosService: UsuariosService) {}

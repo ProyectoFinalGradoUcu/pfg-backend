@@ -8,8 +8,9 @@ import { PrismaService } from '../../lib/prisma.service';
 import { SesionesService } from '../../lib/sesiones/sesiones.service';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { detalleLegible } from '../auditoria/auditoria-frases';
 import { ListUnidadesQueryDto } from './dto/list-unidades-query.dto';
-import { unidadesDeUsuario } from './unidades-usuario';
+import { detalleCambioBases, unidadesDeUsuario, type UnidadLegible } from './unidades-usuario';
 import { whereBusqueda } from '../../lib/query/busqueda';
 
 type RolConPermisos = {
@@ -184,18 +185,8 @@ export class UnidadesService {
         data: { usuario_id: usuario.id, sub_unidad_id: base.id },
       });
       await this.sesiones.invalidarUsuario(usuario.id);
-      void this.auditoria.registrar({
-        usuarioId: actorId,
-        accion: 'unidad.asignar',
-        contexto: 'Usuarios',
-        entidad: 'Usuario',
-        entidadId: usuario.id,
-        detalle: {
-          usuario: usuario.username,
-          unidadesAnteriores: anteriores,
-          unidadesNuevas: await unidadesDeUsuario(this.prisma, usuario.id),
-        },
-      });
+      const nuevas = await unidadesDeUsuario(this.prisma, usuario.id);
+      this.auditarCambioUnidades('unidad.asignar', actorId, usuario.id, usuario.username, anteriores, nuevas);
     }
 
     return {
@@ -231,18 +222,14 @@ export class UnidadesService {
     });
     await this.sesiones.invalidarUsuario(BigInt(usuarioId));
 
-    void this.auditoria.registrar({
-      usuarioId: actorId,
-      accion: 'unidad.quitar',
-      contexto: 'Usuarios',
-      entidad: 'Usuario',
-      entidadId: usuarioId,
-      detalle: {
-        usuario: registro.usuarios.username,
-        unidadesAnteriores: anteriores,
-        unidadesNuevas: anteriores.filter((u) => u.id !== id),
-      },
-    });
+    this.auditarCambioUnidades(
+      'unidad.quitar',
+      actorId,
+      usuarioId,
+      registro.usuarios.username,
+      anteriores,
+      anteriores.filter((u) => u.id !== id),
+    );
 
     return { ok: true };
   }
@@ -326,6 +313,17 @@ export class UnidadesService {
   ) {
     const rol =
       [...antes.roles, ...despues.roles].find((r) => r.id === rolId) ?? null;
+    const detalle = {
+      unidad: {
+        codigo: despues.codigo,
+        denominacion: despues.denominacion,
+        comando: despues.comando.denominacion,
+      },
+      rol,
+      rolesAnteriores: antes.roles,
+      rolesResultantes: despues.roles.map((r) => r.nombre),
+      usuariosAfectados: despues.cantidadUsuarios,
+    };
     void this.auditoria.registrar({
       usuarioId: actorId,
       accion,
@@ -333,16 +331,32 @@ export class UnidadesService {
       entidad: 'Unidad',
       entidadId: despues.id,
       detalle: {
-        unidad: {
-          codigo: despues.codigo,
-          denominacion: despues.denominacion,
-          comando: despues.comando.denominacion,
-        },
-        rol,
-        rolesAnteriores: antes.roles,
-        rolesResultantes: despues.roles.map((r) => r.nombre),
-        usuariosAfectados: despues.cantidadUsuarios,
+        ...detalle,
+        ...detalleLegible(
+          { accion, entidad: 'Unidad', entidadNombre: despues.denominacion, detalle },
+          { roles: antes.roles.map((r) => r.nombre) },
+          { roles: detalle.rolesResultantes },
+        ),
       },
+    });
+  }
+
+  // Un registro por usuario con las bases de antes y después
+  private auditarCambioUnidades(
+    accion: 'unidad.asignar' | 'unidad.quitar',
+    actorId: string,
+    usuarioId: bigint | string,
+    username: string,
+    anteriores: UnidadLegible[],
+    nuevas: UnidadLegible[],
+  ) {
+    void this.auditoria.registrar({
+      usuarioId: actorId,
+      accion,
+      contexto: 'Usuarios',
+      entidad: 'Usuario',
+      entidadId: usuarioId,
+      detalle: detalleCambioBases(accion, username, anteriores, nuevas),
     });
   }
 

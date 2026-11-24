@@ -12,6 +12,7 @@ import { PrismaService } from '../../lib/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { APLICACION } from '../../lib/aplicacion.const';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { armarResumen } from '../auditoria/auditoria-frases';
 import { SignInDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -49,6 +50,13 @@ const USUARIO_SESION_INCLUDE = {
 } satisfies Prisma.usuariosInclude;
 
 type UsuarioSesion = Prisma.usuariosGetPayload<{ include: typeof USUARIO_SESION_INCLUDE }>;
+
+// Se guarda la frase del evento
+export function detalleLoginFallido(username: string) {
+  const detalle = { username, motivo: 'contraseña incorrecta' };
+  const descripcion = armarResumen({ accion: 'LOGIN_FALLIDO', entidad: 'Usuario', entidadNombre: null, detalle });
+  return descripcion ? { ...detalle, descripcion } : detalle;
+}
 
 @Injectable()
 export class AuthService {
@@ -89,7 +97,7 @@ export class AuthService {
         contexto: 'Autenticación',
         entidad: 'Usuario',
         entidadId: usuario.id,
-        detalle: { username: dto.username, motivo: 'contraseña incorrecta' },
+        detalle: detalleLoginFallido(dto.username),
       });
       throw new UnauthorizedException('Credenciales inválidas');
     }

@@ -29,7 +29,7 @@ import { Auditar } from '../auditoria/decorators/auditar.decorator';
 
 @ApiTags('Invitaciones')
 @Controller('invitaciones')
-@Auditar({ contexto: 'Usuarios', entidad: 'Invitación' })
+@Auditar({ contexto: 'Usuarios', entidad: 'Invitación', foto: 'invitacion' })
 export class InvitacionesController {
   constructor(private readonly invitacionesService: InvitacionesService) {}
 
